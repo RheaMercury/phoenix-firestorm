@@ -91,6 +91,12 @@ S32 LLViewerTexture::sAuxCount = 0;
 LLFrameTimer LLViewerTexture::sEvaluationTimer;
 F32 LLViewerTexture::sDesiredDiscardBias = 0.f;
 U32 LLViewerTexture::sBiasTexturesUpdated = 0;
+// <FS:Trish>
+F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
+F32 LLViewerTexture::sVRAMTargetMegabytes = 0.f;
+bool LLViewerTexture::sSystemMemoryLow = false;
+S32 LLViewerTexture::sVRAMLiveFreeMegabytes = -1;
+// </FS:Trish>
 
 S32 LLViewerTexture::sMaxSculptRez = 128; //max sculpt image size
 constexpr S32 MAX_CACHED_RAW_IMAGE_AREA = 64 * 64;
@@ -546,6 +552,12 @@ void LLViewerTexture::updateClass()
 
     bool is_sys_low = isSystemMemoryLow();
     bool is_low = is_sys_low || over_pct > 0.f;
+
+    // <FS:Trish>
+    sVRAMUsedMegabytes = used;
+    sVRAMTargetMegabytes = target;
+    sSystemMemoryLow = is_sys_low;
+    // </FS:Trish>
 
     static bool was_low = false;
 
@@ -2020,6 +2032,10 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
             (current_discard < 0 || mRawDiscardLevel < current_discard))
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vftuf - data good");
+            // <FS:Trish> A successful fetch clears any map tile back-off
+            mMapTileRetryDelay = 0.f;
+            mMapTileRetryTime = 0.0;
+            // </FS:Trish>
 
             // This is going to conflict with Develop, just pick from develop
             // where it uses setDimensions instead of setTexelsPerImage
@@ -2096,6 +2112,32 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
     if (!mIsFetching)
     {
         if ((decode_priority > 0)
+            && (mRawDiscardLevel < 0 || mRawDiscardLevel == INVALID_DISCARD_LEVEL)
+            && mFetchState > 1 // 1 - initial, make sure fetcher did at least something
+            && LLTextureFetch::isTransientFetchFailure(mFetchState, mLastHttpGetStatus))
+        {
+            // Finished without data, but not because the asset is gone: a transient HTTP failure,
+            // or a worker aborted before it sent anything (a teleport zeroes every texture's
+            // priority, which aborts exactly these). Both branches below are permanent -- one
+            // greys the texture out until it is refreshed, the other caps it at whatever blurry
+            // level it has now -- so leave the texture as it was. The next updateFetch() visit
+            // makes a fresh request at the current desired discard.
+            destroyRawImage();
+            // <FS:Trish> Map tiles stay referenced by the world map and minimap, so a tile whose
+            // HTTP request failed (e.g. no DNS) was re-requested forever. Back off 30 s, doubling
+            // up to 10 min; a successful fetch resets it. Aborted workers (no HTTP status) don't count.
+            if (getFTType() == FTT_MAP_TILE && !mLastHttpGetStatus)
+            {
+                constexpr F32 MAP_TILE_RETRY_MIN = 30.f;
+                constexpr F32 MAP_TILE_RETRY_MAX = 600.f;
+                mMapTileRetryDelay = mMapTileRetryDelay > 0.f ? llmin(mMapTileRetryDelay * 2.f, MAP_TILE_RETRY_MAX) : MAP_TILE_RETRY_MIN;
+                mMapTileRetryTime = LLFrameTimer::getElapsedSeconds() + mMapTileRetryDelay;
+                LL_INFOS("Texture") << "Map tile " << mUrl << " failed (" << mLastHttpGetStatus.toString()
+                                    << "), retrying in " << mMapTileRetryDelay << " s" << LL_ENDL;
+            }
+            // </FS:Trish>
+        }
+        else if ((decode_priority > 0)
             && (mRawDiscardLevel < 0 || mRawDiscardLevel == INVALID_DISCARD_LEVEL)
             && mFetchState > 1) // 1 - initial, make sure fetcher did at least something
         {
@@ -2269,6 +2311,13 @@ bool LLViewerFetchedTexture::updateFetch()
         LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vftuf - current < min");
         make_request = false;
     }
+    // <FS:Trish> Failed map tile still backing off
+    else if (!mIsFetching && mMapTileRetryTime > 0.0 && LLFrameTimer::getElapsedSeconds() < mMapTileRetryTime)
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vftuf - map tile back-off");
+        make_request = false;
+    }
+    // </FS:Trish>
 
     if (make_request)
     {
