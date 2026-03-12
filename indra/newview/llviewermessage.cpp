@@ -3849,7 +3849,7 @@ void process_teleport_finish(LLMessageSystem* msg, void**)
     gAgent.setTeleportState( LLAgent::TELEPORT_MOVING );
     gAgent.setTeleportMessage(LLAgent::sTeleportProgressMessages["contacting"]);
 
-    LL_DEBUGS("CrossingCaps") << "Calling setSeedCapability(). Seed cap == "
+    LL_DEBUGS("CrossingCaps") << "Calling refreshSeedCapabilities(). Seed cap == "
             << seedCap << LL_ENDL;
 
     // <FS:TJ> Fixes OpenSim race condition on grid change not having updated Grid Info yet
@@ -3859,7 +3859,7 @@ void process_teleport_finish(LLMessageSystem* msg, void**)
             { LLAppViewer::instance()->updateNameLookupUrl(regionp); });
     }
     // </FS:TJ>
-    regionp->setSeedCapability(seedCap);
+    regionp->refreshSeedCapabilities(seedCap);
 
     // Don't send camera updates to the new region until we're
     // actually there...
@@ -4230,9 +4230,9 @@ void process_crossed_region(LLMessageSystem* msg, void**)
     //LLViewerRegion* regionp = LLWorld::getInstance()->addRegion(region_handle, sim_host);
     LLViewerRegion* regionp = LLWorld::getInstance()->addRegion(region_handle, sim_host, region_size_x, region_size_y);
 // </FS:CR> Aurora Sim
-    LL_DEBUGS("CrossingCaps") << "Calling setSeedCapability from process_crossed_region(). Seed cap == "
+    LL_DEBUGS("CrossingCaps") << "Calling refreshSeedCapabilities from process_crossed_region(). Seed cap == "
             << seedCap << LL_ENDL;
-    regionp->setSeedCapability(seedCap);
+    regionp->refreshSeedCapabilities(seedCap);
 }
 
 
