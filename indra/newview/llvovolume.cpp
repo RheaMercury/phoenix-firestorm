@@ -418,6 +418,7 @@ LLVOVolume::LLVOVolume(const LLUUID &id, const LLPCode pcode, LLViewerRegion *re
     // NaCl End
 {
     mTexAnimMode = 0;
+    mTextureAnimPrepared = false;
     mRelativeXform.setIdentity();
     mRelativeXformInvTrans.setIdentity();
 
@@ -613,6 +614,7 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
                     }
                 }
                 mTexAnimMode = 0;
+                mTextureAnimPrepared = false;
 
                 mTextureAnimp->unpackTAMessage(mesgsys, block_num);
             }
@@ -645,6 +647,7 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
                     }
                     mFaceMappingChanged = true;
                     mTexAnimMode = 0;
+                    mTextureAnimPrepared = false;
                 }
             }
 
@@ -823,6 +826,7 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
                     }
                 }
                 mTexAnimMode = 0;
+                mTextureAnimPrepared = false;
                 mTextureAnimp->unpackTAMessage(*dp);
             }
             else if (mTextureAnimp)
@@ -852,6 +856,7 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
                 }
                 mFaceMappingChanged = true;
                 mTexAnimMode = 0;
+                mTextureAnimPrepared = false;
             }
 
             if (value & 0x400)
@@ -960,8 +965,25 @@ void LLVOVolume::onDrawableUpdateFromServer()
 
 void LLVOVolume::animateTextures()
 {
-    if (!mDead && mDrawable) // <FS:Beq/> FIRE-34601 - bugsplat accessing null drawable.
+    if (mDead || !mDrawable || !mTextureAnimp || mDrawable->getNumFaces() == 0)
     {
+        mTextureAnimWasVisible = false;
+        return;
+    }
+
+    const bool visible = isVisible();
+    const bool became_visible = visible && !mTextureAnimWasVisible;
+    mTextureAnimWasVisible = visible;
+
+    // Prepare the texture matrix and render batch once even while off-screen,
+    // then avoid ongoing animation work until the object is visible.
+    if (!mTextureAnimPrepared || visible)
+    {
+        if (became_visible)
+        {
+            updateTextureVirtualSize();
+        }
+        mTextureAnimPrepared = true;
         shrinkWrap();
         F32 off_s = 0.f, off_t = 0.f, scale_s = 1.f, scale_t = 1.f, rot = 0.f;
         S32 result = mTextureAnimp->animateTextures(off_s, off_t, scale_s, scale_t, rot);
@@ -6814,6 +6836,16 @@ struct CompareBatchBreaker
     {
         const LLTextureEntry* lte = lhs->getTextureEntry();
         const LLTextureEntry* rte = rhs->getTextureEntry();
+
+        // Group faces sharing a GLTF material so the PBR push loop can skip
+        // redundant LLFetchedGLTFMaterial::bind calls (see LLRenderPass::pushGLTFBatch).
+        // Non-PBR faces have a null render material, so this is a no-op for them.
+        const LLGLTFMaterial* lgltf = lte->getGLTFRenderMaterial();
+        const LLGLTFMaterial* rgltf = rte->getGLTFRenderMaterial();
+        if (lgltf != rgltf)
+        {
+            return lgltf < rgltf;
+        }
 
         if (lte->getBumpmap() != rte->getBumpmap())
         {

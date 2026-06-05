@@ -227,7 +227,7 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
     }
 
     U32 tex;
-    LLImageGL::generateTextures(1, &tex);
+    LLImageGL::generateTextures(1, &tex, LLTexUnit::getInternalType(mUsage));
     gGL.getTexUnit(0)->bindManual(mUsage, tex);
 
     stop_glerror();
@@ -298,7 +298,7 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 bool LLRenderTarget::allocateDepth()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
-    LLImageGL::generateTextures(1, &mDepth);
+    LLImageGL::generateTextures(1, &mDepth, LLTexUnit::getInternalType(mUsage));
     gGL.getTexUnit(0)->bindManual(mUsage, mDepth);
 
     U32 internal_type = LLTexUnit::getInternalType(mUsage);
@@ -532,6 +532,71 @@ void LLRenderTarget::flush()
         sCurResY = gGLViewport[3];
         glReadBuffer(GL_BACK);
         glDrawBuffer(GL_BACK);
+    }
+}
+
+void LLRenderTarget::copyContents(LLRenderTarget& source, S32 srcX0, S32 srcY0, S32 srcX1, S32 srcY1, S32 dstX0, S32 dstY0, S32 dstX1,
+                                  S32 dstY1, U32 mask, U32 filter)
+{
+    LL_PROFILE_GPU_ZONE("LLRenderTarget::copyContents");
+
+    GLboolean write_depth = mask & GL_DEPTH_BUFFER_BIT ? GL_TRUE : GL_FALSE;
+
+    LLGLDepthTest depth(write_depth, write_depth);
+
+    gGL.flush();
+    if (!source.mFBO || !mFBO)
+    {
+        LL_WARNS() << "Cannot copy framebuffer contents for non FBO render targets." << LL_ENDL;
+        return;
+    }
+
+    // Firestorm's render targets all allocate depth as
+    // GL_DEPTH_COMPONENT24, so the newer Alchemy depth/stencil mismatch
+    // fallback is unnecessary here.
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, source.mFBO);
+    stop_glerror();
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFBO);
+    stop_glerror();
+    check_framebuffer_status();
+    stop_glerror();
+    glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1,
+        dstX0, dstY0, dstX1, dstY1, mask, filter);
+    stop_glerror();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    stop_glerror();
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    stop_glerror();
+    glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
+    stop_glerror();
+}
+
+// static
+void LLRenderTarget::copyContentsToFramebuffer(LLRenderTarget& source, S32 srcX0, S32 srcY0, S32 srcX1, S32 srcY1, S32 dstX0, S32 dstY0,
+                                               S32 dstX1, S32 dstY1, U32 mask, U32 filter)
+{
+    if (!source.mFBO)
+    {
+        LL_WARNS() << "Cannot copy framebuffer contents for non FBO render targets." << LL_ENDL;
+        return;
+    }
+
+    {
+        LL_PROFILE_GPU_ZONE("copyContentsToFramebuffer");
+        GLboolean write_depth = mask & GL_DEPTH_BUFFER_BIT ? GL_TRUE : GL_FALSE;
+
+        LLGLDepthTest depth(write_depth, write_depth);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, source.mFBO);
+        stop_glerror();
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        stop_glerror();
+        check_framebuffer_status();
+        stop_glerror();
+        glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        stop_glerror();
+        glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
+        stop_glerror();
     }
 }
 

@@ -4232,6 +4232,11 @@ void LLPipeline::renderHighlights()
 {
     assertInitialized();
 
+    if (gCubeSnapshot || sReflectionRender)
+    {
+        return;
+    }
+
     // Draw 3D UI elements here (before we clear the Z buffer in POOL_HUD)
     // Render highlighted faces.
     LLGLSPipelineAlpha gls_pipeline_alpha;
@@ -4254,8 +4259,13 @@ void LLPipeline::renderHighlights()
 
         // Paint 'em red!
         static const LLColor4 highlight_face_color(1.f, 0.f, 0.f, 0.5f);
+        std::set<LLFace*> rendered_faces;
         for (auto facep : mHighlightFaces)
         {
+            if (!facep || !rendered_faces.insert(facep).second)
+            {
+                continue;
+            }
             facep->renderSelected(LLViewerTexture::sNullImagep, highlight_face_color);
         }
 
@@ -5107,6 +5117,11 @@ void LLPipeline::renderDebug()
 
     assertInitialized();
 
+    if (gCubeSnapshot || sReflectionRender)
+    {
+        return;
+    }
+
     bool hud_only = hasRenderType(LLPipeline::RENDER_TYPE_HUD);
 
     if (!hud_only )
@@ -5122,7 +5137,10 @@ void LLPipeline::renderDebug()
             {
                 LLFloaterPathfindingCharacters *pathfindingCharacter = pathfindingCharacterHandle.get();
 
-                if ( pathfindingCharacter->getVisible() || gAgentCamera.cameraMouselook() )
+                // <FS:Trish> Mouselook hides floaters, keep rendering only if this one was visible before that
+                //if ( pathfindingCharacter->getVisible() || gAgentCamera.cameraMouselook() )
+                if ( pathfindingCharacter->getVisible() || (gAgentCamera.cameraMouselook() && pathfindingCharacter->getLastVisible()) )
+                // </FS:Trish>
                 {
                     gPathfindingProgram.bind();
                     gPathfindingProgram.uniform1f(sTint, 1.f);
@@ -5155,7 +5173,10 @@ void LLPipeline::renderDebug()
             {
                 LLFloaterPathfindingConsole *pathfindingConsole = pathfindingConsoleHandle.get();
 
-                if ( pathfindingConsole->getVisible() || gAgentCamera.cameraMouselook() )
+                // <FS:Trish> Mouselook hides floaters, keep rendering only if this one was visible before that
+                //if ( pathfindingConsole->getVisible() || gAgentCamera.cameraMouselook() )
+                if ( pathfindingConsole->getVisible() || (gAgentCamera.cameraMouselook() && pathfindingConsole->getLastVisible()) )
+                // </FS:Trish>
                 {
                     F32 ambiance = gSavedSettings.getF32("PathfindingAmbiance");
 
@@ -7586,6 +7607,10 @@ void LLPipeline::renderAlphaObjects(bool rigged)
     const LLVOAvatar* lastAvatarGLTF = nullptr;
     U64 lastMeshIdGLTF = 0;
     bool skipLastSkinGLTF;
+    // GLTF material bind cache; invalidated in the non-GLTF branches below since
+    // mSimplePool->pushBatch rebinds texture units and would clobber the material
+    LLFetchedGLTFMaterial* lastMatGLTF = nullptr;
+    LLViewerTexture* lastTexGLTF = nullptr;
     auto* begin = gPipeline.beginRenderMap(type);
     auto* end = gPipeline.endRenderMap(type);
 
@@ -7609,7 +7634,7 @@ void LLPipeline::renderAlphaObjects(bool rigged)
                 LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
                 LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
-                LLRenderPass::pushRiggedGLTFBatch(*pparams, lastAvatarGLTF, lastMeshIdGLTF, skipLastSkinGLTF);
+                LLRenderPass::pushRiggedGLTFBatch(*pparams, lastAvatarGLTF, lastMeshIdGLTF, skipLastSkinGLTF, lastMatGLTF, lastTexGLTF);
             }
             else
             {
@@ -7617,6 +7642,8 @@ void LLPipeline::renderAlphaObjects(bool rigged)
                 LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
                 LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+                lastMatGLTF = nullptr; // pushBatch clobbers texture units
+                lastTexGLTF = nullptr;
                 if (mSimplePool->uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
                 {
                     mSimplePool->pushBatch(*pparams, true, true);
@@ -7631,7 +7658,7 @@ void LLPipeline::renderAlphaObjects(bool rigged)
                 LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
                 LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
-                LLRenderPass::pushGLTFBatch(*pparams);
+                LLRenderPass::pushGLTFBatch(*pparams, lastMatGLTF, lastTexGLTF);
             }
             else
             {
@@ -7639,6 +7666,8 @@ void LLPipeline::renderAlphaObjects(bool rigged)
                 LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
                 LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+                lastMatGLTF = nullptr; // pushBatch clobbers texture units
+                lastTexGLTF = nullptr;
                 mSimplePool->pushBatch(*pparams, true, true);
             }
         }
@@ -7819,14 +7848,8 @@ void LLPipeline::generateExposure(LLRenderTarget* src, LLRenderTarget* dst, bool
         if (use_history)
         {
             // copy last frame's exposure into mLastExposure
-            mLastExposure.bindTarget();
-            gCopyProgram.bind();
-            gGL.getTexUnit(0)->bind(dst);
-
-            mScreenTriangleVB->setBuffer();
-            mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-            mLastExposure.flush();
+            mLastExposure.copyContents(*dst, 0, 0, dst->getWidth(), dst->getHeight(), 0, 0, mLastExposure.getWidth(), mLastExposure.getHeight(),
+                             GL_COLOR_BUFFER_BIT, GL_NEAREST);
         }
 
         dst->bindTarget();
@@ -8030,23 +8053,8 @@ void LLPipeline::copyScreenSpaceReflections(LLRenderTarget* src, LLRenderTarget*
     {
         LL_PROFILE_GPU_ZONE("ssr copy");
         LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
-
-        LLRenderTarget& depth_src = mRT->deferredScreen;
-
-        dst->bindTarget();
-        dst->clear();
-        gCopyDepthProgram.bind();
-
-        S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
-        S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
-
-        gGL.getTexUnit(diff_map)->bind(src);
-        gGL.getTexUnit(depth_map)->bind(&depth_src, true);
-
-        mScreenTriangleVB->setBuffer();
-        mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-        dst->flush();
+        dst->copyContents(*src, 0, 0, src->getWidth(), src->getHeight(), 0, 0, dst->getWidth(), dst->getHeight(),
+                         GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     }
 }
 
@@ -9522,7 +9530,10 @@ void LLPipeline::renderDeferredLighting()
             {  // paint shadow/SSAO light map (direct lighting lightmap)
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - sun shadow");
 
-                LLGLSLShader& sun_shader = gCubeSnapshot ? gDeferredSunProbeProgram : gDeferredSunProgram;
+                // The existing shadow-only variant also covers zero-strength SSAO, without
+                // adding a per-fragment branch to the normal SSAO shader.
+                const bool skip_ssao = gCubeSnapshot || (RenderDeferredSSAO && RenderSSAOFactor == 0.f);
+                LLGLSLShader& sun_shader = skip_ssao ? gDeferredSunProbeProgram : gDeferredSunProgram;
                 bindDeferredShader(sun_shader, deferred_light_target);
                 mScreenTriangleVB->setBuffer();
                 glClearColor(1, 1, 1, 1);
@@ -9544,7 +9555,7 @@ void LLPipeline::renderDeferredLighting()
             deferred_light_target->flush();
         }
 
-        if (RenderDeferredSSAO && !gCubeSnapshot)
+        if (RenderDeferredSSAO && !gCubeSnapshot && RenderShadowBlurSize != 0.f)
         {
             // soften direct lighting lightmap
             LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - soften shadow");
@@ -10009,21 +10020,9 @@ void LLPipeline::doAtmospherics()
             LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
             LLRenderTarget& dst = gPipeline.mWaterDis;
 
-            mRT->screen.flush();
-            dst.bindTarget();
-            gCopyDepthProgram.bind();
-
-            S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
-            S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
-
-            gGL.getTexUnit(diff_map)->bind(&src);
-            gGL.getTexUnit(depth_map)->bind(&depth_src, true);
-
-            gGL.setColorMask(false, false);
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-            dst.flush();
+            src.flush();
+            dst.copyContents(src, 0, 0, src.getWidth(), src.getHeight(), 0, 0, dst.getWidth(), dst.getHeight(),
+                             GL_DEPTH_BUFFER_BIT, GL_NEAREST);
             mRT->screen.bindTarget();
         }
 
@@ -10073,21 +10072,9 @@ void LLPipeline::doWaterHaze()
             LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
             LLRenderTarget& dst = gPipeline.mWaterDis;
 
-            mRT->screen.flush();
-            dst.bindTarget();
-            gCopyDepthProgram.bind();
-
-            S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
-            S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
-
-            gGL.getTexUnit(diff_map)->bind(&src);
-            gGL.getTexUnit(depth_map)->bind(&depth_src, true);
-
-            gGL.setColorMask(false, false);
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-            dst.flush();
+            src.flush();
+            dst.copyContents(src, 0, 0, src.getWidth(), src.getHeight(), 0, 0, dst.getWidth(), dst.getHeight(),
+                    GL_DEPTH_BUFFER_BIT, GL_NEAREST);
             mRT->screen.bindTarget();
         }
 
