@@ -1102,6 +1102,13 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
         mBakeMap.allocate(LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT, GL_RGBA);
         }// <FS:Beq/> create an independent preview screen target
     }
+    // <FS:Trish> Reflection probe pack gets water scratch targets at its own size
+    else if (mRT == &mAuxillaryRT)
+    {
+        if (!mRT->waterDis.allocate(resX, resY, screenFormat, true)) return false;
+        if (!mRT->waterExclusion.allocate(resX, resY, GL_R8, true)) return false;
+    }
+    // </FS:Trish>
     //HACK make screenbuffer allocations start failing after 30 seconds
     if (gSavedSettings.getBOOL("SimulateFBOFailure"))
     {
@@ -1441,6 +1448,9 @@ void LLPipeline::releaseScreenBuffers()
     mAuxillaryRT.screen.release();
     mAuxillaryRT.deferredScreen.release();
     mAuxillaryRT.deferredLight.release();
+    mAuxillaryRT.lightMap.release(); // <FS:Trish/>
+    mAuxillaryRT.waterDis.release(); // <FS:Trish/>
+    mAuxillaryRT.waterExclusion.release(); // <FS:Trish/>
 
     mHeroProbeRT.screen.release();
     mHeroProbeRT.deferredScreen.release();
@@ -9934,8 +9944,8 @@ void LLPipeline::doAtmospherics()
             LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
 
             LLRenderTarget& src = gPipeline.mRT->screen;
-            LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
-            LLRenderTarget& dst = gPipeline.mWaterDis;
+            //LLRenderTarget& dst = gPipeline.mWaterDis;
+            LLRenderTarget& dst = gPipeline.getWaterDisTarget(); // <FS:Trish/>
 
             src.flush();
             dst.copyContents(src, 0, 0, src.getWidth(), src.getHeight(), 0, 0, dst.getWidth(), dst.getHeight(),
@@ -9951,7 +9961,8 @@ void LLPipeline::doAtmospherics()
         LLGLSLShader& haze_shader = gHazeProgram;
 
         LL_PROFILE_GPU_ZONE("haze");
-        bindDeferredShader(haze_shader, nullptr, &mWaterDis);
+        //bindDeferredShader(haze_shader, nullptr, &mWaterDis);
+        bindDeferredShader(haze_shader, nullptr, &getWaterDisTarget()); // <FS:Trish/>
 
         LLEnvironment& environment = LLEnvironment::instance();
         haze_shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, environment.getIsSunUp() ? 1 : 0);
@@ -9986,8 +9997,8 @@ void LLPipeline::doWaterHaze()
             LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
 
             LLRenderTarget& src = gPipeline.mRT->screen;
-            LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
-            LLRenderTarget& dst = gPipeline.mWaterDis;
+            //LLRenderTarget& dst = gPipeline.mWaterDis;
+            LLRenderTarget& dst = gPipeline.getWaterDisTarget(); // <FS:Trish/>
 
             src.flush();
             dst.copyContents(src, 0, 0, src.getWidth(), src.getHeight(), 0, 0, dst.getWidth(), dst.getHeight(),
@@ -10004,14 +10015,16 @@ void LLPipeline::doWaterHaze()
         LLGLSLShader& haze_shader = gHazeWaterProgram;
 
         LL_PROFILE_GPU_ZONE("haze");
-        bindDeferredShader(haze_shader, nullptr, &mWaterDis);
+        //bindDeferredShader(haze_shader, nullptr, &mWaterDis);
+        bindDeferredShader(haze_shader, nullptr, &getWaterDisTarget()); // <FS:Trish/>
 
         haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
 
         static LLStaticHashedString above_water_str("above_water");
         haze_shader.uniform1i(above_water_str, sUnderWaterRender ? -1 : 1);
 
-        haze_shader.bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &mWaterExclusionMask);
+        //haze_shader.bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &mWaterExclusionMask);
+        haze_shader.bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &getWaterExclusionTarget()); // <FS:Trish/>
 
         if (LLPipeline::sUnderWaterRender)
         {
@@ -10045,12 +10058,21 @@ void LLPipeline::doWaterHaze()
 
 void LLPipeline::doWaterExclusionMask()
 {
-    mWaterExclusionMask.bindTarget();
+    // <FS:Trish> Sized to the pack being rendered
+    //mWaterExclusionMask.bindTarget();
+    //glClearColor(1, 1, 1, 1);
+    //mWaterExclusionMask.clear();
+    //mWaterExclusionPool->render();
+    //
+    //mWaterExclusionMask.flush();
+    LLRenderTarget& exclusion_mask = getWaterExclusionTarget();
+    exclusion_mask.bindTarget();
     glClearColor(1, 1, 1, 1);
-    mWaterExclusionMask.clear();
+    exclusion_mask.clear();
     mWaterExclusionPool->render();
 
-    mWaterExclusionMask.flush();
+    exclusion_mask.flush();
+    // </FS:Trish>
     glClearColor(0, 0, 0, 0);
 }
 
