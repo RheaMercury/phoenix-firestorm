@@ -38,6 +38,7 @@
 #include "lldrawpool.h"
 #include "llglheaders.h"
 #include "llhttpnode.h"
+#include "llframetimer.h"
 #include "llregionhandle.h"
 #include "llsky.h"
 #include "llsurface.h"
@@ -1154,6 +1155,12 @@ void LLWorld::updateRegions(F32 max_update_time)
     LLTimer update_timer;
     mNumOfActiveCachedObjects = 0;
 
+    releaseNonAdjacentRegionExperimental(); // <FS:Trish/> FSExperimentalReleaseNonAdjacentRegions
+
+    static LLFrameTimer sAvatarPositionRefreshTimer;
+    static LLCachedControl<F32> sAvatarPositionRefreshInterval(
+        gSavedSettings, "FSAvatarPositionRefreshIntervalSeconds", 180.0f);
+
     if(LLViewerCamera::getInstance()->isChanged())
     {
         LLViewerRegion::sLastCameraUpdated = LLViewerOctreeEntryData::getCurrentFrame() + 1;
@@ -1169,6 +1176,91 @@ void LLWorld::updateRegions(F32 max_update_time)
     LLViewerRegion* self_regionp = gAgent.getRegion();
     if(self_regionp)
     {
+        // <FS:Trish> Spread the refresh over the interval, round-robin, instead of requesting every
+        // avatar in the region at once. Each round queues the avatars present when it starts and
+        // sends their requests at an even pace; anything left is flushed when the round ends.
+        //if (sAvatarPositionRefreshInterval > 0.0f &&
+        //    sAvatarPositionRefreshTimer.getElapsedTimeF32() >= sAvatarPositionRefreshInterval)
+        //{
+        //    bool requested = false;
+        //    for (LLCharacter* character : LLCharacter::sInstances)
+        //    {
+        //        LLVOAvatar* avatar = static_cast<LLVOAvatar*>(character);
+        //        if (!avatar->isDead() &&
+        //            !avatar->isSelf() &&
+        //            !avatar->mIsDummy &&
+        //            !avatar->isOrphaned() &&
+        //            !avatar->isControlAvatar() &&
+        //            avatar->getRegion() == self_regionp)
+        //        {
+        //            const U32 local_id = avatar->getLocalID();
+        //            if (local_id != 0)
+        //            {
+        //                self_regionp->addCacheMissFull(local_id);
+        //                requested = true;
+        //            }
+        //        }
+        //    }
+        //
+        //    if (requested)
+        //    {
+        //        self_regionp->requestCacheMisses();
+        //    }
+        //    sAvatarPositionRefreshTimer.reset();
+        //}
+        static std::vector<LLUUID> sAvatarPositionRefreshQueue;
+        static size_t sAvatarPositionRefreshSent = 0;
+        if (sAvatarPositionRefreshInterval > 0.0f)
+        {
+            auto is_refresh_candidate = [self_regionp](const LLVOAvatar* avatar)
+            {
+                return !avatar->isDead() &&
+                    !avatar->isSelf() &&
+                    !avatar->mIsDummy &&
+                    !avatar->isOrphaned() &&
+                    !avatar->isControlAvatar() &&
+                    avatar->getRegion() == self_regionp &&
+                    avatar->getLocalID() != 0;
+            };
+
+            const F32 elapsed = sAvatarPositionRefreshTimer.getElapsedTimeF32();
+            const size_t queued = sAvatarPositionRefreshQueue.size();
+            const size_t due = elapsed >= sAvatarPositionRefreshInterval ? queued :
+                llmin(queued, (size_t)ceilf((F32)queued * elapsed / sAvatarPositionRefreshInterval));
+
+            bool requested = false;
+            for (; sAvatarPositionRefreshSent < due; ++sAvatarPositionRefreshSent)
+            {
+                LLViewerObject* objectp = gObjectList.findObject(sAvatarPositionRefreshQueue[sAvatarPositionRefreshSent]);
+                if (objectp && objectp->isAvatar() && is_refresh_candidate(static_cast<LLVOAvatar*>(objectp)))
+                {
+                    self_regionp->addCacheMissFull(objectp->getLocalID());
+                    requested = true;
+                }
+            }
+
+            if (requested)
+            {
+                self_regionp->requestCacheMisses();
+            }
+
+            if (elapsed >= sAvatarPositionRefreshInterval)
+            {
+                sAvatarPositionRefreshQueue.clear();
+                sAvatarPositionRefreshSent = 0;
+                for (LLCharacter* character : LLCharacter::sInstances)
+                {
+                    LLVOAvatar* avatar = static_cast<LLVOAvatar*>(character);
+                    if (is_refresh_candidate(avatar))
+                    {
+                        sAvatarPositionRefreshQueue.push_back(avatar->getID());
+                    }
+                }
+                sAvatarPositionRefreshTimer.reset();
+            }
+        }
+        // </FS:Trish>
+
         self_regionp->idleUpdate(max_time);
     }
 
