@@ -315,13 +315,15 @@ bool LLToolGrabBase::handleObjectHit(const LLPickInfo& info)
 
     // update point at
     LLViewerObject *edit_object = info.getObject();
-    if (edit_object && info.mPickType != LLPickInfo::PICK_FLORA)
+    if (edit_object)
     {
+        // Relative to the render position, same as lookat checks.
         LLVector3 local_edit_point = gAgent.getPosAgentFromGlobal(info.mPosGlobal);
-        local_edit_point -= edit_object->getPositionAgent();
+        local_edit_point -= edit_object->getRenderPosition();
         local_edit_point = local_edit_point * ~edit_object->getRenderRotation();
         gAgentCamera.setPointAt(POINTAT_TARGET_GRAB, edit_object, local_edit_point );
         gAgentCamera.setLookAt(LOOKAT_TARGET_SELECT, edit_object, local_edit_point );
+        mGrabLookAtOffset = local_edit_point;
     }
 
     // on transient grabs (clicks on world objects), kill the grab immediately
@@ -776,6 +778,10 @@ void LLToolGrabBase::handleHoverActive(S32 x, S32 y, MASK mask)
         {
             gAgentCamera.clearFocusObject();
         }
+
+        // With "LimitLookAtTargetDistance" the lookat becomes a fixed point.
+        // Keep it updated while dragging
+        gAgentCamera.setLookAt(LOOKAT_TARGET_SELECT, objectp, mGrabLookAtOffset);
     }
 
     // HACK to avoid assert: error checking system makes sure that the cursor is set during every handleHover.  This is actually a no-op since the cursor is hidden.
@@ -930,7 +936,7 @@ void LLToolGrabBase::handleHoverNonPhysical(S32 x, S32 y, MASK mask)
     if (pick.mObjectFace != -1) // if the intersection was on the surface of the obejct
     {
         LLVector3 local_edit_point = pick.mIntersection;
-        local_edit_point -= objectp->getPositionAgent();
+        local_edit_point -= objectp->getRenderPosition();
         local_edit_point = local_edit_point * ~objectp->getRenderRotation();
         gAgentCamera.setPointAt(POINTAT_TARGET_GRAB, objectp, local_edit_point );
         gAgentCamera.setLookAt(LOOKAT_TARGET_SELECT, objectp, local_edit_point );
