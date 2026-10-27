@@ -53,6 +53,7 @@ in vec3 vary_position;
 
 void mirrorClip(vec3 pos);
 vec4 encodeNormal(vec3 n, float env, float gbuffer_flag);
+float filterSpecularRoughness(float perceptualRoughness, vec3 n);
 
 #if (DIFFUSE_ALPHA_MODE == DIFFUSE_ALPHA_MODE_BLEND)
 
@@ -159,7 +160,9 @@ vec3 calcPointLightOrSpotLight(vec3 light_col, vec3 npos, vec3 diffuse, vec4 spe
             float nv = dot(n, npos);
             float vh = dot(npos, h);
             float sa = nh;
-            float fres = pow(1 - dot(h, npos), 5)*0.4 + 0.5;
+            float f = 1 - dot(h, npos);
+            float f2 = f * f;
+            float fres = (f2 * f2 * f) * 0.4 + 0.5;
 
             float gtdenom = 2 * nh;
             float gt = max(0, min(gtdenom * nv / vh, gtdenom * da / vh));
@@ -293,19 +296,21 @@ float getShadow(vec3 pos, vec3 norm)
 
 void main()
 {
-    mirrorClip(vary_position);
-    applyWaterClip();
-
     // diffcol == diffuse map combined with vertex color
     vec4 diffcol = texture(diffuseMap, vary_texcoord0.xy);
     diffcol.rgb *= vertex_color.rgb;
-    alphaMask(diffcol.a);
 
     // spec == specular map combined with specular color
     vec4 spec = getSpecular();
     float env = env_intensity * spec.a;
     float glossiness = specular_color.a;
     vec3 norm = getNormal(glossiness);
+    glossiness = 1.0 - filterSpecularRoughness(1.0 - glossiness, norm);
+
+    // Evaluate normal derivatives before any potentially non-uniform discard.
+    mirrorClip(vary_position);
+    applyWaterClip();
+    alphaMask(diffcol.a);
 
     float emissive = getEmissive(diffcol);
 
@@ -339,7 +344,7 @@ void main()
     vec3 ambenv = amblit;
     vec3 glossenv = vec3(0.0);
     vec3 legacyenv = vec3(0.0);
-    sampleReflectionProbesLegacy(ambenv, glossenv, legacyenv, pos.xy*0.5+0.5, pos.xyz, norm.xyz, glossiness, env, true, amblit_linear);
+    sampleReflectionProbesLegacy(ambenv, glossenv, legacyenv, gl_FragCoord.xy / screen_res, pos.xyz, norm.xyz, glossiness, env, true, amblit_linear);
 
     color = ambenv;
 
@@ -377,7 +382,9 @@ void main()
             float lit = min(nl*6.0, 1.0);
 
             float sa = nh;
-            float fres = pow(1 - vh, 5) * 0.4+0.5;
+            float f = 1 - vh;
+            float f2 = f * f;
+            float fres = (f2 * f2 * f) * 0.4 + 0.5;
             float gtdenom = 2 * nh;
             float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 

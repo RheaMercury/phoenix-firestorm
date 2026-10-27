@@ -125,14 +125,12 @@ vec3 pbrCalcPointLightOrSpotLight(vec3 diffuseColor, vec3 specularColor,
 
 void main()
 {
-    mirrorClip(vary_position);
 
     vec3 color = vec3(0,0,0);
 
     vec3  light_dir   = (sun_up_factor == 1) ? sun_dir : moon_dir;
     vec3  pos         = vary_position;
 
-    waterClip(pos);
 
     vec4 basecolor = texture(diffuseMap, base_color_texcoord.xy).rgba;
     basecolor.rgb = srgb_to_linear(basecolor.rgb);
@@ -168,7 +166,13 @@ void main()
     vec2 frag = vary_fragcoord.xy/vary_fragcoord.z*0.5+0.5;
 
 #ifdef HAS_SUN_SHADOW
-    scol = sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
+    // <FS:Trish> pbrBaseLight multiplies scol by N.L (clamped to 0), so it doesn't matter facing away from the light
+    //scol = sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
+    if (dot(norm.xyz, light_dir) > 0.0)
+    {
+        scol = sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
+    }
+    // </FS:Trish>
 #endif
 
     vec3 orm = texture(specularMap, metallic_roughness_texcoord.xy).rgb; //orm is packed into "emissiveRect" to keep the data in linear color space

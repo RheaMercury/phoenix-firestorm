@@ -426,7 +426,10 @@ vec3 diffuse(PBRInfo pbrInputs)
 // Implementation of fresnel from [4], Equation 15
 vec3 specularReflection(PBRInfo pbrInputs)
 {
-    return pbrInputs.reflectance0 + (pbrInputs.reflectance90 - pbrInputs.reflectance0) * pow(clamp(1.0 - pbrInputs.VdotH, 0.0, 1.0), 5.0);
+    // Schlick's fixed fifth power needs only three multiplies.
+    float f = clamp(1.0 - pbrInputs.VdotH, 0.0, 1.0);
+    float f2 = f * f;
+    return pbrInputs.reflectance0 + (pbrInputs.reflectance90 - pbrInputs.reflectance0) * (f2 * f2 * f);
 }
 
 // This calculates the specular geometric attenuation (aka G()),
@@ -536,9 +539,11 @@ vec3 pbrCalcPointLightOrSpotLight(vec3 diffuseColor, vec3 specularColor,
     float lightDist = length(lv);
 
     float dist = lightDist / lightSize;
-    if (dist <= 1.0)
+    // Back-facing: pbrPunctual's NdotL is zero, so the light contributes exactly nothing.
+    // Forward passes evaluate every light slot per fragment, so skip the BRDF entirely.
+    if (dist <= 1.0 && dot(n, lv) > 0.0)
     {
-        lv /= lightDist;
+        lv /= max(lightDist, 1e-8);
 
         float dist_atten = calcLegacyDistanceAttenuation(dist, falloff);
 
@@ -645,4 +650,3 @@ void waterClip(vec3 pos)
     }
 
 }
-

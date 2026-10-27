@@ -149,22 +149,32 @@ void main()
     vec3  color = vec3(0);
     float bloom = 0.0;
 
-    vec3 sunlit;
-    vec3 amblit;
-    vec3 additive;
-    vec3 atten;
+    vec3 sunlit = vec3(0);
+    vec3 amblit = vec3(0);
+    vec3 additive = vec3(0);
+    vec3 atten = vec3(1);
 
-    calcAtmosphericVarsLinear(pos.xyz, gb.normal, light_dir, sunlit, amblit, additive, atten);
+    // The HDRI and WindLight sky branches below copy a stored colour and read none of the
+    // atmospheric terms, so skip the per-fragment sky model for them. Sky is routinely a large
+    // share of the screen, and the precedence here matches the branch order below.
+    bool is_pbr = GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR);
+    bool needs_atmos = is_pbr ||
+        !(GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_HDRI) || GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_SKIP_ATMOS));
 
-    if (classic_mode > 0)
-        sunlit *= 1.35;
+    if (needs_atmos)
+    {
+        calcAtmosphericVarsLinear(pos.xyz, gb.normal, light_dir, sunlit, amblit, additive, atten);
+
+        if (classic_mode > 0)
+            sunlit *= 1.35;
+    }
 
     vec3 sunlit_linear = sunlit;
     vec3 amblit_linear = amblit;
 
     vec3  radiance  = vec3(0);
 
-    if (GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR))
+    if (is_pbr)
     {
         vec3 orm = spec.rgb;
         float perceptualRoughness = orm.g;
@@ -254,7 +264,9 @@ void main()
                 float lit = min(nl*6.0, 1.0);
 
                 float sa = nh;
-                float fres = pow(1 - vh, 5) * 0.4+0.5;
+                float f = 1 - vh;
+                float f2 = f * f;
+                float fres = (f2 * f2 * f) * 0.4 + 0.5;
                 float gtdenom = 2 * nh;
                 float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 

@@ -43,6 +43,7 @@
 #include "pipeline.h"
 
 #include "llfile.h"
+#include "lldiriterator.h"
 #include "llviewerwindow.h"
 #include "llwindow.h"
 
@@ -523,6 +524,61 @@ S32 LLViewerShaderMgr::getShaderLevel(S32 type)
 //============================================================================
 // Shader Management
 
+// Hash sorted relative names and contents, including shared GLSL helpers. Run once
+// per reload so same-version developer edits cannot reuse stale program binaries.
+static bool hashShaderSources(HBXXH128& hash, const std::string& root, const std::string& relative = "")
+{
+    const std::string directory = root + relative;
+    if (!LLFile::isdir(directory))
+    {
+        return false;
+    }
+    LLDirIterator iterator(directory, "*");
+    std::vector<std::string> names;
+    std::string name;
+    while (iterator.next(name))
+    {
+        if (name != "." && name != "..")
+        {
+            names.push_back(name);
+        }
+    }
+    std::sort(names.begin(), names.end());
+    for (const auto& entry : names)
+    {
+        const std::string path = directory + entry;
+        if (LLFile::isdir(path))
+        {
+            if (!hashShaderSources(hash, root, relative + entry + "/"))
+            {
+                return false;
+            }
+        }
+        else if (entry.size() >= 5 && entry.compare(entry.size() - 5, 5, ".glsl") == 0)
+        {
+            LLFILE* file = LLFile::fopen(path, LLFILE_MODE("rb"));
+            if (!file)
+            {
+                return false;
+            }
+            hash.update(relative + entry);
+            char buffer[8192];
+            size_t count;
+            while ((count = fread(buffer, 1, sizeof(buffer), file)) > 0)
+            {
+                hash.update(buffer, count);
+            }
+            const bool failed = ferror(file) != 0;
+            fclose(file);
+            if (failed)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void LLViewerShaderMgr::setShaders()
 {
     LL_PROFILE_ZONE_SCOPED;
@@ -545,20 +601,32 @@ void LLViewerShaderMgr::setShaders()
 
     {
         static LLCachedControl<bool> shader_cache_enabled(gSavedSettings, "RenderShaderCacheEnabled", true);
-        static LLUUID old_cache_version;
-        static LLUUID current_cache_version;
-        if (current_cache_version.isNull())
+        LLUUID old_cache_version;
+        LLUUID current_cache_version;
+        bool sources_read = false;
         {
             HBXXH128 hash_obj;
             hash_obj.update(LLVersionInfo::instance().getVersion());
+            // Program binaries are driver-specific.  Do not reuse binaries
+            // after an OpenGL driver update even when the viewer version is
+            // unchanged.
+            hash_obj.update(gGLManager.mDriverVersionVendorString);
+            sources_read = hashShaderSources(hash_obj,
+                gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "shaders") + "/");
             current_cache_version = hash_obj.digest();
 
             old_cache_version = LLUUID(gSavedSettings.getString("RenderShaderCacheVersion"));
             gSavedSettings.setString("RenderShaderCacheVersion", current_cache_version.asString());
         }
 
+        bool use_shader_cache = shader_cache_enabled && sources_read;
+#if LL_WINDOWS
+        use_shader_cache = use_shader_cache &&
+            !(gGLManager.mIsAMD && gSavedSettings.getBOOL("RenderAMDDisableShaderCache"));
+#endif
+        LL_INFOS("ShaderLoading") << "Shader binary cache enabled: " << use_shader_cache << LL_ENDL;
         initShaderCache(
-            shader_cache_enabled,
+            use_shader_cache,
             old_cache_version,
             current_cache_version,
             LLAppViewer::instance()->isSecondInstance());
@@ -652,7 +720,7 @@ void LLViewerShaderMgr::setShaders()
         return;
     }
 
-    gPipeline.mShadersLoaded = true;
+    gPipeline.mShadersLoaded = false;
 
     bool loaded = loadShadersWater();
 
@@ -662,8 +730,7 @@ void LLViewerShaderMgr::setShaders()
     }
     else
     {
-        LL_WARNS() << "Failed to load water shaders." << LL_ENDL;
-        llassert(loaded);
+        LL_ERRS("Shader") << "Failed to load required water shaders. See preceding shader compilation/link errors." << LL_ENDL;
     }
 
     if (loaded)
@@ -675,8 +742,7 @@ void LLViewerShaderMgr::setShaders()
         }
         else
         {
-            LL_WARNS() << "Failed to load effects shaders." << LL_ENDL;
-            llassert(loaded);
+            LL_ERRS("Shader") << "Failed to load required effects shaders. See preceding shader compilation/link errors." << LL_ENDL;
         }
     }
 
@@ -689,8 +755,7 @@ void LLViewerShaderMgr::setShaders()
         }
         else
         {
-            LL_WARNS() << "Failed to load interface shaders." << LL_ENDL;
-            llassert(loaded);
+            LL_ERRS("Shader") << "Failed to load required interface shaders. See preceding shader compilation/link errors." << LL_ENDL;
         }
     }
 
@@ -709,7 +774,10 @@ void LLViewerShaderMgr::setShaders()
             mShaderLevel[SHADER_AVATAR] = avatar_class;
 
             loaded = loadShadersAvatar();
-            llassert(loaded);
+            if (!loaded)
+            {
+                LL_ERRS("Shader") << "Failed to load required avatar shaders. See preceding shader compilation/link errors." << LL_ENDL;
+            }
         }
         else
         {
@@ -722,7 +790,13 @@ void LLViewerShaderMgr::setShaders()
 
     llassert(loaded);
     loaded = loaded && loadShadersDeferred();
-    llassert(loaded);
+    if (!loaded)
+    {
+        LL_ERRS("Shader") << "Failed to load required deferred shaders. See preceding shader compilation/link errors." << LL_ENDL;
+        reentrance = false;
+        return;
+    }
+    gPipeline.mShadersLoaded = true;
 
     if (!LLAppViewer::instance()->isSecondInstance())
     {
@@ -3596,4 +3670,3 @@ LLViewerShaderMgr::shader_iter LLViewerShaderMgr::endShaders() const
 {
     return mShaderList.end();
 }
-
