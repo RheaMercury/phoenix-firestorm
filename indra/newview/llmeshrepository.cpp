@@ -352,6 +352,9 @@ LLMeshRepository gMeshRepo;
 constexpr U32 CACHE_PREAMBLE_VERSION = 1;
 constexpr S32 CACHE_PREAMBLE_SIZE = sizeof(U32) * 3; //version, header_size, flags
 constexpr S32 MESH_HEADER_SIZE = 4096;                      // Important:  assumption is that headers fit in this space
+// <FS:Trish> Size of the first (header) request
+constexpr S32 MESH_FIRST_REQUEST_SIZE[LLModel::NUM_LODS] = { 8192, 8192, 32768, 262144 };
+// </FS:Trish>
 
 // <FS:Ansariel> [UDP Assets]
 const S32 REQUEST_HIGH_WATER_MIN = 32;                  // Limits for GetMesh regions
@@ -967,6 +970,7 @@ LLMeshRepoThread::LLMeshRepoThread()
     mSkinMapMutex = new LLMutex();
     mSignal = new LLCondition();
     mHttpRequest = new LLCore::HttpRequest;
+    mHttpRequest->setReplyNotifier([this]() { wake(); }); // <FS:Trish/>
     mHttpOptions = std::make_shared<LLCore::HttpOptions>();
     mHttpOptions->setTransferTimeout(SMALL_MESH_XFER_TIMEOUT);
     mHttpOptions->setUseRetryAfter(gSavedSettings.getBOOL("MeshUseHttpRetryAfter"));
@@ -1046,10 +1050,17 @@ void LLMeshRepoThread::run()
         // Will likely need a correctly-implemented condition variable to do this.
         // On the other hand, this may actually be an effective and efficient scheme...
 
-        mSignal->wait();
+        // <FS:Trish> A plain wait lost any signal sent while the loop was busy, so the
+        // thread only ever ran once per frame
+        //mSignal->wait();
+        waitForWork();
+        // </FS:Trish>
         LL_PROFILE_ZONE_NAMED("mesh_thread_loop")
 
-        if (LLApp::isExiting())
+        // <FS:Trish> Also leave on cleanup(), its wake can't be missed anymore
+        //if (LLApp::isExiting())
+        if (LLApp::isExiting() || mShuttingDown)
+        // </FS:Trish>
         {
             break;
         }
@@ -1324,9 +1335,30 @@ void LLMeshRepoThread::run()
 void LLMeshRepoThread::cleanup()
 {
     mShuttingDown = true;
-    mSignal->broadcast();
+    // <FS:Trish>
+    //mSignal->broadcast();
+    wake();
+    // </FS:Trish>
     mMeshThreadPool->close();
 }
+
+// <FS:Trish>
+void LLMeshRepoThread::wake()
+{
+    {
+        std::lock_guard<std::mutex> lock(mWakeMutex);
+        mWakePending = true;
+    }
+    mWakeCond.notify_one();
+}
+
+void LLMeshRepoThread::waitForWork()
+{
+    std::unique_lock<std::mutex> lock(mWakeMutex);
+    mWakeCond.wait(lock, [this]() { return mWakePending; });
+    mWakePending = false;
+}
+// </FS:Trish>
 
 // Mutex:  LLMeshRepoThread::mMutex must be held on entry
 void LLMeshRepoThread::loadMeshSkinInfo(const LLUUID& mesh_id)
@@ -2079,11 +2111,32 @@ bool LLMeshRepoThread::fetchMeshHeader(const LLVolumeParams& mesh_params)
         //within the first 4KB
         //NOTE -- this will break of headers ever exceed 4KB
 
-        LLMeshHandlerBase::ptr_t handler = std::make_shared<LLMeshHeaderHandler>(mesh_params, 0, MESH_HEADER_SIZE);
+        // <FS:Trish> 
+        S32 request_size = MESH_HEADER_SIZE;
+        {
+            LLMutexLock lock(mPendingMutex);
+            pending_lod_map::const_iterator pending = mPendingLOD.find(mesh_params.getSculptID());
+            if (pending != mPendingLOD.end())
+            {
+                for (S32 lod = LLModel::NUM_LODS - 1; lod >= 0; --lod)
+                {
+                    if (pending->second[lod] > 0)
+                    {
+                        request_size = MESH_FIRST_REQUEST_SIZE[lod];
+                        break;
+                    }
+                }
+            }
+        }
+
+        //LLMeshHandlerBase::ptr_t handler = std::make_shared<LLMeshHeaderHandler>(mesh_params, 0, MESH_HEADER_SIZE);
+        LLMeshHandlerBase::ptr_t handler = std::make_shared<LLMeshHeaderHandler>(mesh_params, 0, request_size);
         // <FS:Ansariel> [UDP Assets]
         //LLCore::HttpHandle handle = getByteRange(http_url, 0, MESH_HEADER_SIZE, handler);
-        LLCore::HttpHandle handle = getByteRange(http_url, legacy_cap_version, 0, MESH_HEADER_SIZE, handler);
+        //LLCore::HttpHandle handle = getByteRange(http_url, legacy_cap_version, 0, MESH_HEADER_SIZE, handler);
+        LLCore::HttpHandle handle = getByteRange(http_url, legacy_cap_version, 0, request_size, handler);
         // </FS:Ansariel> [UDP Assets]
+        // </FS:Trish>
         if (LLCORE_HTTP_HANDLE_INVALID == handle)
         {
             LL_WARNS(LOG_MESH) << "HTTP GET request failed for mesh header " << mID
@@ -3980,13 +4033,32 @@ void LLMeshLODHandler::processLod(U8* data, S32 data_size)
                     // todo: handle else because we shouldn't have requested twice?
                 }
             }
-            if (flags > 0)
+            // <FS:Trish> Write the block before marking it cached, so a crash or failed write
+            // can't leave the preamble claiming data that isn't there
+            //if (flags > 0)
+            //{
+            //    write_preamble(file, header_bytes, flags);
+            //}
+
+            //file.seek(offset, 0);
+            //file.write(data, size);
+            file.seek(offset, 0);
+            const bool written = file.write(data, size);
+            if (written && flags > 0)
             {
+                file.seek(0, 0);
                 write_preamble(file, header_bytes, flags);
             }
-
-            file.seek(offset, 0);
-            file.write(data, size);
+            else if (!written && flags > 0)
+            {
+                LLMutexLock lock(gMeshRepo.mThread->mHeaderMutex);
+                LLMeshRepoThread::mesh_header_map::iterator header_it = gMeshRepo.mThread->mMeshHeader.find(mMeshParams.getSculptID());
+                if (header_it != gMeshRepo.mThread->mMeshHeader.end())
+                {
+                    header_it->second.mLodInCache[mLOD] = false;
+                }
+            }
+            // </FS:Trish>
             LLMeshRepository::sCacheBytesWritten += size;
             ++LLMeshRepository::sCacheWrites;
         }
@@ -4103,13 +4175,31 @@ void LLMeshSkinInfoHandler::processSkin(U8* data, S32 data_size)
                     // todo: handle else because we shouldn't have requested twice?
                 }
             }
-            if (flags > 0)
+            // <FS:Trish> Write the block before marking it cached
+            //if (flags > 0)
+            //{
+            //    write_preamble(file, header_bytes, flags);
+            //}
+
+            //file.seek(offset, 0);
+            //file.write(data, size);
+            file.seek(offset, 0);
+            const bool written = file.write(data, size);
+            if (written && flags > 0)
             {
+                file.seek(0, 0);
                 write_preamble(file, header_bytes, flags);
             }
-
-            file.seek(offset, 0);
-            file.write(data, size);
+            else if (!written && flags > 0)
+            {
+                LLMutexLock lock(gMeshRepo.mThread->mHeaderMutex);
+                LLMeshRepoThread::mesh_header_map::iterator header_it = gMeshRepo.mThread->mMeshHeader.find(mMeshID);
+                if (header_it != gMeshRepo.mThread->mMeshHeader.end())
+                {
+                    header_it->second.mSkinInCache = false;
+                }
+            }
+            // </FS:Trish>
         }
     }
     else
@@ -4222,13 +4312,31 @@ void LLMeshDecompositionHandler::processData(LLCore::BufferArray * /* body */, S
                     // todo: handle else because we shouldn't have requested twice?
                 }
             }
-            if (flags > 0)
+            // <FS:Trish> Write the block before marking it cached
+            //if (flags > 0)
+            //{
+            //    write_preamble(file, header_bytes, flags);
+            //}
+
+            //file.seek(offset, 0);
+            //file.write(data, size);
+            file.seek(offset, 0);
+            const bool written = file.write(data, size);
+            if (written && flags > 0)
             {
+                file.seek(0, 0);
                 write_preamble(file, header_bytes, flags);
             }
-
-            file.seek(offset, 0);
-            file.write(data, size);
+            else if (!written && flags > 0)
+            {
+                LLMutexLock lock(gMeshRepo.mThread->mHeaderMutex);
+                LLMeshRepoThread::mesh_header_map::iterator header_it = gMeshRepo.mThread->mMeshHeader.find(mMeshID);
+                if (header_it != gMeshRepo.mThread->mMeshHeader.end())
+                {
+                    header_it->second.mPhysicsConvexInCache = false;
+                }
+            }
+            // </FS:Trish>
         }
     }
     else
@@ -4295,13 +4403,31 @@ void LLMeshPhysicsShapeHandler::processData(LLCore::BufferArray * /* body */, S3
                     // todo: handle else because we shouldn't have requested twice?
                 }
             }
-            if (flags > 0)
+            // <FS:Trish> Write the block before marking it cached
+            //if (flags > 0)
+            //{
+            //    write_preamble(file, header_bytes, flags);
+            //}
+
+            //file.seek(offset, 0);
+            //file.write(data, size);
+            file.seek(offset, 0);
+            const bool written = file.write(data, size);
+            if (written && flags > 0)
             {
+                file.seek(0, 0);
                 write_preamble(file, header_bytes, flags);
             }
-
-            file.seek(offset, 0);
-            file.write(data, size);
+            else if (!written && flags > 0)
+            {
+                LLMutexLock lock(gMeshRepo.mThread->mHeaderMutex);
+                LLMeshRepoThread::mesh_header_map::iterator header_it = gMeshRepo.mThread->mMeshHeader.find(mMeshID);
+                if (header_it != gMeshRepo.mThread->mMeshHeader.end())
+                {
+                    header_it->second.mPhysicsMeshInCache = false;
+                }
+            }
+            // </FS:Trish>
         }
     }
     else
@@ -4837,6 +4963,24 @@ void LLMeshRepository::notifyLoadedMeshes()
         {
             S32 push_count = LLMeshRepoThread::sRequestHighWater - active_count;
 
+            // <FS:Trish> Drop requests whose last waiting volume unregistered before scoring, so the
+            // partial sort covers everything that gets sent. Skipping them while consuming went past
+            // the sorted range and erased from the front one entry at a time.
+            mPendingRequests.erase(std::remove_if(mPendingRequests.begin(), mPendingRequests.end(),
+                [](const std::shared_ptr<PendingRequestBase>& req_p)
+                {
+                    if (req_p && req_p->hasTrackedData())
+                    {
+                        return false;
+                    }
+                    if (req_p && req_p->getRequestType() == MESH_REQUEST_LOD)
+                    {
+                        LLMeshRepository::sLODPending--;
+                    }
+                    return true;
+                }), mPendingRequests.end());
+            // </FS:Trish>
+
             if (mPendingRequests.size() > push_count)
             {
                 LL_PROFILE_ZONE_NAMED("Mesh score update");
@@ -4853,11 +4997,27 @@ void LLMeshRepository::notifyLoadedMeshes()
                 std::partial_sort(mPendingRequests.begin(), mPendingRequests.begin() + push_count,
                                   mPendingRequests.end(), PendingRequestBase::CompareScoreGreater());
             }
-            while (!mPendingRequests.empty() && push_count > 0)
+            // <FS:Trish> Consume the sorted front by index and erase it in one go
+            //while (!mPendingRequests.empty() && push_count > 0)
+            //{
+            //    std::shared_ptr<PendingRequestBase>& req_p = mPendingRequests.front();
+            //    // The last waiting volume may have unregistered while this
+            //    // request was queued. Drop it here rather than scanning the
+            //    // whole pending vector for every object that disappears.
+            //    if (!req_p || !req_p->hasTrackedData())
+            //    {
+            //        if (req_p && req_p->getRequestType() == MESH_REQUEST_LOD)
+            //        {
+            //            LLMeshRepository::sLODPending--;
+            //        }
+            //        mPendingRequests.erase(mPendingRequests.begin());
+            //        continue;
+            //    }
+            const size_t send_count = llmin((size_t)llmax(push_count, 0), mPendingRequests.size());
+            for (size_t req_idx = 0; req_idx < send_count; ++req_idx)
             {
-                std::shared_ptr<PendingRequestBase>& req_p = mPendingRequests.front();
-                // todo: check hasTrackedData here and erase request if none
-                // since this is supposed to mean that request was removed
+                std::shared_ptr<PendingRequestBase>& req_p = mPendingRequests[req_idx];
+            // </FS:Trish>
                 switch (req_p->getRequestType())
                 {
                 case MESH_REQUEST_LOD:
@@ -4878,9 +5038,12 @@ void LLMeshRepository::notifyLoadedMeshes()
                     LL_ERRS() << "Unknown request type in LLMeshRepository::notifyLoadedMeshes" << LL_ENDL;
                     break;
                 }
-                mPendingRequests.erase(mPendingRequests.begin());
-                push_count--;
+                // <FS:Trish>
+                //mPendingRequests.erase(mPendingRequests.begin());
+                //push_count--;
+                // </FS:Trish>
             }
+            mPendingRequests.erase(mPendingRequests.begin(), mPendingRequests.begin() + send_count); // <FS:Trish/>
         }
 
         //send decomposition requests
@@ -4900,7 +5063,10 @@ void LLMeshRepository::notifyLoadedMeshes()
         mThread->notifyLoadedMeshes();
     }
 
-    mThread->mSignal->signal();
+    // <FS:Trish>
+    //mThread->mSignal->signal();
+    mThread->wake();
+    // </FS:Trish>
 }
 
 void LLMeshRepository::notifySkinInfoReceived(LLMeshSkinInfo* info)
@@ -4986,7 +5152,10 @@ void LLMeshRepository::notifyMeshLoaded(const LLVolumeParams& mesh_params, LLVol
             LLVolume* sys_volume = LLPrimitive::getVolumeManager()->refVolume(mesh_params, detail);
             if (sys_volume)
             {
-                sys_volume->copyVolumeFaces(volume);
+                // <FS:Trish> volume is the repo thread's temporary and is dropped after this, don't deep copy every LOD
+                //sys_volume->copyVolumeFaces(volume);
+                sys_volume->swapVolumeFaces(volume);
+                // </FS:Trish>
                 sys_volume->setMeshAssetLoaded(true);
                 LLPrimitive::getVolumeManager()->unrefVolume(sys_volume);
             }
