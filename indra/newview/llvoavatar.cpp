@@ -4052,6 +4052,18 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
     // Avatars must have a first and last name
     if (!firstname || !lastname) return;
 
+    // <FS:Trish> Status, colors (contact sets, mute, radar, marks), distance and complexity were evaluated
+    // for every tag every frame. Plain name tags re-check them a few times a second, chat bubbles still
+    // rebuild every frame and clearNameTag() (mNameIsSet) forces an immediate rebuild.
+    constexpr F32 NAME_TAG_STATE_REFRESH_SECONDS = 0.25f;
+    if (!new_name && mNameIsSet && !mVisibleChat && !mVisibleTyping &&
+        mNameTagStateTimer.getElapsedTimeF32() < NAME_TAG_STATE_REFRESH_SECONDS)
+    {
+        return;
+    }
+    mNameTagStateTimer.reset();
+    // </FS:Trish>
+
     // <FS:Ansariel> OpenSim chat distance compatibility
     static const F32 chat_range_whisper_squared = (F32)(LFSimFeatureHandler::getInstance()->whisperRange() * LFSimFeatureHandler::getInstance()->whisperRange());
     static const F32 chat_range_say_squared = (F32)(LFSimFeatureHandler::getInstance()->sayRange() * LFSimFeatureHandler::getInstance()->sayRange());
@@ -5362,6 +5374,29 @@ void LLVOAvatar::computeUpdatePeriod()
     {
         mUpdatePeriod = 1;
     }
+
+    // <FS:Trish> Avatars outside the camera view ran a full character update (root, head, ~200 joint
+    // matrices) every frame. Their animations still advance through the hidden update in between.
+    // Visibility only covers the main camera, so keep it short with sun shadows on.
+    // Kept out of mUpdatePeriod: isImpostor() treats mUpdatePeriod > 1 as impostored, which made every
+    // avatar coming back into view regenerate an impostor and render as one for a frame.
+    mHiddenUpdatePeriod = 1;
+    if (mUpdatePeriod == 1
+        && mDrawable.notNull()
+        && !isVisible()
+        && !isSelf()
+        && !isUIAvatar()
+        && !mNeedsAnimUpdate)
+    {
+        static LLCachedControl<U32> hidden_update_period(gSavedSettings, "RenderHiddenAvatarUpdatePeriod", 4);
+        S32 period = llmax(1, (S32)hidden_update_period());
+        if (LLPipeline::RenderShadowDetail > 0)
+        {
+            period = llmin(period, 2);
+        }
+        mHiddenUpdatePeriod = period;
+    }
+    // </FS:Trish>
 }
 
 //------------------------------------------------------------------------
@@ -5747,7 +5782,10 @@ bool LLVOAvatar::computeNeedsUpdate()
     const F32 MAX_IMPOSTOR_INTERVAL = 4.0f;
     computeUpdatePeriod();
 
-    bool needs_update_by_frame_count = ((LLDrawable::getCurrentFrame()+mID.mData[0])%mUpdatePeriod == 0);
+    // <FS:Trish> Hidden avatars use their own period, see computeUpdatePeriod()
+    //bool needs_update_by_frame_count = ((LLDrawable::getCurrentFrame()+mID.mData[0])%mUpdatePeriod == 0);
+    bool needs_update_by_frame_count = ((LLDrawable::getCurrentFrame()+mID.mData[0])%llmax(mUpdatePeriod, mHiddenUpdatePeriod) == 0);
+    // </FS:Trish>
 
     bool needs_update_by_max_time = ((gFrameTimeSeconds-mLastImpostorUpdateFrameTime)> MAX_IMPOSTOR_INTERVAL);
     bool needs_update = needs_update_by_frame_count || needs_update_by_max_time;
