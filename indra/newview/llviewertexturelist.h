@@ -217,6 +217,8 @@ public:
     typedef std::unordered_set<LLPointer<LLViewerFetchedTexture> > image_list_t;
     typedef std::queue<LLPointer<LLViewerFetchedTexture> > image_queue_t;
 
+    size_t getMainThreadBacklog() const { return mCreateTextureList.size() + mReadyRequestBacklog.size(); }
+
     // images that have been loaded but are waiting to be uploaded to GL
     image_queue_t mCreateTextureList;
 
@@ -239,6 +241,22 @@ private:
     typedef std::map< LLTextureKey, LLPointer<LLViewerFetchedTexture> > uuid_map_t;
     uuid_map_t mUUIDMap;
     LLTextureKey mLastUpdateKey;
+    LLTextureKey mLastUrgentUpdateKey;
+    // <FS:Trish> The fetch priority refresh lane walks the fetching set instead of the whole map,
+    // and the urgent-lane set is reused instead of allocated every frame
+    //LLTextureKey mLastFetchRefreshKey; // <FS:Trish/> round-robin position of the fetch priority refresh
+    std::set<LLViewerFetchedTexture*> mFetchingTextures;
+    LLViewerFetchedTexture* mLastFetchRefreshTex = nullptr; // round-robin position of the fetch priority refresh (compared, never dereferenced)
+    std::unordered_set<LLViewerFetchedTexture*> mUrgentUpdates;
+    static bool sTrackFetching; // false after shutdown(), when textures may outlive the list
+public:
+    void onTextureFetchingChanged(LLViewerFetchedTexture* imagep, bool fetching);
+private:
+    // </FS:Trish>
+    // Ready requests left over from the last frame: carried for time, or seen before the fetcher
+    // had published the result (the notification can land just ahead of it).
+    std::vector<LLUUID> mReadyRequestBacklog;
+    std::vector<LLUUID> mReadyRequestRecheck;
 
     image_list_t mImageList;
 
