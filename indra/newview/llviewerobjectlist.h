@@ -29,6 +29,7 @@
 
 #include <map>
 #include <set>
+#include <unordered_map>
 
 // common includes
 #include "llstring.h"
@@ -204,6 +205,22 @@ public:
     S32 mNumUnknownUpdates;
     S32 mNumDeadObjectUpdates;
     S32 mNumDeadObjects;
+
+    struct CachedMotionState
+    {
+        LLVector3 mVelocity = LLVector3::zero;
+        LLVector3 mAcceleration = LLVector3::zero;
+        LLVector3 mAngularVelocity = LLVector3::zero;
+    };
+
+    void cacheMotionState(LLViewerObject* objectp);
+    void restoreMotionState(LLViewerObject* objectp);
+
+    // <FS:Trish> Throttled full update requests for terse updates of objects we don't know
+    void requestUnknownObjectUpdate(LLViewerRegion* regionp, U32 local_id);
+    void suppressUnknownObjectUpdates(LLViewerRegion* regionp, U32 local_id);
+    // </FS:Trish>
+
 protected:
     std::vector<U64>    mOrphanParents; // LocalID/ip,port of orphaned objects
     std::vector<OrphanInfo> mOrphanChildren;    // UUID's of orphaned objects
@@ -223,6 +240,13 @@ protected:
     // </FS:Beq>
 
     std::unordered_map<LLUUID, LLPointer<LLViewerObject> > mUUIDObjectMap;
+
+    std::unordered_map<LLUUID, CachedMotionState> mCachedMotionStates;
+
+    // <FS:Trish> region handle -> local id -> time before which no new request is sent
+    std::unordered_map<U64, std::unordered_map<U32, F64>> mUnknownUpdateRequests;
+    F64 mNextUnknownUpdatePrune = 0.;
+    // </FS:Trish>
 
     //set of objects that need to update their cost
     uuid_set_t   mStaleObjectCost;

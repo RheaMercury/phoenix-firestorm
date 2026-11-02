@@ -453,6 +453,8 @@ void LLViewerObject::markDead()
             ws_server->unpublishObject(mID, "deleted");
         }
 
+        gObjectList.cacheMotionState(this);
+
         // Root object of this hierarchy unlinks itself.
         if (getParent())
         {
