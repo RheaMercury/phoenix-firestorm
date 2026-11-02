@@ -354,6 +354,7 @@ bool    LLPipeline::sBakeSunlight = false;
 bool    LLPipeline::sNoAlpha = false;
 bool    LLPipeline::sUseFarClip = true;
 bool    LLPipeline::sShadowRender = false;
+F32     LLPipeline::sShadowMinCasterSize = 0.f; // <FS:Trish/>
 bool    LLPipeline::sRenderGlow = false;
 bool    LLPipeline::sReflectionRender = false;
 bool    LLPipeline::sDistortionRender = false;
@@ -1155,6 +1156,13 @@ bool LLPipeline::allocateShadowBuffer(U32 resX, U32 resY)
     if (!gCubeSnapshot) // hack to not allocate spot shadow maps during ReflectionMapManager init
     {
         U32 width = (U32)(resX * scale);
+        // <FS:Trish> Spot shadow maps are square at screen width, 3840x3840 each at 4K. Cap them.
+        static LLCachedControl<U32> spot_max_res(gSavedSettings, "RenderSpotShadowMaxResolution", 2048);
+        if (spot_max_res > 0)
+        {
+            width = llmin(width, (U32)spot_max_res);
+        }
+        // </FS:Trish>
         U32 height = width;
 
         if (shadow_detail > 1)
@@ -11298,6 +11306,12 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             //find a good origin for shadow projection
             LLVector3 origin;
 
+            // <FS:Trish> World size of the smallest texel in this cascade, set with the projection below
+            F32 min_texel_size = 0.f;
+            const F32 shadow_map_width = (F32)llmax(mRT->shadow[j].getWidth(), 1U);
+            const F32 shadow_map_height = (F32)llmax(mRT->shadow[j].getHeight(), 1U);
+            // </FS:Trish>
+
             //get a temporary view projection
             view[j] = look(camera.getOrigin(), lightDir, -up);
 
@@ -11410,6 +11424,8 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                     proj[j] = glm::ortho(min.mV[0], max.mV[0],
                                         min.mV[1], max.mV[1],
                                         -max.mV[2], -min.mV[2]);
+                    // <FS:Trish/> Ortho texels are the same size everywhere
+                    min_texel_size = llmin((max.mV[0] - min.mV[0]) / shadow_map_width, (max.mV[1] - min.mV[1]) / shadow_map_height);
                 }
                 else
                 {
@@ -11501,6 +11517,8 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                         proj[j] = glm::ortho(min.mV[0], max.mV[0],
                                 min.mV[1], max.mV[1],
                                 -max.mV[2], -min.mV[2]);
+                        // <FS:Trish/> Ortho texels are the same size everywhere
+                        min_texel_size = llmin((max.mV[0] - min.mV[0]) / shadow_map_width, (max.mV[1] - min.mV[1]) / shadow_map_height);
                     }
                     else
                     {
@@ -11529,6 +11547,11 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                             0, (yfar + ynear) / (ynear - yfar), 0, -1.0f,
                             0, 0, -fz, 0,
                             0, (2.f * yfar * ynear) / (ynear - yfar), 0, 0);
+
+                        // <FS:Trish> Perspective texels grow with distance from the origin, so
+                        // the smallest ones are at the near plane: 2 * ynear * tan(fov) / resolution
+                        min_texel_size = 2.f * ynear * llmin(tanf(fovx) / shadow_map_width, tanf(fovz) / shadow_map_height);
+                        // </FS:Trish>
                     }
                 }
             }
@@ -11569,6 +11592,12 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             mRT->shadow[j].clear();
 
             {
+                // <FS:Trish> Casters smaller than this many of the cascade's smallest texels can't
+                // show up in it. Not applied to probe shadows, which use their own path.
+                static LLCachedControl<F32> min_caster_texels(gSavedSettings, "RenderShadowMinCasterTexels", 1.f);
+                const F32 min_caster_size = (!gCubeSnapshot && min_caster_texels > 0.f && llfinite(min_texel_size))
+                    ? llmax(min_texel_size, 0.f) * min_caster_texels : 0.f;
+                // </FS:Trish>
                 static LLCullResult result[4];
                 if (have_union_cull)
                 {   // re-bucket the shared union cull down to this cascade's frustum
@@ -11770,6 +11799,162 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         gAgentAvatarp->updateAttachmentVisibility(gAgentCamera.getCameraMode());
     }
 }
+
+// <FS:Trish>
+// A cube face camera has a 90 degree FOV, so anything a face sees closer than view depth d lies in the
+// axis aligned cube of half size d around the probe. Fitting each cascade to that cube instead of one
+// face's frustum makes the shadow maps valid for every face of the probe; each face only needs its own
+// shadow matrix (it includes the face's inverse view). The split distances are made face independent
+// for the same reason. Probe shadows are low resolution and blurred, so the looser ortho fit doesn't show.
+bool LLPipeline::generateProbeSunShadow(LLCamera& camera, const LLVector3& light_dir, const LLPlane& shadow_near_clip,
+                                        const glm::mat4& inv_view, glm::mat4* view, glm::mat4* proj)
+{
+    static LLCachedControl<bool> shared_probe_shadows(gSavedSettings, "RenderReflectionProbeSharedShadows", true);
+    if (!shared_probe_shadows || mRT != &mAuxillaryRT || !mRT->shadow[0].isComplete() || !mRT->shadow[1].isComplete())
+    {
+        return false;
+    }
+
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+
+    // Moving casters can lag by up to this much in a probe, about one probe update
+    constexpr F32 MAX_SHARED_SHADOW_AGE = 2.f;
+
+    const LLVector3 eye = camera.getOrigin();
+    U32 caster_types = 0;
+    {
+        static const U32 types[] = { RENDER_TYPE_AVATAR, RENDER_TYPE_CONTROL_AV, RENDER_TYPE_VOLUME, RENDER_TYPE_TREE,
+                                     RENDER_TYPE_GRASS, RENDER_TYPE_TERRAIN, RENDER_TYPE_SIMPLE, RENDER_TYPE_GLTF_PBR };
+        for (U32 i = 0; i < LL_ARRAY_SIZE(types); ++i)
+        {
+            if (hasRenderType(types[i]))
+            {
+                caster_types |= 1 << i;
+            }
+        }
+    }
+    ProbeShadowCache& cache = mProbeShadowCache;
+
+    const bool reuse = cache.mValid &&
+        cache.mEye == eye &&
+        cache.mCasterTypes == caster_types &&
+        cache.mLightDir * light_dir > 0.9999f &&
+        cache.mShadowWidth == mRT->shadow[0].getWidth() &&
+        cache.mShadowTex[0] == mRT->shadow[0].getDepth() &&
+        cache.mShadowTex[1] == mRT->shadow[1].getDepth() &&
+        gFrameTimeSeconds - cache.mTime < MAX_SHARED_SHADOW_AGE &&
+        gFrameTimeSeconds >= cache.mTime;
+
+    if (!reuse)
+    {
+        cache.mValid = false;
+
+        // Same split distribution as generateSunShadow over the probe's whole range, without the
+        // face dependent terms, then the same stretch it applies to cube snapshots
+        const F32 near_clip = 0.1f;
+        const F32 far_clip = llclamp(camera.getFar(), 16.f, 512.f);
+        const F32 range = far_clip - near_clip;
+        const F32 sxp = RenderShadowSplitExponent.mV[1];
+
+        LLVector4 clip;
+        for (U32 i = 0; i < 4; ++i)
+        {
+            clip.mV[i] = near_clip + range * powf((F32)(i + 1) / 4.f, sxp);
+        }
+        clip.mV[0] *= 1.25f;
+        clip.mV[1] = clip.mV[2];
+        clip.mV[2] = clip.mV[3];
+        clip.mV[3] *= 1.5f;
+
+        LLVector3 up = fabsf(light_dir.mV[VZ]) > 0.75f ? LLVector3::x_axis : LLVector3::z_axis;
+
+        for (U32 j = 0; j < 2; ++j)
+        {
+            LLViewerCamera::sCurCameraID = (LLViewerCamera::eCameraID)(LLViewerCamera::CAMERA_SUN_SHADOW0 + j);
+
+            // cube covering every face out to this cascade's far split, with the usual 1.25 padding
+            const F32 h = clip.mV[j] * 1.25f;
+
+            glm::mat4 cview = look(eye, light_dir, -up);
+
+            LLVector3 mn, mx;
+            for (U32 c = 0; c < 8; ++c)
+            {
+                LLVector3 corner(eye.mV[VX] + ((c & 1) ? h : -h),
+                                 eye.mV[VY] + ((c & 2) ? h : -h),
+                                 eye.mV[VZ] + ((c & 4) ? h : -h));
+                LLVector3 p(mul_mat4_vec3(cview, glm::vec3(corner)));
+                if (c == 0)
+                {
+                    mn = mx = p;
+                }
+                else
+                {
+                    update_min_max(mn, mx, p);
+                }
+            }
+
+            // see the union cull in generateSunShadow for why the depth range is padded
+            const F32 zpad = llmax(mx.mV[0] - mn.mV[0], mx.mV[1] - mn.mV[1]) * 0.5f + 1.f;
+            glm::mat4 cproj = glm::ortho(mn.mV[0], mx.mV[0], mn.mV[1], mx.mV[1], -mx.mV[2] - zpad, -mn.mV[2] + zpad);
+
+            LLCamera shadow_cam = camera;
+            shadow_cam.setOriginAndLookAt(eye, up, (mn + mx) * 0.5f);
+            shadow_cam.setOrigin(0, 0, 0);
+
+            set_current_modelview(cview);
+            set_current_projection(cproj);
+            LLViewerCamera::updateFrustumPlanes(shadow_cam, false, false, true);
+            shadow_cam.getAgentPlane(LLCamera::AGENT_PLANE_NEAR).set(shadow_near_clip);
+
+            set_last_modelview(mShadowModelview[j]);
+            set_last_projection(mShadowProjection[j]);
+            mShadowModelview[j] = cview;
+            mShadowProjection[j] = cproj;
+            mShadowError.mV[j] = -1.f;
+            mShadowFOV.mV[j] = -1.f;
+
+            mRT->shadow[j].bindTarget();
+            mRT->shadow[j].getViewport(gGLViewport);
+            mRT->shadow[j].clear();
+            {
+                static LLCullResult result[2];
+                renderShadow(cview, cproj, shadow_cam, result[j], true, true);
+            }
+            mRT->shadow[j].flush();
+
+            cache.mView[j] = cview;
+            cache.mProj[j] = cproj;
+        }
+
+        cache.mEye = eye;
+        cache.mCasterTypes = caster_types;
+        cache.mLightDir = light_dir;
+        cache.mShadowTex[0] = mRT->shadow[0].getDepth();
+        cache.mShadowTex[1] = mRT->shadow[1].getDepth();
+        cache.mShadowWidth = mRT->shadow[0].getWidth();
+        cache.mClipPlanes = clip;
+        cache.mTime = gFrameTimeSeconds;
+        cache.mValid = true;
+    }
+
+    //translate and scale to from [-1, 1] to [0, 1]
+    const glm::mat4 trans(0.5f, 0.0f, 0.0f, 0.0f,
+                          0.0f, 0.5f, 0.0f, 0.0f,
+                          0.0f, 0.0f, 0.5f, 0.0f,
+                          0.5f, 0.5f, 0.5f, 1.0f);
+
+    mSunClipPlanes = cache.mClipPlanes;
+    for (U32 j = 0; j < 2; ++j)
+    {
+        view[j] = cache.mView[j];
+        proj[j] = cache.mProj[j];
+        mSunShadowMatrix[j] = trans * proj[j] * view[j] * inv_view;
+    }
+
+    return true;
+}
+// </FS:Trish>
 
 void LLPipeline::renderGroups(LLRenderPass* pass, U32 type, bool texture)
 {
