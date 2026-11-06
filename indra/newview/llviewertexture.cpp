@@ -91,6 +91,7 @@ S32 LLViewerTexture::sRawCount = 0;
 S32 LLViewerTexture::sAuxCount = 0;
 LLFrameTimer LLViewerTexture::sEvaluationTimer;
 F32 LLViewerTexture::sDesiredDiscardBias = 0.f;
+S32 LLViewerTexture::sSnapshotDiscardBoost = 0; // <FS:Trish/>
 U32 LLViewerTexture::sBiasTexturesUpdated = 0;
 // <FS:Trish>
 F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
@@ -3686,6 +3687,11 @@ void LLViewerLODTexture::processTextureStats()
                 }
             }
         }
+        // </FS:Trish>
+
+        // <FS:Trish> A snapshot larger than the window shows each texture over more pixels than
+        // the screen does: one discard level per doubling, set while the snapshot waits for them
+        discard_level -= (F32)sSnapshotDiscardBoost;
         // </FS:Trish>
 
         F32 min_discard = 0.f;
