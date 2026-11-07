@@ -123,6 +123,7 @@ set(viewer_SOURCE_FILES
     fsfloateraddtocontactset.cpp
     fsfavoritecontacts.cpp
     fsfavoritegroups.cpp
+    fsfoginterior.cpp
     fsinventorycustomtabs.cpp
     fsfloaterassetblacklist.cpp
     fsfloateravataralign.cpp
@@ -1009,6 +1010,7 @@ set(viewer_HEADER_FILES
     fsfloateraddtocontactset.h
     fsfavoritecontacts.h
     fsfavoritegroups.h
+    fsfoginterior.h
     fsinventorycustomtabs.h
     fsfloaterassetblacklist.h
     fsfloateravatarrendersettings.h
