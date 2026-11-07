@@ -45,6 +45,11 @@
 #include "llstartup.h"
 #include "llviewermenufile.h"
 #include "llnotificationsutil.h"
+// <FS:Trish>
+#include "llappviewer.h"
+#include "lltexturefetch.h"
+#include "llworld.h"
+// </FS:Trish>
 
 #if LL_WINDOWS
 #pragma warning (push)
@@ -228,8 +233,29 @@ struct CompareProbeDistance
     }
 };
 
+// <FS:Trish> Importance-weighted update order (FSPerfProbeUpdatePriority), set once per update()
+static bool sImportancePriority = false;
+
+// How much a refresh of this probe is worth per second of age: probes the camera can see and
+// probes close to it go stale visibly, an off-screen probe 100 m away hardly at all. Age is a
+// factor, not a term, so a probe nobody looks at still climbs the queue and is never starved.
+static F32 update_importance(LLReflectionMap* p)
+{
+    constexpr F32 OFFSCREEN_WEIGHT = 0.25f;
+    constexpr F32 DISTANCE_FALLOFF = 32.f; // metres at which importance halves
+    F32 w = p->mInView ? 1.f : OFFSCREEN_WEIGHT;
+    return w / (1.f + llmax(p->mDistance, 0.f) / DISTANCE_FALLOFF);
+}
+// </FS:Trish>
+
 static F32 update_score(LLReflectionMap* p)
 {
+    // <FS:Trish>
+    if (sImportancePriority)
+    {
+        return (gFrameTimeSeconds - p->mLastUpdateTime) * update_importance(p);
+    }
+    // </FS:Trish>
     return gFrameTimeSeconds - p->mLastUpdateTime  - p->mDistance*0.1f;
 }
 
@@ -246,6 +272,12 @@ static bool check_priority(LLReflectionMap* a, LLReflectionMap* b)
     }
     else if (!a->mComplete && !b->mComplete)
     { //neither probe is complete, generate the placed one first, then use distance
+        // <FS:Trish> With importance ordering, a missing probe on screen is filled before one off screen
+        if (sImportancePriority && a->mInView != b->mInView)
+        {
+            return a->mInView;
+        }
+        // </FS:Trish>
         if (a->mPriority != b->mPriority)
         {
             return a->mPriority > b->mPriority;
@@ -424,6 +456,21 @@ void LLReflectionMapManager::update()
                 << " of " << mReflectionProbeCount << ", in view " << in_view << ", occluded " << occluded << LL_ENDL;
             sCullCounts.clear();
         }
+    }
+    // </FS:Trish>
+
+    // <FS:Trish> Scheduling options
+    static LLCachedControl<bool> fs_update_priority(gSavedSettings, "FSPerfProbeUpdatePriority", false);
+    sImportancePriority = fs_update_priority;
+    static LLCachedControl<bool> fs_skip_unchanged(gSavedSettings, "FSPerfProbeSkipUnchanged", false);
+    static LLCachedControl<F32> fs_max_stale(gSavedSettings, "FSPerfProbeMaxStaleSeconds", 120.f);
+    static LLCachedControl<F32> fs_sun_threshold(gSavedSettings, "FSPerfProbeSunAngleThreshold", 2.f);
+    const bool skip_unchanged = fs_skip_unchanged;
+    if (skip_unchanged)
+    {
+        updateEnvironmentVersion(fs_sun_threshold);
+        mTexturesPending = LLAppViewer::getTextureFetch() && LLAppViewer::getTextureFetch()->getNumRequests() > 0;
+        mSceneChecksThisFrame = 0;
     }
     // </FS:Trish>
 
@@ -716,6 +763,7 @@ void LLReflectionMapManager::update()
                 i < mReflectionProbeCount &&
                 !probe->mOrphaned && // <FS:Trish/>
                 !recently_refreshed && // <FS:Trish/>
+                !(skip_unchanged && isProbeUnchanged(probe, fs_max_stale)) && // <FS:Trish/>
                 (oldestProbe == nullptr ||
                     check_priority(probe, oldestProbe)))
             {
@@ -739,6 +787,14 @@ void LLReflectionMapManager::update()
         }
     }
 
+    // <FS:Trish> Spread the realtime probe's faces over several frames
+    static LLCachedControl<U32> fs_rt_faces(gSavedSettings, "FSPerfProbeRealtimeFacesPerFrame", 6);
+    if (realtime && closestDynamic != nullptr && fs_rt_faces < 6)
+    {
+        updateRealtimeProbeSpread(closestDynamic, fs_rt_faces);
+    }
+    else
+    // </FS:Trish>
     if (realtime && closestDynamic != nullptr)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("rmmu - realtime");
@@ -783,6 +839,12 @@ void LLReflectionMapManager::update()
 
         sUpdateCount++;
         mUpdatingProbe = probe;
+        // <FS:Trish> Remember what the world looked like when this capture started
+        probe->mFSUpdateStart = gFrameTimeSeconds;
+        probe->mFSEnvVersion = mEnvVersion;
+        probe->mFSSceneCheckTime = gFrameTimeSeconds;
+        probe->mFSSceneDirty = false;
+        // </FS:Trish>
         doProbeUpdate();
     }
 
@@ -1215,6 +1277,13 @@ void LLReflectionMapManager::deleteProbe(U32 i)
         mUpdatingProbe = nullptr;
         mUpdatingFace = 0;
     }
+    // <FS:Trish> Its partial realtime faces belong to nobody now
+    if (mRealtimeProbe == probe)
+    {
+        mRealtimeProbe = nullptr;
+        mRealtimeFace = 0;
+    }
+    // </FS:Trish>
 
     // remove from any Neighbors lists
     for (auto& other : probe->mNeighbors)
@@ -1309,7 +1378,8 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
     S32 sourceIdx = mReflectionProbeCount;
 
-    if (probe != mUpdatingProbe)
+    //if (probe != mUpdatingProbe)
+    if (probe != mUpdatingProbe || mRealtimeUpdating) // <FS:Trish/> spread realtime faces must stay in their own scratch cube
     { // this is the "realtime" probe that's updating every frame, use the secondary scratch space channel
         sourceIdx += 1;
     }
@@ -2015,6 +2085,10 @@ void LLReflectionMapManager::initReflectionMaps()
         mUpdatingProbe = nullptr;
         mRadiancePass = false;
         mRealtimeRadiancePass = false;
+        // <FS:Trish>
+        mRealtimeProbe = nullptr;
+        mRealtimeFace = 0;
+        // </FS:Trish>
 
         // if default probe already exists, remember whether or not it's complete (SL-20498)
         bool default_complete = mDefaultProbe.isNull() ? false : mDefaultProbe->mComplete;
@@ -2113,6 +2187,10 @@ void LLReflectionMapManager::cleanup()
 
     mDefaultProbe = nullptr;
     mUpdatingProbe = nullptr;
+    // <FS:Trish>
+    mRealtimeProbe = nullptr;
+    mRealtimeFace = 0;
+    // </FS:Trish>
 
     if (mUBO != 0)
     {
@@ -2202,3 +2280,251 @@ void LLReflectionMapManager::forceDefaultProbeAndUpdateUniforms(bool force)
         sSavedOcclusion.shrink_to_fit();
     }
 }
+
+// <FS:Trish> Realtime probe faces spread over frames (FSPerfProbeRealtimeFacesPerFrame)
+// Render the realtime probe a few faces per frame instead of all six. The faces collect in
+// the realtime scratch cube, and only a finished cube is filtered into the probe's own slot
+// (face 5 does that in updateProbeFace), so what the shaders sample is always a whole cube
+// from one capture: there is no partly updated state to flicker.
+void LLReflectionMapManager::updateRealtimeProbeSpread(LLReflectionMap* probe, U32 faces_per_frame)
+{
+    LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("rmmu - realtime spread");
+
+    static LLVector4a sCaptureOrigin;
+
+    // Finish a cube in progress before moving to another probe. Two dynamic probes at nearly
+    // the same distance can swap places as "closest" from frame to frame, and restarting on
+    // every swap would never complete a cube for either.
+    if (mRealtimeFace != 0 && mRealtimeProbe && mRealtimeProbe != probe &&
+        mRealtimeCubeIndex != -1 && mRealtimeProbe->mCubeIndex == mRealtimeCubeIndex &&
+        mRealtimeProbe->getIsDynamic() && mRealtimeProbe->isRelevant())
+    {
+        probe = mRealtimeProbe;
+    }
+
+    // The scratch cube holds faces from earlier frames. They only belong together if they were
+    // captured for this probe in this slot, so anything else starts the cube over.
+    if (probe != mRealtimeProbe || probe->mCubeIndex != mRealtimeCubeIndex)
+    {
+        mRealtimeProbe = probe;
+        mRealtimeCubeIndex = probe->mCubeIndex;
+        mRealtimeFace = 0;
+    }
+
+    probe->autoAdjustOrigin();
+
+    // Every face of one cube is captured from where the probe was when the cube began. A probe
+    // riding a moving object would otherwise put each face at a different point and seam the
+    // cube at the edges.
+    if (mRealtimeFace == 0)
+    {
+        sCaptureOrigin = probe->mOrigin;
+    }
+    const LLVector4a live_origin = probe->mOrigin;
+    probe->mOrigin = sCaptureOrigin;
+
+    // store and override the value of "isRadiancePass", as the six-face path does
+    const bool radiance_pass = isRadiancePass();
+    mRadiancePass = mRealtimeRadiancePass;
+    mRealtimeUpdating = true;
+
+    const U32 faces = llclamp(faces_per_frame, 1U, 6U);
+    for (U32 i = 0; i < faces; ++i)
+    {
+        updateProbeFace(probe, mRealtimeFace);
+        if (++mRealtimeFace == 6)
+        { // the cube is filtered; the next one is the other pass
+            mRealtimeFace = 0;
+            mRealtimeRadiancePass = !mRealtimeRadiancePass;
+            break;
+        }
+    }
+
+    mRealtimeUpdating = false;
+    mRadiancePass = radiance_pass;
+    probe->mOrigin = live_origin;
+}
+// </FS:Trish>
+
+// <FS:Trish> Unchanged-probe skipping (FSPerfProbeSkipUnchanged)
+namespace
+{
+    // Does any geometry inside an axis-aligned box rebuild after a given time? Prunes on each
+    // group's extents (this node and all its children), so only the branches that reach the box
+    // are walked.
+    class FSProbeSceneChangeCheck : public OctreeTraveler
+    {
+    public:
+        FSProbeSceneChangeCheck(const LLVector4a& center, F32 radius, F32 since)
+            : mSince(since)
+        {
+            LLVector4a r;
+            r.splat(radius);
+            mMin.setSub(center, r);
+            mMax.setAdd(center, r);
+        }
+
+        void traverse(const OctreeNode* node) override
+        {
+            if (mChanged || !node || node->getListenerCount() == 0)
+            {
+                return;
+            }
+
+            LLSpatialGroup* group = (LLSpatialGroup*)node->getListener(0);
+            if (!group || group->isDead())
+            {
+                return;
+            }
+
+            const LLVector4a* ext = group->getExtents();
+            if ((ext[0].greaterThan(mMax).getGatheredBits() & 0x7) ||
+                (ext[1].lessThan(mMin).getGatheredBits() & 0x7))
+            { // no part of this branch reaches the box
+                return;
+            }
+
+            if (!group->isEmpty() &&
+                (group->mLastUpdateTime > mSince || group->hasState(LLSpatialGroup::GEOM_DIRTY)))
+            {
+                mChanged = true;
+                return;
+            }
+
+            OctreeTraveler::traverse(node);
+        }
+
+        void visit(const OctreeNode*) override {}
+
+        LLVector4a mMin;
+        LLVector4a mMax;
+        F32 mSince;
+        bool mChanged = false;
+    };
+
+    bool scene_changed_near(const LLReflectionMap* probe, F32 since)
+    {
+        LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
+
+        // A probe sees past its influence volume, but what is close to it fills most of the
+        // cube. Twice the radius, and never less than 8 m beyond it.
+        const F32 reach = llmax(probe->mRadius * 2.f, probe->mRadius + 8.f);
+
+        static const U32 partitions[] =
+        {
+            LLViewerRegion::PARTITION_TERRAIN,
+            LLViewerRegion::PARTITION_TREE,
+            LLViewerRegion::PARTITION_GRASS,
+            LLViewerRegion::PARTITION_VOLUME,
+        };
+
+        for (LLViewerRegion* region : LLWorld::getInstance()->getRegionList())
+        {
+            if (!region)
+            {
+                continue;
+            }
+
+            for (U32 type : partitions)
+            {
+                LLSpatialPartition* part = region->getSpatialPartition(type);
+                if (!part || !part->mOctree)
+                {
+                    continue;
+                }
+
+                FSProbeSceneChangeCheck check(probe->mOrigin, reach, since);
+                check.traverse(part->mOctree);
+                if (check.mChanged)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}
+
+// Once a frame: has the light the probes were captured under moved on? Sun or moon direction
+// past a threshold angle, or sun, moon or ambient colour past 5%, bump the version. Sky swaps
+// already go through invalidate().
+void LLReflectionMapManager::updateEnvironmentVersion(F32 angle_threshold_deg)
+{
+    LLEnvironment& env = LLEnvironment::instance();
+    LLSettingsSky::ptr_t sky = env.getCurrentSky();
+    if (!sky)
+    {
+        return;
+    }
+
+    const LLVector3 sun = env.getSunDirection();
+    const LLVector3 moon = env.getMoonDirection();
+    const LLColor3 sun_col = sky->getSunDiffuse() + sky->getMoonDiffuse();
+    const LLColor4 amb = sky->getTotalAmbient();
+    const LLVector3 sun_color(sun_col.mV);
+    const LLVector3 ambient(amb.mV[0], amb.mV[1], amb.mV[2]);
+
+    bool changed = !mEnvValid;
+    if (!changed)
+    {
+        const F32 cos_threshold = cosf(llclamp(angle_threshold_deg, 0.f, 90.f) * DEG_TO_RAD);
+        changed = sun * mEnvSunDir < cos_threshold || moon * mEnvMoonDir < cos_threshold;
+
+        auto drifted = [](const LLVector3& now, const LLVector3& then)
+        {
+            const F32 scale = llmax(llmax(then.mV[0], then.mV[1]), then.mV[2]) + 0.05f;
+            return (now - then).length() > 0.05f * scale;
+        };
+        changed = changed || drifted(sun_color, mEnvSunColor) || drifted(ambient, mEnvAmbient);
+    }
+
+    if (changed)
+    {
+        mEnvValid = true;
+        ++mEnvVersion;
+        mEnvSunDir = sun;
+        mEnvMoonDir = moon;
+        mEnvSunColor = sun_color;
+        mEnvAmbient = ambient;
+    }
+}
+
+// True if a complete static probe would capture the same picture again: the light has not
+// moved on since its capture began, no geometry near it has rebuilt, and it is younger than
+// max_stale (capped at 30 s while textures are still downloading, since a texture arriving
+// changes the picture without rebuilding anything).
+bool LLReflectionMapManager::isProbeUnchanged(LLReflectionMap* probe, F32 max_stale)
+{
+    if (!probe->mComplete || probe == mDefaultProbe || probe->getIsDynamic() || probe->mFSUpdateStart < 0.f)
+    {
+        return false;
+    }
+
+    constexpr F32 TEXTURE_SETTLE_STALE = 30.f;
+    const F32 stale = mTexturesPending ? llmin(max_stale, TEXTURE_SETTLE_STALE) : max_stale;
+    if (gFrameTimeSeconds - probe->mLastUpdateTime >= stale || gFrameTimeSeconds < probe->mLastUpdateTime)
+    {
+        return false;
+    }
+
+    if (probe->mFSEnvVersion != mEnvVersion || probe->mFSSceneDirty)
+    {
+        return false;
+    }
+
+    // The octree walk is cached per probe and rate limited per frame. A probe over the frame's
+    // budget keeps its last answer for a frame or two.
+    constexpr F32 SCENE_CHECK_INTERVAL = 2.f;
+    constexpr U32 SCENE_CHECKS_PER_FRAME = 4;
+    const F32 since_check = gFrameTimeSeconds - probe->mFSSceneCheckTime;
+    if ((since_check >= SCENE_CHECK_INTERVAL || since_check < 0.f) && mSceneChecksThisFrame < SCENE_CHECKS_PER_FRAME)
+    {
+        ++mSceneChecksThisFrame;
+        probe->mFSSceneCheckTime = gFrameTimeSeconds;
+        probe->mFSSceneDirty = scene_changed_near(probe, probe->mFSUpdateStart);
+    }
+
+    return !probe->mFSSceneDirty;
+}
+// </FS:Trish>
