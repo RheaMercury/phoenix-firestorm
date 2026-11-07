@@ -238,6 +238,10 @@ protected:
     // uuid_set_t   mDeadObjects;
     uuid_multiset_t   mDeadObjects;
     // </FS:Beq>
+    // <FS:Trish> Objects waiting for cleanDeadObjects, so it doesn't have to scan mObjects
+    std::vector<LLPointer<LLViewerObject> > mDeadObjectList;
+    void addToObjectList(LLViewerObject* objectp);
+    // </FS:Trish>
 
     std::unordered_map<LLUUID, LLPointer<LLViewerObject> > mUUIDObjectMap;
 
@@ -255,6 +259,13 @@ protected:
     //set of objects that need to update their physics flags
     uuid_set_t   mStalePhysicsFlags;
     uuid_set_t   mPendingPhysicsFlags;
+
+    // <FS:Trish> Debounce cost/physics fetch launches and back off after failed fetches
+    F64 mNextObjectCostFetch = 0.;
+    F64 mNextPhysicsFlagsFetch = 0.;
+    std::unordered_map<LLUUID, F64> mObjectCostRetryTime;
+    std::unordered_map<LLUUID, F64> mPhysicsFlagsRetryTime;
+    // </FS:Trish>
 
     std::vector<LLDebugBeacon> mDebugBeacons;
 
