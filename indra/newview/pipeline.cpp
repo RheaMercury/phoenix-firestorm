@@ -1192,9 +1192,18 @@ bool LLPipeline::allocateShadowBuffer(U32 resX, U32 resY)
 
     if (shadow_detail > 0)
     { //allocate 4 sun shadow maps
+        // <FS:Trish> The two far cascades can use fewer texels, they cover far more ground per texel anyway
+        static LLCachedControl<F32> far_cascade_resolution(gSavedSettings, "FSRenderShadowFarCascadeResolution", 1.f);
+        const F32 far_scale = gCubeSnapshot ? 1.f : llclamp((F32)far_cascade_resolution, 0.25f, 1.f);
+        // </FS:Trish>
         for (U32 i = 0; i < 4; i++)
         {
-            if (!mRT->shadow[i].allocate(sun_shadow_map_width, sun_shadow_map_height, 0, true))
+            // <FS:Trish>
+            //if (!mRT->shadow[i].allocate(sun_shadow_map_width, sun_shadow_map_height, 0, true))
+            const U32 width = i >= 2 ? BlurHappySize(resX, scale * far_scale) : sun_shadow_map_width;
+            const U32 height = i >= 2 ? BlurHappySize(resY, scale * far_scale) : sun_shadow_map_height;
+            if (!mRT->shadow[i].allocate(llmax(width, 16U), llmax(height, 16U), 0, true))
+            // </FS:Trish>
             {
                 return false;
             }
@@ -12204,6 +12213,65 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         mSunClipPlanes.mV[3] *= 1.5f;
     }
 
+    // <FS:Trish> Far cascade throttle. Cascade 2 renders every N frames and cascade 3 every 2N,
+    // on different frames. A skipped cascade keeps its map and the light space projection and
+    // split range it was rendered for; only its eye space matrix follows the camera. Moving or
+    // turning the camera, or the sun moving, renders them all at once.
+    bool skip_cascade[4] = { false, false, false, false };
+    if (!gCubeSnapshot)
+    {
+        static LLCachedControl<U32> far_cascade_interval(gSavedSettings, "FSRenderShadowFarCascadeInterval", 1);
+        const U32 interval = llclamp((U32)far_cascade_interval, 1U, 16U);
+        ++mShadowFrame;
+
+        bool force = interval <= 1 ||
+                     dist_vec(camera.getOrigin(), mFarCascadeEye) > llmax(mSunClipPlanes.mV[3], 1.f) * 0.02f ||
+                     camera.getAtAxis() * mFarCascadeAt < 0.9986f ||    // about 3 degrees
+                     lightDir * mFarCascadeLight < 0.99999f;            // about a quarter of a degree
+        if (force)
+        {
+            mFarCascadeEye = camera.getOrigin();
+            mFarCascadeAt = camera.getAtAxis();
+            mFarCascadeLight = lightDir;
+        }
+        else
+        {
+            for (U32 j = 2; j < 4; ++j)
+            {
+                const U32 period = j == 2 ? interval : interval * 2;
+                const U32 phase = j == 2 ? 0 : 1;
+                const bool due = (mShadowFrame % period) == phase;
+                skip_cascade[j] = !due && (S32)j <= RenderShadowSplits && mFarCascadeValid[j] &&
+                                  mFarCascadeTex[j] == mRT->shadow[j].getDepth();
+            }
+        }
+
+        LLVector4 clip = mSunClipPlanes;
+        if (skip_cascade[2])
+        {
+            clip.mV[1] = mFarCascadeClip[1];
+            clip.mV[2] = mFarCascadeClip[2];
+        }
+        if (skip_cascade[3])
+        {
+            clip.mV[2] = mFarCascadeClip[2];
+            clip.mV[3] = mFarCascadeClip[3];
+        }
+        if (clip.mV[0] < clip.mV[1] && clip.mV[1] < clip.mV[2] && clip.mV[2] < clip.mV[3])
+        {
+            mSunClipPlanes = clip;
+        }
+        else
+        {   // the near splits outgrew the frozen ones, render everything this frame
+            skip_cascade[2] = skip_cascade[3] = false;
+        }
+        for (U32 i = 0; i < 4; ++i)
+        {
+            mFarCascadeClip[i] = mSunClipPlanes.mV[i];
+        }
+    }
+    // </FS:Trish>
+
 
     // convenience array of 4 near clip plane distances
     F32 dist[] = { near_clip, mSunClipPlanes.mV[0], mSunClipPlanes.mV[1], mSunClipPlanes.mV[2], mSunClipPlanes.mV[3] };
@@ -12319,6 +12387,22 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         //for (S32 j = 0; j < (gCubeSnapshot ? 2 : 4); j++)
         for (S32 j = 0; !probe_shadow_done && j < (gCubeSnapshot ? 2 : 4); j++) // <FS:Trish/>
         {
+            // <FS:Trish> Far cascade throttle: keep the map, re-base its matrix on this frame's camera
+            if (skip_cascade[j])
+            {
+                static const glm::mat4 to_texture(0.5f, 0.0f, 0.0f, 0.0f,
+                                                  0.0f, 0.5f, 0.0f, 0.0f,
+                                                  0.0f, 0.0f, 0.5f, 0.0f,
+                                                  0.5f, 0.5f, 0.5f, 1.0f);
+                mSunShadowMatrix[j] = to_texture * mShadowProjection[j] * mShadowModelview[j] * inv_view;
+                continue;
+            }
+            if (!gCubeSnapshot)
+            {
+                mFarCascadeValid[j] = true;
+                mFarCascadeTex[j] = mRT->shadow[j].getDepth();
+            }
+            // </FS:Trish>
             if (!hasRenderDebugMask(RENDER_DEBUG_SHADOW_FRUSTA) && !gCubeSnapshot)
             {
                 mShadowFrustPoints[j].clear();
@@ -12693,8 +12777,11 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 // <FS:Trish> Casters smaller than this many of the cascade's smallest texels can't
                 // show up in it. Not applied to probe shadows, which use their own path.
                 static LLCachedControl<F32> min_caster_texels(gSavedSettings, "RenderShadowMinCasterTexels", 1.f);
+                // ...and more of them in the far cascades, where small objects barely show
+                static LLCachedControl<F32> far_caster_scale(gSavedSettings, "FSRenderShadowFarCascadeMinCasterScale", 1.f);
+                const F32 cascade_caster_scale = j >= 2 ? llclamp((F32)far_caster_scale, 1.f, 16.f) : 1.f;
                 const F32 min_caster_size = (!gCubeSnapshot && min_caster_texels > 0.f && llfinite(min_texel_size))
-                    ? llmax(min_texel_size, 0.f) * min_caster_texels : 0.f;
+                    ? llmax(min_texel_size, 0.f) * min_caster_texels * cascade_caster_scale : 0.f;
                 // </FS:Trish>
                 static LLCullResult result[4];
                 if (have_union_cull)
@@ -12837,8 +12924,35 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             mShadowModelview[i + 4] = view[i + 4];
             mShadowProjection[i + 4] = proj[i + 4];
 
-            if (!gCubeSnapshot) //skip updating spot shadow maps during cubemap updates
+            // <FS:Trish> While the light and its settings are unchanged, re-render its shadow only every N frames
+            static LLCachedControl<U32> spot_update_interval(gSavedSettings, "FSRenderSpotShadowUpdateInterval", 1);
+            SpotShadowState& spot_state = mSpotShadowState[i];
+            const U32 spot_interval = llclamp((U32)spot_update_interval, 1U, 16U);
+            const F32 light_radius = volume->getLightRadius();
+            const bool spot_unchanged = spot_state.mValid &&
+                                        spot_state.mLight == drawable &&
+                                        spot_state.mTex == mSpotShadow[i].getDepth() &&
+                                        spot_state.mCenter == center &&
+                                        spot_state.mRotation == quat &&
+                                        spot_state.mScale == scale &&
+                                        spot_state.mParams == params &&
+                                        spot_state.mRadius == light_radius;
+            const bool spot_skip = spot_interval > 1 && spot_unchanged && (mShadowFrame - spot_state.mFrame) < spot_interval;
+            //if (!gCubeSnapshot) //skip updating spot shadow maps during cubemap updates
+            if (!gCubeSnapshot && !spot_skip) //skip updating spot shadow maps during cubemap updates
+            // </FS:Trish>
             {
+                // <FS:Trish>
+                spot_state.mValid = true;
+                spot_state.mLight = drawable;
+                spot_state.mTex = mSpotShadow[i].getDepth();
+                spot_state.mCenter = center;
+                spot_state.mRotation = quat;
+                spot_state.mScale = scale;
+                spot_state.mParams = params;
+                spot_state.mRadius = light_radius;
+                spot_state.mFrame = mShadowFrame;
+                // </FS:Trish>
                 LLCamera shadow_cam = camera;
                 shadow_cam.setFar(far_clip);
                 shadow_cam.setOrigin(origin);
@@ -13996,6 +14110,19 @@ void LLPipeline::initDeferredVB()
 // and other blended edges the difference is the transparency.
 
 static constexpr F32 FS_AVATAR_ONLY_WHITE_LEVEL = 1.f;
+
+// Avatars and animesh past FSRenderAvatarShadowDistance from the camera cast no shadow
+//static
+bool LLPipeline::isBeyondAvatarShadowDistance(const LLVOAvatar* avatar)
+{
+    static LLCachedControl<F32> avatar_shadow_distance(gSavedSettings, "FSRenderAvatarShadowDistance", 0.f);
+    const F32 max_dist = avatar_shadow_distance;
+    if (max_dist <= 0.f || !avatar || avatar->isSelf())
+    {
+        return false;
+    }
+    return dist_vec_squared(avatar->getPositionAgent(), LLViewerCamera::getInstance()->getOrigin()) > max_dist * max_dist;
+}
 
 //static
 bool LLPipeline::isAvatarOnlyRender()

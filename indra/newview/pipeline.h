@@ -833,6 +833,28 @@ public:
     bool renderAvatarOnlyMatte();
     void presentAvatarOnlyAlpha();
     void releaseAvatarOnlyTargets();
+
+    // Shadow performance
+    static bool             isBeyondAvatarShadowDistance(const LLVOAvatar* avatar);
+    U32                     mShadowFrame = 0;               // main view shadow updates so far
+    bool                    mFarCascadeValid[4] = {};       // the map holds a render the throttle can reuse
+    U32                     mFarCascadeTex[4] = {};         // ...in this depth texture
+    F32                     mFarCascadeClip[4] = {};        // split distances the far maps were rendered for
+    LLVector3               mFarCascadeEye;                 // camera and sun at the last forced update
+    LLVector3               mFarCascadeAt;
+    LLVector3               mFarCascadeLight;
+    struct SpotShadowState
+    {
+        const LLDrawable*   mLight = nullptr;               // identity only, never dereferenced
+        LLVector3           mCenter;
+        LLQuaternion        mRotation;
+        LLVector3           mScale;
+        LLVector3           mParams;
+        F32                 mRadius = 0.f;
+        U32                 mTex = 0;
+        U32                 mFrame = 0;
+        bool                mValid = false;
+    } mSpotShadowState[2];
     // </FS:Trish>
 
     // exposure map for getting average color in scene
