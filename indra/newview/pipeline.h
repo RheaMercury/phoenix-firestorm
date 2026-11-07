@@ -316,6 +316,46 @@ public:
     void fsNoteShadowStaticChange(const LLVector4a* extents);
     void fsReleaseShadowCache();
     // </FS:Trish>
+    // <FS:Trish> FSPerfShadowSinglePass (fsshadowsinglepass.cpp): the sun cascades record their opaque and
+    // alpha masked casters instead of drawing them. After the last cascade each recorded batch is drawn
+    // once, instanced into the atlas viewports of the cascades that recorded it, and each cascade's atlas
+    // cell is merged into its shadow map.
+    // FS_SHADOW_SP_GLTF records the opaque GLTF casters, those with double sided materials go to
+    // FS_SHADOW_SP_GLTF_DOUBLE_SIDED (drawn without face culling).
+    enum EFSShadowSPKind { FS_SHADOW_SP_OPAQUE = 0, FS_SHADOW_SP_GLTF, FS_SHADOW_SP_GLTF_DOUBLE_SIDED,
+                           FS_SHADOW_SP_ALPHA_MASK, FS_SHADOW_SP_FULLBRIGHT_MASK,
+                           FS_SHADOW_SP_MATERIAL_MASK, FS_SHADOW_SP_KINDS };
+    struct FSShadowSPEntry
+    {
+        LLDrawInfo* mParams;
+        U32         mMask;                          // cascades that recorded it, one bit each
+    };
+    std::vector<FSShadowSPEntry> mFSShadowSPEntries[FS_SHADOW_SP_KINDS][2];  // [kind][rigged]
+    LLRenderTarget          mFSShadowAtlas;
+    S32                     mFSShadowSPCell[4][2] = {};     // texel offset of each cascade's cell in the atlas
+    glm::mat4               mFSShadowSPView[4];
+    glm::mat4               mFSShadowSPProj[4];
+    LLCullResult*           mFSShadowSPCull[4] = {};
+    LLCullResult*           mFSShadowSPLastCull = nullptr;
+    U32                     mFSShadowSPRecorded = 0;        // cascades that recorded this update
+    U32                     mFSShadowSPColored = 0;         // cascades whose coloured casters wait for the merge
+    S32                     mFSShadowSPCascade = -1;        // cascade renderShadow records for, -1 to draw as usual
+    bool                    mFSShadowSPActive = false;
+    void fsShadowSinglePassBegin();
+    void fsShadowSinglePassBeginCascade(S32 cascade, const glm::mat4& proj, const glm::mat4& view, LLCullResult& result);
+    void fsShadowSinglePassEndCascade();
+    bool fsShadowSinglePassRecord(U32 kind, bool rigged, const U32* types = nullptr, U32 type_count = 0);
+    bool fsShadowSinglePassDeferColored();
+    void fsShadowSinglePassFinish();
+    void fsReleaseShadowSinglePass();
+    // </FS:Trish>
+    // <FS:Trish> FSPerfParallelShadowCull (fsparallelcull.cpp): the sun cascade loop sets every cascade up and
+    // defers its draw, then the cascades' octree culls run on worker threads and the deferred draws follow
+    bool                    mFSParallelCullActive = false;
+    void fsParallelShadowCullBegin(bool have_union_cull);
+    bool fsParallelShadowCullDefer(S32 cascade, LLCamera& shadow_cam, F32 min_texel_size);
+    void fsParallelShadowCullFlush();
+    // </FS:Trish>
 
     // Populate given LLCullResult with results of a frustum cull of the entire scene against the given LLCamera
     void updateCull(LLCamera& camera, LLCullResult& result, bool hud_attachments = false);

@@ -183,6 +183,7 @@ set(viewer_SOURCE_FILES
     fspanelpreferenceuisounds.cpp
     fspanelprefs.cpp
     fspanelradar.cpp
+    fsparallelcull.cpp
     fsparcelderender.cpp
     fsparticipantlist.cpp
     fspointlightbatch.cpp
@@ -200,6 +201,7 @@ set(viewer_SOURCE_FILES
     fsscrolllistctrl.cpp
     fsslurlcommand.cpp
     fsskinonce.cpp
+    fsshadowsinglepass.cpp
     fsssrhiz.cpp
     fsvirtualtrackpad.cpp
     fsvrs.cpp
@@ -1071,6 +1073,7 @@ set(viewer_HEADER_FILES
     fspanelpreferenceuisounds.h
     fspanelprefs.h
     fspanelradar.h
+    fsparallelcull.h
     fsparcelderender.h
     fsparticipantlist.h
     fspointlightbatch.h
@@ -1089,6 +1092,7 @@ set(viewer_HEADER_FILES
     fsslurl.h
     fsslurlcommand.h
     fsskinonce.h
+    fsshadowsinglepass.h
     fsssrhiz.h
     fsvirtualtrackpad.h
     fsvrs.h
