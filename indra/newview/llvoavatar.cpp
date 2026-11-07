@@ -3332,7 +3332,19 @@ void LLVOAvatar::idleUpdate(LLAgent &agent, const F64 &time)
     bool voice_enabled = (visualizers_in_calls || LLVoiceClient::getInstance()->inProximalChannel()) &&
                          LLVoiceClient::getInstance()->getVoiceEnabled(mID);
 
-    LLVector3 hud_name_pos = idleCalcNameTagPosition(mLastRootPos);
+    // <FS:Trish> Only needed by the voice dots and an existing name tag. idleUpdateNameTag()
+    // computes it itself if it is about to create a tag.
+    //LLVector3 hud_name_pos = idleCalcNameTagPosition(mLastRootPos);
+    LLVector3 hud_name_pos;
+    if (voice_enabled || mNameText.notNull())
+    {
+        hud_name_pos = idleCalcNameTagPosition(mLastRootPos);
+    }
+    else
+    {
+        mNameTagPosSkipped = true;
+    }
+    // </FS:Trish>
 
     idleUpdateVoiceVisualizer(voice_enabled, hud_name_pos);
     idleUpdateMisc( detailed_update );
@@ -3499,6 +3511,32 @@ static void override_bbox(LLDrawable* drawable, LLVector4a* extents)
     drawable->movePartition();
 }
 
+// <FS:Trish> True if override_bbox() would leave the drawable exactly as it is: same extents, same
+// position group, same bin radius and already in the right partition.
+static bool override_bbox_unchanged(LLDrawable* drawable, const LLVector4a* extents)
+{
+    LLSpatialGroup* group = drawable->getSpatialGroup();
+    if (!group || group->getSpatialPartition() != drawable->getSpatialPartition())
+    {
+        return false;
+    }
+
+    const LLVector4a* cur = drawable->getSpatialExtents();
+    const LLVector4a& pos = drawable->getPositionGroup();
+    for (S32 i = 0; i < 3; ++i)
+    {
+        if (cur[0][i] != extents[0][i] || cur[1][i] != extents[1][i] || pos[i] != 0.f)
+        {
+            return false;
+        }
+    }
+
+    F32 old_radius = drawable->getBinRadius();
+    drawable->updateBinRadius();
+    return drawable->getBinRadius() == old_radius;
+}
+// </FS:Trish>
+
 void LLVOAvatar::idleUpdateMisc(bool detailed_update)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
@@ -3551,7 +3589,14 @@ void LLVOAvatar::idleUpdateMisc(bool detailed_update)
                         if (attached_object->mDrawable->isState(LLDrawable::RIGGED | LLDrawable::RIGGED_CHILD))
                         {
                             rigged = true;
-                            override_bbox(attached_object->mDrawable, extents);
+                            // <FS:Trish> Skip the octree update when the box did not change
+                            //override_bbox(attached_object->mDrawable, extents);
+                            static LLCachedControl<bool> attachment_extents_cache(gSavedSettings, "FSPerfAttachmentExtentsCache", false);
+                            if (!attachment_extents_cache || !override_bbox_unchanged(attached_object->mDrawable, extents))
+                            {
+                                override_bbox(attached_object->mDrawable, extents);
+                            }
+                            // </FS:Trish>
                         }
                     }
 
@@ -4035,6 +4080,14 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         return;
     }
 
+    // <FS:Trish> idleUpdate() skipped the position as there was no tag yet, compute it now
+    LLVector3 name_tag_pos = root_pos_last;
+    if (mNameTagPosSkipped)
+    {
+        name_tag_pos = idleCalcNameTagPosition(mLastRootPos);
+    }
+    // </FS:Trish>
+
     if (!mNameText)
     {
         mNameText = static_cast<LLHUDNameTag*>( LLHUDObject::addHUDObject(
@@ -4049,7 +4102,10 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         new_name = true;
     }
 
-    mNameText->setPositionAgent(root_pos_last);
+    // <FS:Trish>
+    //mNameText->setPositionAgent(root_pos_last);
+    mNameText->setPositionAgent(name_tag_pos);
+    // </FS:Trish>
 
     idleUpdateNameTagText(new_name);
     // Wolfspirit: Following thing is already handled in LLHUDNameTag::lineSegmentIntersect
@@ -4648,6 +4704,10 @@ void LLVOAvatar::invalidateNameTags()
 // Compute name tag position during idle update
 LLVector3 LLVOAvatar::idleCalcNameTagPosition(const LLVector3 &root_pos_last)
 {
+    // <FS:Trish> After skipped frames, start from the current head offset instead of easing in from a stale one
+    const bool was_skipped = mNameTagPosSkipped;
+    mNameTagPosSkipped = false;
+    // </FS:Trish>
     LLQuaternion root_rot = mRoot->getWorldRotation();
     LLQuaternion inv_root_rot = ~root_rot;
     LLVector3 pixel_right_vec;
@@ -4686,6 +4746,14 @@ LLVector3 LLVOAvatar::idleCalcNameTagPosition(const LLVector3 &root_pos_last)
     local_camera_at.scaleVec(avatar_ellipsoid);
 
     LLVector3 head_offset = (mHeadp->getLastWorldPosition() - mRoot->getLastWorldPosition()) * inv_root_rot;
+
+    // <FS:Trish>
+    if (was_skipped)
+    {
+        mTargetRootToHeadOffset = head_offset;
+        mCurRootToHeadOffset = head_offset;
+    }
+    // </FS:Trish>
 
     if (dist_vec(head_offset, mTargetRootToHeadOffset) > NAMETAG_UPDATE_THRESHOLD)
     {
@@ -6887,8 +6955,14 @@ void LLVOAvatar::checkTextureLoading()
     }
     if(mLoadedCallbacksPaused == pause)
     {
-        if (!pause && mFirstFullyVisible && mLoadedCallbackTextures < mCallbackTextureList.size())
+        // <FS:Trish> Recount about four times a second instead of every frame
+        //if (!pause && mFirstFullyVisible && mLoadedCallbackTextures < mCallbackTextureList.size())
+        constexpr F32 LOADED_TEXTURE_COUNT_INTERVAL = 0.25f;
+        if (!pause && mFirstFullyVisible && mLoadedCallbackTextures < mCallbackTextureList.size()
+            && mLoadedTextureCountTimer.getElapsedTimeF32() >= LOADED_TEXTURE_COUNT_INTERVAL)
+        // </FS:Trish>
         {
+            mLoadedTextureCountTimer.reset(); // <FS:Trish/>
             // We still need to update 'loaded' textures count to decide on 'cloud' visibility
             // Alternatively this can be done on TextureLoaded callbacks, but is harder to properly track
             mLoadedCallbackTextures = 0;
@@ -11608,12 +11682,45 @@ const LLVOAvatar::MatrixPaletteCache& LLVOAvatar::updateSkinInfoMatrixPalette(co
     const bool use_local_origin = LLViewerShaderMgr::sRiggedLocalOrigin;
     // </FS:Trish>
 
+    // <FS:Trish> Rebuild only when a joint in the palette was recomputed since the last build
+    static LLCachedControl<bool> rigged_palette_cache(gSavedSettings, "FSPerfRiggedPaletteCache", false);
+    if (rigged_palette_cache && entry.mFrame != gFrameCount && entry.mUsesLocalOrigin == use_local_origin)
+    {
+        U32 count = LLSkinningUtil::getMeshJointCount(skin);
+        bool unchanged = count > 0 && count == entry.mJointSerials.size() && count == entry.mMatrixPalette.size();
+        if (unchanged)
+        {
+            LLSkinningUtil::initJointNums(const_cast<LLMeshSkinInfo*>(skin), this);
+            LLVector3 skin_origin = use_local_origin
+                ? (mRoot ? mRoot->getWorldPosition() : getPositionAgent()) : LLVector3::zero;
+            unchanged = skin_origin == entry.mSkinOrigin && skin->mJointNums.size() >= count;
+            for (U32 j = 0; unchanged && j < count; ++j)
+            {
+                LLJoint* joint = getJoint(skin->mJointNums[j]);
+                if (!joint)
+                {
+                    unchanged = false;
+                    break;
+                }
+                joint->getWorldMatrix4a(); // apply any pending update, as the build would
+                unchanged = joint->mWorldMatrixSerial == entry.mJointSerials[j];
+            }
+        }
+        if (unchanged)
+        {
+            entry.mFrame = gFrameCount;
+            return entry;
+        }
+    }
+    // </FS:Trish>
+
     if (entry.mFrame != gFrameCount || entry.mUsesLocalOrigin != use_local_origin)
     {
         LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
         entry.mFrame = gFrameCount;
         entry.mUsesLocalOrigin = use_local_origin;
+        entry.mJointSerials.clear(); // <FS:Trish/>
 
         //build matrix palette
         U32 count = LLSkinningUtil::getMeshJointCount(skin);
@@ -11626,6 +11733,18 @@ const LLVOAvatar::MatrixPaletteCache& LLVOAvatar::updateSkinInfoMatrixPalette(co
         }
         entry.mMatrixPalette.resize(count);
         LLSkinningUtil::initSkinningMatrixPalette(&(entry.mMatrixPalette[0]), count, skin, this);
+
+        // <FS:Trish> Remember which joint state this palette was built from
+        if (rigged_palette_cache && skin->mJointNums.size() >= count && skin->mInvBindMatrix.size() >= count)
+        {
+            entry.mJointSerials.resize(count);
+            for (U32 j = 0; j < count; ++j)
+            {
+                LLJoint* joint = getJoint(skin->mJointNums[j]);
+                entry.mJointSerials[j] = joint ? joint->mWorldMatrixSerial : 0;
+            }
+        }
+        // </FS:Trish>
 
         const LLMatrix4a* mat = &(entry.mMatrixPalette[0]);
 

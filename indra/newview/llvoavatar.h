@@ -514,6 +514,7 @@ public:
 
     LLVector3           mCurRootToHeadOffset;
     LLVector3           mTargetRootToHeadOffset;
+    bool                mNameTagPosSkipped = false; // <FS:Trish/> idleUpdate() skipped idleCalcNameTagPosition()
 
     S32                 mLastSkeletonSerialNum;
 
@@ -872,6 +873,7 @@ protected:
     bool mLoadedCallbacksPaused;
     S32 mLoadedCallbackTextures; // count of 'loaded' baked textures, filled from mCallbackTextureList
     LLFrameTimer mLastTexCallbackAddedTime;
+    LLFrameTimer mLoadedTextureCountTimer; // <FS:Trish/> throttles the recount in checkTextureLoading()
     std::set<LLUUID>    mTextureIDs;
     //--------------------------------------------------------------------
     // Local Textures
@@ -967,6 +969,10 @@ public:
         // kilometre-scale coordinates through per-vertex fp32 skinning math.
         LLVector3 mSkinOrigin;
         bool mUsesLocalOrigin;
+
+        // <FS:Trish> LLJoint::mWorldMatrixSerial of each joint when the palette was built
+        std::vector<U64> mJointSerials;
+        // </FS:Trish>
 
         MatrixPaletteCache() :
             mFrame(gFrameCount - 1),
