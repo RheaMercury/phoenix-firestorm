@@ -56,6 +56,7 @@
 #include "llviewertexturelist.h"
 #include "llwindow.h"
 #include "llworld.h"
+#include "workqueue.h" // <FS:Trish/> snapshots encoded on a worker thread
 
 constexpr F32 AUTO_SNAPSHOT_TIME_DELAY = 1.f;
 
@@ -617,6 +618,27 @@ void LLSnapshotLivePreview::generateThumbnailImage(bool force_update)
         }
         // </FS:Ansariel>
 
+        // <FS:Trish> Right after a snapshot of the window's shape, the thumbnail is the same picture: it is
+        // scaled down from it instead of rendering the scene again and waiting for its pixels, a hitch of a
+        // few hundred ms with the render thread at every snapshot. Both are taken with the same UI, HUD,
+        // post processing and layer settings. A filter may already be in the preview image (getFormattedImage
+        // filters it in place), so with one the thumbnail is rendered as before.
+        LLPointer<LLImageRaw> from_preview;
+        const S32 window_width = gViewerWindow->getWindowWidthRaw();
+        const S32 window_height = gViewerWindow->getWindowHeightRaw();
+        if (mSnapshotUpToDate && getFilter().empty() && mPreviewImage.notNull() && !mPreviewImage->isBufferInvalid() &&
+            mPreviewImage->getWidth() > 0 && mPreviewImage->getHeight() > 0 && window_width > 0 && window_height > 0 &&
+            width > 0 && height > 0 && width <= mPreviewImage->getWidth() && height <= mPreviewImage->getHeight() &&
+            llabs((F32)mPreviewImage->getWidth() / (F32)mPreviewImage->getHeight() - (F32)window_width / (F32)window_height) < 0.01f)
+        {
+            from_preview = mPreviewImage->scaled(width, height);
+        }
+        if (from_preview.notNull() && !from_preview->isBufferInvalid())
+        {
+            raw = from_preview;
+        }
+        else
+        // </FS:Trish>
         // The thumbnail is a screen view with screen grab positioning preview
         if(!gViewerWindow->thumbnailSnapshot(raw,
                                          // <FS:Ansariel> Show miniature thumbnail on collapsed snapshot panel
@@ -1068,6 +1090,54 @@ void LLSnapshotLivePreview::estimateDataSize()
     mDataSize = (S32)((F32)mPreviewImage->getDataSize() / ratio);
 }
 
+// <FS:Trish> The snapshot encoded in the format asked for. An avatars only snapshot is RGBA, which JPEG
+// and BMP can't hold: it is flattened onto black, which is the same image as the avatars rendered over a
+// black background. Touches nothing but its arguments, so it can run on a worker thread. The image is
+// returned even when encoding failed (encoded false), as getFormattedImage always made one.
+static LLPointer<LLImageFormatted> fs_encode_snapshot(LLPointer<LLImageRaw> raw, LLSnapshotModel::ESnapshotFormat format, S32 quality, bool& encoded)
+{
+    encoded = false;
+    LLPointer<LLImageFormatted> formatted;
+    switch (format)
+    {
+        case LLSnapshotModel::SNAPSHOT_FORMAT_PNG:
+            formatted = new LLImagePNG();
+            break;
+        case LLSnapshotModel::SNAPSHOT_FORMAT_JPEG:
+            formatted = new LLImageJPEG(quality);
+            break;
+        case LLSnapshotModel::SNAPSHOT_FORMAT_BMP:
+            formatted = new LLImageBMP();
+            break;
+    }
+    if (formatted.isNull() || raw.isNull())
+    {
+        return formatted;
+    }
+    LLPointer<LLImageRaw> source = raw;
+    if (format != LLSnapshotModel::SNAPSHOT_FORMAT_PNG && raw->getComponents() == 4)
+    {
+        LLImageDataSharedLock lock(raw);
+        source = new LLImageRaw(raw->getWidth(), raw->getHeight(), 3);
+        if (!source->isBufferInvalid())
+        {
+            const U8* src = raw->getData();
+            U8* dst = source->getData();
+            const S32 pixels = raw->getWidth() * raw->getHeight();
+            for (S32 i = 0; i < pixels; ++i, src += 4, dst += 3)
+            {
+                for (S32 c = 0; c < 3; ++c)
+                {
+                    dst[c] = (U8)(((U32)src[c] * (U32)src[3] + 127) / 255);
+                }
+            }
+        }
+    }
+    encoded = !source->isBufferInvalid() && formatted->encode(source, 0);
+    return formatted;
+}
+// </FS:Trish>
+
 LLPointer<LLImageFormatted> LLSnapshotLivePreview::getFormattedImage()
 {
     if (!mFormattedImage)
@@ -1091,19 +1161,24 @@ LLPointer<LLImageFormatted> LLSnapshotLivePreview::getFormattedImage()
         LLSnapshotModel::ESnapshotFormat format = getSnapshotFormat();
         LL_DEBUGS("Snapshot") << "Encoding new image of format " << format << LL_ENDL;
 
-        switch (format)
-        {
-            case LLSnapshotModel::SNAPSHOT_FORMAT_PNG:
-                mFormattedImage = new LLImagePNG();
-                break;
-            case LLSnapshotModel::SNAPSHOT_FORMAT_JPEG:
-                mFormattedImage = new LLImageJPEG(mSnapshotQuality);
-                break;
-            case LLSnapshotModel::SNAPSHOT_FORMAT_BMP:
-                mFormattedImage = new LLImageBMP();
-                break;
-        }
-        if (mFormattedImage->encode(mPreviewImage, 0))
+        // <FS:Trish> Shared with saving to disk, which encodes on a worker thread (saveLocal)
+        //switch (format)
+        //{
+        //    case LLSnapshotModel::SNAPSHOT_FORMAT_PNG:
+        //        mFormattedImage = new LLImagePNG();
+        //        break;
+        //    case LLSnapshotModel::SNAPSHOT_FORMAT_JPEG:
+        //        mFormattedImage = new LLImageJPEG(mSnapshotQuality);
+        //        break;
+        //    case LLSnapshotModel::SNAPSHOT_FORMAT_BMP:
+        //        mFormattedImage = new LLImageBMP();
+        //        break;
+        //}
+        //if (mFormattedImage->encode(mPreviewImage, 0))
+        bool encoded = false;
+        mFormattedImage = fs_encode_snapshot(mPreviewImage, format, mSnapshotQuality, encoded);
+        if (encoded)
+        // </FS:Trish>
         {
             // We can update the data size precisely at that point
             mDataSize = mFormattedImage->getDataSize();
@@ -1205,11 +1280,70 @@ void LLSnapshotLivePreview::saveTexture(bool outfit_snapshot, std::string name)
 
 void LLSnapshotLivePreview::saveLocal(const snapshot_saved_signal_t::slot_type& success_cb, const snapshot_saved_signal_t::slot_type& failure_cb)
 {
-    // Update mFormattedImage if necessary
-    getFormattedImage();
+    // <FS:Trish> Encoding a big snapshot (PNG above all) took a few hundred ms on the main thread, a hitch
+    // at every save. It is encoded on a worker thread instead, from a copy (the next snapshot is taken into
+    // mPreviewImage meanwhile) filtered there too, and saved here on the main thread once done, as before.
+    // An image already encoded is saved at once. mFormattedImage and mPreviewImage stay as they were, so a
+    // later getFormattedImage filters and encodes the preview once, as it always did.
+    //// Update mFormattedImage if necessary
+    //getFormattedImage();
 
-    // Save the formatted image
-    saveLocal(mFormattedImage, success_cb, failure_cb);
+    //// Save the formatted image
+    //saveLocal(mFormattedImage, success_cb, failure_cb);
+    LL::WorkQueue::ptr_t main_queue = LL::WorkQueue::getInstance("mainloop");
+    LL::WorkQueue::ptr_t general_queue = LL::WorkQueue::getInstance("General");
+    if (mFormattedImage.notNull() || mPreviewImage.isNull() || !main_queue || !general_queue)
+    {
+        getFormattedImage();
+        saveLocal(mFormattedImage, success_cb, failure_cb);
+        return;
+    }
+
+    LLPointer<LLImageRaw> raw;
+    {
+        LLImageDataSharedLock lock(mPreviewImage);
+        raw = new LLImageRaw(mPreviewImage->getData(), mPreviewImage->getWidth(), mPreviewImage->getHeight(), mPreviewImage->getComponents());
+    }
+    std::string filter_path;
+    if (!getFilter().empty())
+    {
+        filter_path = LLImageFiltersManager::getInstance()->getFilterPath(getFilter());
+        if (filter_path.empty())
+        {
+            LL_WARNS("Snapshot") << "Couldn't find a path to the following filter : " << getFilter() << LL_ENDL;
+        }
+    }
+    const LLSnapshotModel::ESnapshotFormat format = getSnapshotFormat();
+    const S32 quality = mSnapshotQuality;
+    // The callbacks belong to the snapshot window's panels, which live as long as this preview
+    const LLHandle<LLView> handle = getHandle();
+    const snapshot_saved_signal_t::slot_type success = success_cb;
+    const snapshot_saved_signal_t::slot_type failure = failure_cb;
+    const bool posted = main_queue->postTo(
+        general_queue,
+        [raw, filter_path, format, quality]() // on a worker thread
+        {
+            if (!filter_path.empty())
+            {
+                LLImageFilter filter(filter_path);
+                filter.executeFilter(raw);
+            }
+            bool encoded = false;
+            return fs_encode_snapshot(raw, format, quality, encoded);
+        },
+        [handle, success, failure](LLPointer<LLImageFormatted> image) // back on the main thread
+        {
+            if (!handle.isDead())
+            {
+                saveLocal(image, success, failure);
+            }
+        });
+    if (!posted)
+    {
+        getFormattedImage();
+        saveLocal(mFormattedImage, success_cb, failure_cb);
+    }
+    // </FS:Trish>
 }
 
 //Check if failed due to insufficient memory
