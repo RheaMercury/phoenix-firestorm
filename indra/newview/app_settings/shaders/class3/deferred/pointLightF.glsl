@@ -37,6 +37,10 @@ uniform float sun_wash;
 flat in vec4 fs_light_color; // rgb linear colour, a falloff
 flat in float fs_light_size;
 flat in vec3 trans_center;
+// deferredUtil.glsl declares color and size as uniforms; globals of the same names fail to link
+// on AMD ("Storage qualifiers must match"), so this file's copies get names of their own
+#define color fs_batch_color
+#define size fs_batch_size
 vec3 color;
 float falloff;
 float size;
