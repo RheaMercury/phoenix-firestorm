@@ -219,6 +219,20 @@ public:
     // MUST already be active and bound
     void setTextureFilteringOptionFast(LLTexUnit::eTextureFilterOptions option, eTextureType tex_type);
 
+    // <FS:Trish> Filter state cache for render target textures (per GL thread).
+    // Registered texture names get their filtering state recorded whenever it is set through
+    // LLTexUnit, so LLRenderTarget::bindTexture can skip redundant glTexParameter calls.
+    static void registerFilterCacheTexture(U32 tex);
+    static void unregisterFilterCacheTexture(U32 tex);
+    // True when setTextureFilteringOption(option) on this unit would not change any GL state
+    bool isFilteringOptionCached(eTextureFilterOptions option) const;
+
+    // Forget what bindFast last bound on this unit, so its next call really binds.
+    // Must be called by anything that binds a texture on this unit without going through
+    // LLTexUnit, or that deletes a texture which may be bound.
+    void invalidateFastBind() { mFastBoundTex = 0; }
+    // </FS:Trish>
+
     static U32 getInternalType(eTextureType type);
 
     U32 getCurrTexture(void) { return mCurrTexture; }
@@ -242,6 +256,10 @@ protected:
     eTextureType        mCurrTexType;
     bool                mHasMipMaps;
     U32                 mCurrSampler = 0; // <Vulkanstorm/> sampler object bound to this unit
+    // <FS:Trish> texture name and target bindFast last bound on this unit (0 = unknown)
+    U32                 mFastBoundTex = 0;
+    eTextureType        mFastBoundType = TT_NONE;
+    // </FS:Trish>
 
     void debugTextureUnit(void);
 };
@@ -483,6 +501,7 @@ public:
     void setLineWidth(F32 width);
 
     LLTexUnit* getTexUnit(U32 index);
+    void invalidateFastBinds(); // <FS:Trish/> see LLTexUnit::invalidateFastBind
 
     U32 getCurrentTexUnitIndex(void) const { return mCurrTextureUnitIndex; }
 

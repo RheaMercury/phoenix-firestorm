@@ -113,6 +113,7 @@
 #include "llfloatersnapshot.h" // <FS:Beq/> for snapshotFrame
 #include "llfloaterflickr.h" // <FS:Beq/> for snapshotFrame
 #include "fsfloaterprimfeed.h" // <FS:Beq/> for snapshotFrame
+#include "fspointlightbatch.h" // <FS:Trish/> batched local lights
 #include "llsnapshotlivepreview.h" // <FS:Beq/> for snapshotFrame
 // #include "llpanelface.h"  // <FS:Zi> switchable edit texture/materials panel - include not needed
 #include "llpathfindingpathtool.h"
@@ -810,6 +811,7 @@ void LLPipeline::cleanup()
     mScreenTriangleVB = nullptr;
 
     mCubeVB = NULL;
+    gFSPointLightBatch.release(); // <FS:Trish/>
 
     mReflectionMapManager.cleanup();
     mHeroProbeManager.cleanup();
@@ -3340,10 +3342,15 @@ void LLPipeline::markVisible(LLDrawable *drawablep, LLCamera& camera)
                     if (vobj) // this test may not be needed, see above
                     {
                         LLVOAvatar* av = vobj->asAvatar();
+                        // <FS:Trish> Avatar-wide checks cached once per avatar per frame instead of per attachment and pass
+                        //if (av &&
+                        //    ((!sImpostorRender && av->isImpostor()) //ignore impostor flag during impostor pass
+                        //     //|| av->isInMuteList() // <FS:Ansariel> Partially undo MAINT-5700: Draw imposter for muted avatars
+                        //     || (LLVOAvatar::AOA_JELLYDOLL == av->getOverallAppearance() && !av->needsImpostorUpdate()) ))
                         if (av &&
-                            ((!sImpostorRender && av->isImpostor()) //ignore impostor flag during impostor pass
-                             //|| av->isInMuteList() // <FS:Ansariel> Partially undo MAINT-5700: Draw imposter for muted avatars
-                             || (LLVOAvatar::AOA_JELLYDOLL == av->getOverallAppearance() && !av->needsImpostorUpdate()) ))
+                            ((!sImpostorRender && av->isImpostorThisFrame()) //ignore impostor flag during impostor pass
+                             || (LLVOAvatar::AOA_JELLYDOLL == av->getOverallAppearanceThisFrame() && !av->needsImpostorUpdate()) ))
+                        // </FS:Trish>
                         {
                             return;
                         }
@@ -11027,6 +11034,8 @@ void LLPipeline::renderDeferredLighting()
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - local lights");
                 LL_PROFILE_GPU_ZONE("local lights");
                 bindDeferredShader(gDeferredLightProgram);
+                gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0); // <FS:Trish/> once, not per light
+                const bool fs_batch_lights = gFSPointLightBatch.begin(); // <FS:Trish/> FSPerfBatchedLocalLights
 
                 if (mCubeVB.isNull())
                 {
@@ -11107,11 +11116,19 @@ void LLPipeline::renderDeferredLighting()
                             continue;
                         }
 
+                        // <FS:Trish> Batched: queue the light, drawn instanced after the loop
+                        if (fs_batch_lights)
+                        {
+                            gFSPointLightBatch.add(c, s, col, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF));
+                            continue;
+                        }
+                        // </FS:Trish>
+
                         gDeferredLightProgram.uniform3fv(LLShaderMgr::LIGHT_CENTER, 1, c);
                         gDeferredLightProgram.uniform1f(LLShaderMgr::LIGHT_SIZE, s);
                         gDeferredLightProgram.uniform3fv(LLShaderMgr::DIFFUSE_COLOR, 1, col.mV);
                         gDeferredLightProgram.uniform1f(LLShaderMgr::LIGHT_FALLOFF, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF));
-                        gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0);
+                        //gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0); // <FS:Trish/> set once after the bind
 
                         gGL.syncMatrices();
 
@@ -11138,6 +11155,13 @@ void LLPipeline::renderDeferredLighting()
                 // prev site of appended deferred character light, removed by SL-13522 09/20
 
                 unbindDeferredShader(gDeferredLightProgram);
+
+                // <FS:Trish> Draw the queued point lights: one upload, one instanced draw per 512
+                if (fs_batch_lights)
+                {
+                    gFSPointLightBatch.flush(camera);
+                }
+                // </FS:Trish>
             }
 
             if (!spot_lights.empty())

@@ -55,6 +55,17 @@ extern void APIENTRY gl_debug_callback(GLenum source,
 
 thread_local LLRender gGL;
 
+// <FS:Trish> Filter state of registered render target textures, keyed by GL name.
+// Value 0 means unknown; otherwise FILTER_CACHE_VALID | (has mips ? FILTER_CACHE_MIPS : 0) | option.
+// thread_local like gGL, since each GL thread has its own LLTexUnit tracking.
+namespace
+{
+    constexpr U32 FILTER_CACHE_VALID = 0x100;
+    constexpr U32 FILTER_CACHE_MIPS = 0x200;
+    thread_local std::unordered_map<U32, U32> sFilterCacheState;
+}
+// </FS:Trish>
+
 // Handy copies of last good GL matrices
 F32 gGLModelView[16];
 F32 gGLLastModelView[16];
@@ -137,6 +148,8 @@ void LLTexUnit::refreshState(void)
 
     glActiveTexture(GL_TEXTURE0 + mIndex);
 
+    invalidateFastBind(); // <FS:Trish/>
+
     if (mCurrTexType != TT_NONE)
     {
         glBindTexture(sGLTextureType[mCurrTexType], mCurrTexture);
@@ -216,7 +229,17 @@ void LLTexUnit::bindFast(LLTexture* texture)
         gl_tex->forceUpdateBindStats();
         texture->bindDefaultImage(mIndex);
     }
-    glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+    // <FS:Trish> Skip the bind when bindFast already bound this texture here and nothing
+    // has bound anything on this unit since (every other bind path clears mFastBoundTex)
+    //glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+    if (mCurrTexture == 0 || mCurrTexture != mFastBoundTex || mCurrTexType != mFastBoundType || gGL.mDirty)
+    {
+        glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+        // the missing texture path above may have rebound through bind(), so only trust a real name
+        mFastBoundTex = (gl_tex->getTexName() != 0) ? mCurrTexture : 0;
+        mFastBoundType = mCurrTexType;
+    }
+    // </FS:Trish>
     mHasMipMaps = gl_tex->mHasMipMaps;
     if (gl_tex->mTexOptionsDirty)
     {
@@ -247,6 +270,7 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
                     enable(gl_tex->getTarget());
                     mCurrTexture = gl_tex->getTexName();
                     glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+                    invalidateFastBind(); // <FS:Trish/>
                     if(gl_tex->updateBindStats())
                     {
                         texture->setActive() ;
@@ -324,6 +348,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
         stop_glerror();
         mCurrTexture = texname;
         glBindTexture(sGLTextureType[texture->getTarget()], mCurrTexture);
+        invalidateFastBind(); // <FS:Trish/>
         stop_glerror();
         texture->updateBindStats();
         mHasMipMaps = texture->mHasMipMaps;
@@ -362,6 +387,7 @@ bool LLTexUnit::bind(LLCubeMap* cubeMap)
             enable(LLTexUnit::TT_CUBE_MAP);
             mCurrTexture = cubeMap->mImages[0]->getTexName();
             glBindTexture(GL_TEXTURE_CUBE_MAP, mCurrTexture);
+            invalidateFastBind(); // <FS:Trish/>
             mHasMipMaps = cubeMap->mImages[0]->mHasMipMaps;
             cubeMap->mImages[0]->updateBindStats();
             if (cubeMap->mImages[0]->mTexOptionsDirty)
@@ -417,6 +443,7 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
         enable(type);
         mCurrTexture = texture;
         glBindTexture(sGLTextureType[type], texture);
+        invalidateFastBind(); // <FS:Trish/>
         mHasMipMaps = hasMips;
     }
     return true;
@@ -437,6 +464,7 @@ void LLTexUnit::unbind(eTextureType type)
     if (mCurrTexType == type)
     {
         mCurrTexture = 0;
+        invalidateFastBind(); // <FS:Trish/>
 
         if (type == LLTexUnit::TT_TEXTURE)
         {
@@ -458,6 +486,7 @@ void LLTexUnit::unbindFast(eTextureType type)
     if (mCurrTexType == type)
     {
         mCurrTexture = 0;
+        invalidateFastBind(); // <FS:Trish/>
 
         if (type == LLTexUnit::TT_TEXTURE)
         {
@@ -551,7 +580,63 @@ void LLTexUnit::setTextureFilteringOptionFast(LLTexUnit::eTextureFilterOptions o
             glTexParameterf(sGLTextureType[tex_type], GL_TEXTURE_MAX_ANISOTROPY, 1.f);
         }
     }
+
+    // <FS:Trish> Record what was just applied for the texture bound to the active unit
+    if (!sFilterCacheState.empty())
+    {
+        // glTexParameter acts on the active unit, which is not necessarily this one
+        const LLTexUnit* active = gGL.getTexUnit(gGL.getCurrentTexUnitIndex());
+        if (active && active->mCurrTexType == tex_type && active->mCurrTexture != 0)
+        {
+            auto it = sFilterCacheState.find(active->mCurrTexture);
+            if (it != sFilterCacheState.end())
+            {
+                // anisotropic level is a global that can change, never cache it
+                it->second = (option == TFO_ANISOTROPIC) ? 0 : (FILTER_CACHE_VALID | (mHasMipMaps ? FILTER_CACHE_MIPS : 0) | (U32)option);
+            }
+        }
+        else
+        { // can't tell which texture was affected, forget everything
+            for (auto& entry : sFilterCacheState)
+            {
+                entry.second = 0;
+            }
+        }
+    }
+    // </FS:Trish>
 }
+
+// <FS:Trish> Render target filter state cache
+//static
+void LLTexUnit::registerFilterCacheTexture(U32 tex)
+{
+    if (tex)
+    {
+        sFilterCacheState[tex] = 0;
+    }
+}
+
+//static
+void LLTexUnit::unregisterFilterCacheTexture(U32 tex)
+{
+    sFilterCacheState.erase(tex);
+}
+
+bool LLTexUnit::isFilteringOptionCached(eTextureFilterOptions option) const
+{
+    // Only valid when this unit is the active one, since that's where setTextureFilteringOption's
+    // glTexParameter calls would land
+    if (mIndex < 0 || mCurrTexture == 0 || option == TFO_ANISOTROPIC || gGL.mDirty
+        || (S32)gGL.getCurrentTexUnitIndex() != mIndex)
+    {
+        return false;
+    }
+
+    auto it = sFilterCacheState.find(mCurrTexture);
+    return it != sFilterCacheState.end()
+        && it->second == (FILTER_CACHE_VALID | (mHasMipMaps ? FILTER_CACHE_MIPS : 0) | (U32)option);
+}
+// </FS:Trish>
 
 // Useful for debugging that you've manually assigned a texture operation to the correct
 // texture unit based on the currently set active texture in opengl.
@@ -1431,6 +1516,16 @@ void LLRender::blendFunc(eBlendFactor color_sfactor, eBlendFactor color_dfactor,
                            sGLBlendFactor[alpha_sfactor], sGLBlendFactor[alpha_dfactor]);
     }
 }
+
+// <FS:Trish> Forget bindFast's bound texture on every unit
+void LLRender::invalidateFastBinds()
+{
+    for (LLTexUnit& unit : mTexUnits)
+    {
+        unit.invalidateFastBind();
+    }
+}
+// </FS:Trish>
 
 LLTexUnit* LLRender::getTexUnit(U32 index)
 {
