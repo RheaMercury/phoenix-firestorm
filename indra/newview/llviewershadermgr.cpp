@@ -759,6 +759,16 @@ static bool hashShaderSources(HBXXH128& hash, const std::string& root, const std
     return true;
 }
 
+// <FS:Trish> A required shader phase failed: when a shader option changed since the last good load
+// (or, at startup, an FS shader option is on), some drivers (e.g. AMD) may reject its code. Put
+// those options back and let the caller load everything again, instead of exiting. Returns true
+// when the caller should retry; each retry reverts more, so this ends.
+static bool fsRecoverFromShaderFailure(const char* phase)
+{
+    return fs_revert_shader_settings_after_failure(phase);
+}
+// </FS:Trish>
+
 void LLViewerShaderMgr::setShaders()
 {
     LL_PROFILE_ZONE_SCOPED;
@@ -778,6 +788,11 @@ void LLViewerShaderMgr::setShaders()
         LL_INFOS("ShaderLoading") << "Not supported hardware/software" << LL_ENDL;
         return;
     }
+
+    // <FS:Trish> Parallel shader compile and load timing (one log line at the end)
+    static LLCachedControl<bool> fs_parallel_compile(gSavedSettings, "FSPerfParallelShaderCompile", false);
+    fsBeginLoadStats(fs_parallel_compile);
+    // </FS:Trish>
 
     {
         static LLCachedControl<bool> shader_cache_enabled(gSavedSettings, "RenderShaderCacheEnabled", true);
@@ -880,7 +895,11 @@ void LLViewerShaderMgr::setShaders()
     mShaderLevel[SHADER_WINDLIGHT] = wl_class;
     mShaderLevel[SHADER_DEFERRED] = deferred_class;
 
-    std::string shader_name = loadBasicShaders();
+    // <FS:Trish> Parallel shader compile: each load phase is one batch
+    //std::string shader_name = loadBasicShaders();
+    std::string shader_name;
+    fsRunBatched([&]() { shader_name = loadBasicShaders(); return shader_name.empty(); });
+    // </FS:Trish>
     if (shader_name.empty())
     {
         LL_INFOS("Shader") << "Loaded basic shaders." << LL_ENDL;
@@ -902,7 +921,10 @@ void LLViewerShaderMgr::setShaders()
 
     gPipeline.mShadersLoaded = false;
 
-    bool loaded = loadShadersWater();
+    // <FS:Trish> Parallel shader compile
+    //bool loaded = loadShadersWater();
+    bool loaded = fsRunBatched([this]() { return loadShadersWater(); });
+    // </FS:Trish>
 
     if (loaded)
     {
@@ -910,31 +932,61 @@ void LLViewerShaderMgr::setShaders()
     }
     else
     {
+        // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+        if (fsRecoverFromShaderFailure("water"))
+        {
+            reentrance = false;
+            setShaders();
+            return;
+        }
+        // </FS:Trish>
         LL_ERRS("Shader") << "Failed to load required water shaders. See preceding shader compilation/link errors." << LL_ENDL;
     }
 
     if (loaded)
     {
-        loaded = loadShadersEffects();
+        // <FS:Trish> Parallel shader compile
+        //loaded = loadShadersEffects();
+        loaded = fsRunBatched([this]() { return loadShadersEffects(); });
+        // </FS:Trish>
         if (loaded)
         {
             LL_INFOS() << "Loaded effects shaders." << LL_ENDL;
         }
         else
         {
+            // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+            if (fsRecoverFromShaderFailure("effects"))
+            {
+                reentrance = false;
+                setShaders();
+                return;
+            }
+            // </FS:Trish>
             LL_ERRS("Shader") << "Failed to load required effects shaders. See preceding shader compilation/link errors." << LL_ENDL;
         }
     }
 
     if (loaded)
     {
-        loaded = loadShadersInterface();
+        // <FS:Trish> Parallel shader compile
+        //loaded = loadShadersInterface();
+        loaded = fsRunBatched([this]() { return loadShadersInterface(); });
+        // </FS:Trish>
         if (loaded)
         {
             LL_INFOS() << "Loaded interface shaders." << LL_ENDL;
         }
         else
         {
+            // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+            if (fsRecoverFromShaderFailure("interface"))
+            {
+                reentrance = false;
+                setShaders();
+                return;
+            }
+            // </FS:Trish>
             LL_ERRS("Shader") << "Failed to load required interface shaders. See preceding shader compilation/link errors." << LL_ENDL;
         }
     }
@@ -945,7 +997,10 @@ void LLViewerShaderMgr::setShaders()
         mShaderLevel[SHADER_AVATAR] = 3;
         mMaxAvatarShaderLevel = 3;
 
-        if (loadShadersObject())
+        // <FS:Trish> Parallel shader compile
+        //if (loadShadersObject())
+        if (fsRunBatched([this]() { return loadShadersObject(); }))
+        // </FS:Trish>
         { //hardware skinning is enabled and rigged attachment shaders loaded correctly
             // cloth is a class3 shader
             constexpr S32 avatar_class = 1;
@@ -953,9 +1008,20 @@ void LLViewerShaderMgr::setShaders()
             // Set the actual level
             mShaderLevel[SHADER_AVATAR] = avatar_class;
 
-            loaded = loadShadersAvatar();
+            // <FS:Trish> Parallel shader compile
+            //loaded = loadShadersAvatar();
+            loaded = fsRunBatched([this]() { return loadShadersAvatar(); });
+            // </FS:Trish>
             if (!loaded)
             {
+                // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+                if (fsRecoverFromShaderFailure("avatar"))
+                {
+                    reentrance = false;
+                    setShaders();
+                    return;
+                }
+                // </FS:Trish>
                 LL_ERRS("Shader") << "Failed to load required avatar shaders. See preceding shader compilation/link errors." << LL_ENDL;
             }
         }
@@ -964,19 +1030,41 @@ void LLViewerShaderMgr::setShaders()
             // SHOULD NOT BE POSSIBLE
             // Hardware skinning not possible, neither is deferred rendering
             // but both are a hard requirement, viewer will crash without them
+            // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+            if (fsRecoverFromShaderFailure("object"))
+            {
+                reentrance = false;
+                setShaders();
+                return;
+            }
+            // </FS:Trish>
             LL_ERRS() << "Failed to load object shaders, cannot continue." << LL_ENDL;
         }
     }
 
     llassert(loaded);
-    loaded = loaded && loadShadersDeferred();
+    // <FS:Trish> Parallel shader compile
+    //loaded = loaded && loadShadersDeferred();
+    // A failed batch runs the phase again: drop the material programs it listed the first time
+    const size_t fs_list_size = mShaderList.size();
+    loaded = loaded && fsRunBatched([this, fs_list_size]() { mShaderList.resize(fs_list_size); return loadShadersDeferred(); });
+    // </FS:Trish>
     if (!loaded)
     {
+        // <FS:Trish> Shader settings revert on a failed load: retry without the new options rather than exit
+        if (fsRecoverFromShaderFailure("deferred"))
+        {
+            reentrance = false;
+            setShaders();
+            return;
+        }
+        // </FS:Trish>
         LL_ERRS("Shader") << "Failed to load required deferred shaders. See preceding shader compilation/link errors." << LL_ENDL;
         reentrance = false;
         return;
     }
     gPipeline.mShadersLoaded = true;
+    fs_shader_load_succeeded(); // <FS:Trish/> shader settings revert on a failed load
 
     if (!LLAppViewer::instance()->isSecondInstance())
     {
@@ -990,6 +1078,8 @@ void LLViewerShaderMgr::setShaders()
     gPipeline.createGLBuffers();
 
     finalizeShaderList();
+
+    fsEndLoadStats(); // <FS:Trish/>
 
     reentrance = false;
 }
@@ -1090,11 +1180,15 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         attribs["HAS_EMISSIVE"] = "1";
     }
 
-    // Blinn-Phong exponent at full glossiness, for deferredUtil's blinnPhongLobe. A define
-    // rather than a uniform because it reaches a shared object -- this map is what compiles
-    // those, and a program's own mShaderFiles never see it, which is fine: the lobe is
-    // evaluated in deferredUtil and nowhere else.
-    attribs["SPECULAR_EXPONENT"] = llformat("%.1f", gSavedSettings.getF32("RenderSpecularExponent"));
+    // <FS:Trish> The Blinn-Phong exponent (RenderSpecularExponent) is the uniform
+    // specular_exponent, uploaded in uploadValueUniforms: as a global define every new value
+    // changed every program's cache key and recompiled all of them.
+    //// Blinn-Phong exponent at full glossiness, for deferredUtil's blinnPhongLobe. A define
+    //// rather than a uniform because it reaches a shared object -- this map is what compiles
+    //// those, and a program's own mShaderFiles never see it, which is fine: the lobe is
+    //// evaluated in deferredUtil and nowhere else.
+    //attribs["SPECULAR_EXPONENT"] = llformat("%.1f", gSavedSettings.getF32("RenderSpecularExponent"));
+    // </FS:Trish>
 
     bool ssr = gSavedSettings.getBOOL("RenderScreenSpaceReflections");
 
@@ -1152,8 +1246,11 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     { // PBR terrain
         const S32 mapping = clamp_terrain_mapping(gSavedSettings.getS32("RenderTerrainPBRPlanarSampleCount"));
         attribs["TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT"] = llformat("%d", mapping);
-        const F32 triplanar_factor = gSavedSettings.getF32("RenderTerrainPBRTriplanarBlendFactor");
-        attribs["TERRAIN_TRIPLANAR_BLEND_FACTOR"] = llformat("%.2f", triplanar_factor);
+        // <FS:Trish> The triplanar blend factor is the uniform terrain_triplanar_blend_factor,
+        // uploaded in uploadValueUniforms, so changing it does not recompile every program
+        //const F32 triplanar_factor = gSavedSettings.getF32("RenderTerrainPBRTriplanarBlendFactor");
+        //attribs["TERRAIN_TRIPLANAR_BLEND_FACTOR"] = llformat("%.2f", triplanar_factor);
+        // </FS:Trish>
         S32 detail = gSavedSettings.getS32("RenderTerrainPBRDetail");
         detail = llclamp(detail, TERRAIN_PBR_DETAIL_MIN, TERRAIN_PBR_DETAIL_MAX);
         attribs["TERRAIN_PBR_DETAIL"] = llformat("%d", detail);
@@ -4205,7 +4302,29 @@ void LLViewerShaderMgr::updateShaderUniforms(LLGLSLShader * shader)
         shader->uniform1f(sThreshold, llclamp((F32)threshold, 0.f, 1.f));
     }
     // </FS:Trish>
+
+    uploadValueUniforms(*shader); // <FS:Trish/>
 }
+
+// <FS:Trish> Setting values the shared shader objects read as uniforms rather than global
+// defines, so that changing one does not change every program's binary cache key. Called from
+// updateShaderUniforms, which reaches the listed programs and their rigged variants (materials,
+// PBR terrain) on the first bind of each frame, and from LLPipeline::bindDeferredShader for the
+// deferred light and soften programs, which are not listed. Programs without a uniform have no
+// location for it, which makes its upload a no-op; uniform1f skips unchanged values.
+// The values are rounded as the defines' text was (%.1f and %.2f), so rendering is unchanged.
+// static
+void LLViewerShaderMgr::uploadValueUniforms(LLGLSLShader& shader)
+{
+    static LLCachedControl<F32> specular_exponent(gSavedSettings, "RenderSpecularExponent", 368.f);
+    static LLCachedControl<F32> triplanar_factor(gSavedSettings, "RenderTerrainPBRTriplanarBlendFactor", 8.f);
+    static LLStaticHashedString sSpecularExponent("specular_exponent");
+    static LLStaticHashedString sTriplanarFactor("terrain_triplanar_blend_factor");
+
+    shader.uniform1f(sSpecularExponent, (F32)ll_round((F32)specular_exponent * 10.f) / 10.f);
+    shader.uniform1f(sTriplanarFactor, (F32)ll_round((F32)triplanar_factor * 100.f) / 100.f);
+}
+// </FS:Trish>
 
 LLViewerShaderMgr::shader_iter LLViewerShaderMgr::beginShaders() const
 {
