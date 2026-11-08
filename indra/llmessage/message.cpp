@@ -529,10 +529,14 @@ bool LLMessageSystem::checkMessages(LockMessageChecker&, S64 frame_count )
         S32 num_acks = 0;
         S32 true_rcv_size = 0;
         bool recv_packet_id_checked = false;
+        bool recv_ack_collected = false; // <FS:Trish/>
 
         U8* buffer = mTrueReceiveBuffer;
 
-        mTrueReceiveSize = receivePacketOrDrop((char *)mTrueReceiveBuffer, recv_packet_id_checked);
+        // <FS:Trish> Buffered packets may already have had their ack collected
+        //mTrueReceiveSize = receivePacketOrDrop((char *)mTrueReceiveBuffer, recv_packet_id_checked);
+        mTrueReceiveSize = receivePacketOrDrop((char *)mTrueReceiveBuffer, recv_packet_id_checked, recv_ack_collected);
+        // </FS:Trish>
         // If you want to dump all received packets into SecondLife.log, uncomment this
         //dumpPacketToLog();
 
@@ -635,7 +639,13 @@ bool LLMessageSystem::checkMessages(LockMessageChecker&, S64 frame_count )
                         //}
                         // ***************************************
                         //mCircuitInfo.mCurrentCircuit->mAcks.put(mCurrentRecvPacketID);
-                        cdp->collectRAck(mCurrentRecvPacketID);
+                        // <FS:Trish> Skip if already acked when it was buffered
+                        //cdp->collectRAck(mCurrentRecvPacketID);
+                        if (!recv_ack_collected)
+                        {
+                            cdp->collectRAck(mCurrentRecvPacketID);
+                        }
+                        // </FS:Trish>
                     }
 
                     LL_DEBUGS("Messaging") << "Discarding duplicate resend from " << host << LL_ENDL;
@@ -727,7 +737,13 @@ bool LLMessageSystem::checkMessages(LockMessageChecker&, S64 frame_count )
                     cdp->mRecentlyReceivedReliablePackets[mCurrentRecvPacketID] = getMessageTimeUsecs();
 
                     // Put it onto the list of packets to be acked
-                    cdp->collectRAck(mCurrentRecvPacketID);
+                    // <FS:Trish> Skip if already acked when it was buffered
+                    //cdp->collectRAck(mCurrentRecvPacketID);
+                    if (!recv_ack_collected)
+                    {
+                        cdp->collectRAck(mCurrentRecvPacketID);
+                    }
+                    // </FS:Trish>
                     mReliablePacketsIn++;
                 }
             }
@@ -850,6 +866,14 @@ void LLMessageSystem::processAcks(LockMessageChecker&, F32 collect_time)
     }
 }
 
+// <FS:Trish> For drains outside the message loop (after a long frame): the packets were acked when
+// buffered, and the sim has already waited out the frame, so send those acks now rather than after idle.
+void LLMessageSystem::sendCollectedAcks()
+{
+    mCircuitInfo.sendAcks(0.f);
+}
+// </FS:Trish>
+
 S32 LLMessageSystem::drainUdpSocket()
 {
     S32 packet_size = 1;
@@ -916,7 +940,33 @@ bool LLMessageSystem::isHighPriorityMessage(const LLPacketBuffer& pkt) const
     //
     // AvatarAppearance is "Low 158" which means it is stored in four bytes: 0xff 0xff 0x00 0x9E
     // the last two bytes represent 158 in a BigEndian U16
-    return header[1] != 255 && header[2] != 0 && header[3] != 158;
+    // <FS:Trish> The old test sent every Low and Fixed message (RegionHandshake,
+    // AgentMovementComplete, ChatFromSimulator, PacketAck...) to the low
+    // priority queue and made Medium messages depend on their first body byte.
+    //return header[1] != 255 && header[2] != 0 && header[3] != 158;
+    if (header[1] != 255)
+    {
+        // Medium frequency
+        return true;
+    }
+
+    // Low or Fixed frequency. The message number follows the 6 byte packet
+    // header and is part of the zero-coded body, so a zero-coded
+    // AvatarAppearance arrives as 0xff 0xff 0x00 0x01 0x9e.
+    const U8* data = (const U8*)pkt.getData();
+    if (data[PHL_FLAGS] & LL_ZERO_CODE_FLAG)
+    {
+        if (size >= LL_PACKET_ID_SIZE + 5 && header[2] == 0 && header[3] == 1 && header[4] == 158)
+        {
+            return false;
+        }
+    }
+    else if (header[2] == 0 && header[3] == 158)
+    {
+        return false;
+    }
+    return true;
+    // </FS:Trish>
 }
 
 void LLMessageSystem::dropPackets(U32 num_to_drop)
@@ -929,9 +979,13 @@ void LLMessageSystem::setDropPercentage(F32 percent_to_drop)
     mDropPercentage = percent_to_drop;
 }
 
-S32 LLMessageSystem::receivePacketOrDrop(char* datap, bool& packet_id_already_checked)
+// <FS:Trish> Also report whether the reliable ack was already collected
+//S32 LLMessageSystem::receivePacketOrDrop(char* datap, bool& packet_id_already_checked)
+S32 LLMessageSystem::receivePacketOrDrop(char* datap, bool& packet_id_already_checked, bool& ack_already_collected)
+// </FS:Trish>
 {
     packet_id_already_checked = false;
+    ack_already_collected = false; // <FS:Trish/>
 
     if (getNumBufferedPackets() > 0)
     {
@@ -946,6 +1000,7 @@ S32 LLMessageSystem::receivePacketOrDrop(char* datap, bool& packet_id_already_ch
         mLastSender      = pkt.getHost();
         mLastReceivingIF = pkt.getReceivingInterface();
         packet_id_already_checked = pkt.getPacketIDChecked();
+        ack_already_collected = pkt.getAckCollected(); // <FS:Trish/>
 
         if (packet_size > 0)
         {
@@ -1014,6 +1069,15 @@ S32 LLMessageSystem::bufferInboundPacket()
     LLPacketBuffer pkt(invalid_host, nullptr, 0);
     S32 packet_size = 0;
 
+    // <FS:Trish> A full ring would overwrite a packet that was already acked, which the sim then never
+    // resends. Leave the rest in the socket buffer, unacked, until the rings have room (the 8 MB receive
+    // buffer can hold far more than a ring after a long stall).
+    if (mHighPriorityInbound.isFull() || mLowPriorityInbound.isFull())
+    {
+        return 0;
+    }
+    // </FS:Trish>
+
     if (LLProxy::isSOCKSProxyEnabled())
     {
         char buffer[NET_BUFFER_SIZE + SOCKS_HEADER_SIZE];   /* Flawfinder ignore */
@@ -1078,12 +1142,23 @@ S32 LLMessageSystem::bufferInboundPacket()
             }
         }
 
+        // <FS:Trish> Also apply standalone PacketAck messages now. Left in the
+        // ring, they would only be seen after the end-of-frame resend pass,
+        // which then resends packets the sim has already acked. The message is
+        // still dispatched normally later; acking an id twice is a no-op.
+        if (cdp)
+        {
+            harvestPacketAckMessage(cdp, (const U8*)data, packet_size);
+        }
+        // </FS:Trish>
+
         if (cdp)
         {
             // ACK inbound reliable packet ASAP
             if ((data[0] & LL_RELIABLE_FLAG))
             {
                 cdp->collectRAck(recv_packet_id);
+                pkt.setAckCollected(true); // <FS:Trish/> don't ack again when popped
             }
 
             // Check packet sequencing here, in true socket-arrival order, before
@@ -1110,6 +1185,56 @@ S32 LLMessageSystem::bufferInboundPacket()
 
     return packet_size;
 }
+
+// <FS:Trish>
+void LLMessageSystem::harvestPacketAckMessage(LLCircuitData* cdp, const U8* data, S32 packet_size)
+{
+    // PacketAck is "Fixed 0xFFFFFFFB Unencoded": ff ff ff fb, then a variable
+    // block count (U8) and that many little-endian U32 packet ids. Skip
+    // anything zero-coded or malformed and leave it to the normal dispatch.
+    if (!cdp || (data[PHL_FLAGS] & LL_ZERO_CODE_FLAG))
+    {
+        return;
+    }
+
+    S32 end = packet_size;
+    if (data[PHL_FLAGS] & LL_ACK_FLAG)
+    {
+        // Exclude the piggybacked ack tail
+        end -= 1 + (S32)data[packet_size - 1] * (S32)sizeof(TPACKETID);
+    }
+
+    const S32 name_pos = PHL_NAME;
+    if (end < name_pos + 5
+        || data[name_pos] != 0xFF || data[name_pos + 1] != 0xFF
+        || data[name_pos + 2] != 0xFF || data[name_pos + 3] != 0xFB)
+    {
+        return;
+    }
+
+    S32 pos = name_pos + 4 + (S32)data[PHL_OFFSET];
+    if (pos >= end)
+    {
+        return;
+    }
+    S32 count = (S32)data[pos++];
+    if (count <= 0 || pos + count * (S32)sizeof(U32) > end)
+    {
+        return;
+    }
+
+    for (S32 i = 0; i < count; ++i, pos += sizeof(U32))
+    {
+        U32 ack_id = 0;
+        htolememcpy(&ack_id, &data[pos], MVT_U32, sizeof(U32));
+        cdp->ackReliablePacket(ack_id);
+    }
+    if (!cdp->getUnackedPacketCount())
+    {
+        mCircuitInfo.mUnackedCircuitMap.erase(cdp->mHost);
+    }
+}
+// </FS:Trish>
 
 bool LLMessageSystem::sendPacketToSocket(const char* datap, S32 data_size, LLHost host)
 {

@@ -184,12 +184,18 @@ enum EPacketHeaderLayout
 
 
 const S32 LL_DEFAULT_RELIABLE_RETRIES = 3;
-const F32Seconds LL_MINIMUM_RELIABLE_TIMEOUT_SECONDS(1.f);
+// <FS:Trish> Resend lost reliable packets sooner. Averaged ping is clamped to
+// at least LL_AVERAGED_PING_MIN (100 ms), so the timeout never drops below
+// 0.4 s, and resends back off exponentially (see LLCircuitData).
+//const F32Seconds LL_MINIMUM_RELIABLE_TIMEOUT_SECONDS(1.f);
+const F32Seconds LL_MINIMUM_RELIABLE_TIMEOUT_SECONDS(0.4f);
+// </FS:Trish>
 const F32Seconds LL_MINIMUM_SEMIRELIABLE_TIMEOUT_SECONDS(1.f);
 const F32Seconds LL_PING_BASED_TIMEOUT_DUMMY(0.0f);
 
 const F32 LL_SEMIRELIABLE_TIMEOUT_FACTOR    = 5.f;      // averaged ping
-const F32 LL_RELIABLE_TIMEOUT_FACTOR        = 5.f;      // averaged ping
+//const F32 LL_RELIABLE_TIMEOUT_FACTOR        = 5.f;      // averaged ping
+const F32 LL_RELIABLE_TIMEOUT_FACTOR        = 4.f;      // averaged ping // <FS:Trish/>
 const F32 LL_LOST_TIMEOUT_FACTOR            = 16.f;     // averaged ping for marking packets "Lost"
 const F32Seconds LL_MAX_LOST_TIMEOUT(5.f);              // Maximum amount of time before considering something "lost"
 
@@ -465,6 +471,7 @@ public:
 
     // returns total number of buffered packets after the drain
     S32     drainUdpSocket();
+    void    sendCollectedAcks(); // <FS:Trish/> send the acks collected so far, as processAcks does
 
     // Inbound Packet-loss simulation controls
     void dropPackets(U32 num_to_drop);
@@ -972,11 +979,19 @@ private:
     // Sets packet_id_already_checked to whether checkPacketInID() was already
     // run for this packet back when it was buffered (see bufferInboundPacket()).
     // Returns packet_size, or 0 if no packet or packet was dropped.
-    S32  receivePacketOrDrop(char* datap, bool& packet_id_already_checked);
+    // <FS:Trish> ack_already_collected: collectRAck() already ran at buffer time
+    //S32  receivePacketOrDrop(char* datap, bool& packet_id_already_checked);
+    S32  receivePacketOrDrop(char* datap, bool& packet_id_already_checked, bool& ack_already_collected);
+    // </FS:Trish>
 
     // Read one raw packet from mSocket into inbound message queues
     // Returns packet_size (0 if no packet was available).
     S32  bufferInboundPacket();
+
+    // <FS:Trish> If the raw packet is a standalone PacketAck message, apply
+    // its acks to cdp right away (used while buffering).
+    void harvestPacketAckMessage(LLCircuitData* cdp, const U8* data, S32 packet_size);
+    // </FS:Trish>
 
     // Returns true if the next inbound packet should be intentionally dropped.
     bool computeDrop();
