@@ -299,6 +299,11 @@ public:
     bool            getLeftMouseDown()  const   { return mLeftMouseDown; }
     bool            getMiddleMouseDown()    const   { return mMiddleMouseDown; }
     bool            getRightMouseDown() const   { return mRightMouseDown; }
+    // <FS:Trish> Screen height (raw pixels) the main view covers at its field of view: the world
+    // view height, or during a snapshot larger than the window, the height the window had for
+    // the same view. Pixel-sized post effects scale by target height over this.
+    F32             getFSScreenEquivalentHeightRaw() const;
+    // </FS:Trish>
 
     const LLPickInfo&   getLastPick() const { return mLastPick; }
 
@@ -530,6 +535,7 @@ private:
 
     LLCoordGL       mCurrentMousePoint;         // last mouse position in GL coords
     LLCoordGL       mLastMousePoint;        // Mouse point at last frame.
+    F32             mFSSnapshotScreenHeight = 0.f; // <FS:Trish/> see getFSScreenEquivalentHeightRaw(), 0 outside large snapshots
     LLCoordGL       mCurrentMouseDelta;     //amount mouse moved this frame
     bool            mLeftMouseDown;
     bool            mMiddleMouseDown;
