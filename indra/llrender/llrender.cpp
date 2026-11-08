@@ -212,14 +212,21 @@ void LLTexUnit::bindFast(LLTexture* texture)
 {
     LLImageGL* gl_tex = texture->getGLTexture();
     texture->setActive();
-    // <FS:Trish> Same active unit tracking activate() relies on, pushBatch binds up to 16 units per draw
+    // <FS:Trish> Switch the active unit only when something is bound or set on it: pushBatch
+    // binds up to 16 units per draw, most of them already holding their texture, and the switch
+    // before each skipped bind was a GL call for nothing. The unit is only recorded as active
+    // when it was made active.
     //glActiveTexture(GL_TEXTURE0 + mIndex);
-    if ((S32)gGL.mCurrTextureUnitIndex != mIndex || gGL.mDirty)
+    //gGL.mCurrTextureUnitIndex = mIndex;
+    auto activate_unit = [this]()
     {
-        glActiveTexture(GL_TEXTURE0 + mIndex);
-    }
+        if ((S32)gGL.mCurrTextureUnitIndex != mIndex || gGL.mDirty)
+        {
+            glActiveTexture(GL_TEXTURE0 + mIndex);
+            gGL.mCurrTextureUnitIndex = mIndex;
+        }
+    };
     // </FS:Trish>
-    gGL.mCurrTextureUnitIndex = mIndex;
     mCurrTexture = gl_tex->getTexName();
     mCurrTexType = gl_tex->getTarget();
     if (!mCurrTexture)
@@ -228,6 +235,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
         //if deleted, will re-generate it immediately
         texture->forceImmediateUpdate();
         gl_tex->forceUpdateBindStats();
+        activate_unit(); // <FS:Trish/>
         texture->bindDefaultImage(mIndex);
     }
     // <FS:Trish> Skip the bind when bindFast already bound this texture here and nothing
@@ -235,6 +243,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
     //glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
     if (mCurrTexture == 0 || mCurrTexture != mFastBoundTex || mCurrTexType != mFastBoundType || gGL.mDirty)
     {
+        activate_unit();
         glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
         // the missing texture path above may have rebound through bind(), so only trust a real name
         mFastBoundTex = (gl_tex->getTexName() != 0) ? mCurrTexture : 0;
@@ -244,6 +253,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
     mHasMipMaps = gl_tex->mHasMipMaps;
     if (gl_tex->mTexOptionsDirty)
     {
+        activate_unit(); // <FS:Trish/> the parameters go to the active unit's texture
         gl_tex->mTexOptionsDirty = false;
         setTextureAddressModeFast(gl_tex->mAddressMode, gl_tex->getTarget());
         setTextureFilteringOptionFast(gl_tex->mFilterOption, gl_tex->getTarget());
@@ -264,6 +274,11 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
         {
             if (gl_tex->getTexName()) //if texture exists
             {
+                // <FS:Trish> The unit is made active also when it already holds the texture: callers go on with
+                // calls on the active unit's texture (parameters, uploads), which would otherwise land on
+                // whatever another unit holds (often the default image, the placeholder of loading textures)
+                activate();
+                // </FS:Trish>
                 //in audit, replace the selected texture by the default one.
                 if ((mCurrTexture != gl_tex->getTexName()) || forceBind)
                 {
@@ -339,6 +354,10 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
         return false ;
     }
 
+    // <FS:Trish> Active also when it already holds the texture (see bind(LLTexture*)): setImage, scaleDown and
+    // setSubImageFromFrameBuffer write to the active unit's texture right after this
+    activate();
+    // </FS:Trish>
     if ((mCurrTexture != texname) || forceBind)
     {
         gGL.flush();
@@ -380,6 +399,7 @@ bool LLTexUnit::bind(LLCubeMap* cubeMap)
         return false;
     }
 
+    activate(); // <FS:Trish/> also when it already holds the cube map (see bind(LLTexture*))
     if (mCurrTexture != cubeMap->mImages[0]->getTexName())
     {
         if (LLCubeMap::sUseCubeMaps)
@@ -436,6 +456,7 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
         return false;
     }
 
+    activate(); // <FS:Trish/> also when it already holds the texture (see bind(LLTexture*)): callers upload next
     if(mCurrTexture != texture)
     {
         gGL.flush();
@@ -912,6 +933,7 @@ bool LLRender::init(bool needs_vertex_buffer)
         glGenVertexArrays(1, &ret);
         glBindVertexArray(ret);
         LLVertexBuffer::invalidateAttributeSetup(); // </FS:Beq> A new VAO has no configured pointers.
+        LLVertexBuffer::fsSetDefaultVAO(ret); // <FS:Trish/> FSPerfVertexArrayObjects
     }
 
     if (needs_vertex_buffer)
