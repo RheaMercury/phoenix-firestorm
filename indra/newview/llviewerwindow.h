@@ -299,6 +299,12 @@ public:
     bool            getLeftMouseDown()  const   { return mLeftMouseDown; }
     bool            getMiddleMouseDown()    const   { return mMiddleMouseDown; }
     bool            getRightMouseDown() const   { return mRightMouseDown; }
+    // <FS:Trish> FSRenderUICap: seconds (LLFrameTimer) of the last input aimed at the UI (mouse or
+    // wheel over a UI view, keys with a UI control focused), and whether the mouse is over the UI
+    F64             getFSLastUIInput() const    { return mFSLastUIInput; }
+    bool            getFSUIHover() const        { return mFSUIHover; }
+    void            fsNoteUIInput()             { mFSLastUIInput = LLFrameTimer::getElapsedSeconds(); }
+    // </FS:Trish>
     // <FS:Trish> Screen height (raw pixels) the main view covers at its field of view: the world
     // view height, or during a snapshot larger than the window, the height the window had for
     // the same view. Pixel-sized post effects scale by target height over this.
@@ -535,6 +541,8 @@ private:
 
     LLCoordGL       mCurrentMousePoint;         // last mouse position in GL coords
     LLCoordGL       mLastMousePoint;        // Mouse point at last frame.
+    F64             mFSLastUIInput = 0.0;   // <FS:Trish/> see getFSLastUIInput()
+    bool            mFSUIHover = false;     // <FS:Trish/> see getFSUIHover()
     F32             mFSSnapshotScreenHeight = 0.f; // <FS:Trish/> see getFSScreenEquivalentHeightRaw(), 0 outside large snapshots
     LLCoordGL       mCurrentMouseDelta;     //amount mouse moved this frame
     bool            mLeftMouseDown;

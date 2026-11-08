@@ -1493,6 +1493,8 @@ void LLPipeline::refreshCachedSettings()
     LLUIImage::enableDisplayListsCollection(enable_buffers);
 }
 
+void fs_release_ui_buffer(); // <FS:Trish/> llviewerdisplay.cpp, FSRenderUICap
+
 // <FS:Trish> Dust motes: one point per grid cell around the camera (renderDustMotes)
 static LLPointer<LLVertexBuffer> sFSDustPoints;
 static S32 sFSDustPointsRadius = -1;
@@ -1510,6 +1512,7 @@ void LLPipeline::releaseGLBuffers()
 
     LLDrawPoolWater::fsReleaseFoamDepth(); // <FS:Trish/> shoreline foam depth
     fs_release_dust_points(); // <FS:Trish/> dust motes
+    fs_release_ui_buffer(); // <FS:Trish/> FSRenderUICap
     FSGPUTimers::releaseGL(); // <FS:Trish/> FSRenderGPUTimings: query names die with the context
 
     if (mNoiseMap)
