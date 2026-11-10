@@ -1341,6 +1341,8 @@ namespace
                                 << " thread_uploads=" << thread_uploads
                                 << " thread_mb=" << (F64)thread_bytes / MB
                                 << " thread_skipped=" << thread_skipped
+                                << " thread_staged=" << pbo.mStaged
+                                << " thread_stage_full=" << pbo.mStageFull
                                 << LL_ENDL;
         }
         log_timer.reset();
@@ -1506,6 +1508,15 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             llassert(image->mDownScalePending);
 
             LLImageGL* img = image->getGLTexture();
+            // <FS:Trish> FSPerfGPUDrivenPBRBindless: a bindless texture moves to a fresh one to shrink.
+            // When none is ready, making one waits for the render thread to work through everything
+            // queued (a hitch of tens of milliseconds or more), so the rest wait a frame for the ones
+            // just requested instead.
+            if (img && img->getHasGLTexture() && !img->fsCanMoveNow())
+            {
+                break;
+            }
+            // </FS:Trish>
             if (img && img->getHasGLTexture())
             {
                 img->scaleDown(image->getDesiredDiscardLevel());

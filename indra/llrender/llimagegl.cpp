@@ -326,6 +326,178 @@ bool LLImageGL::fsMakeWritable(bool copy_contents, S32 bind_unit)
     }
     return true;
 }
+
+bool LLImageGL::fsCanMoveNow() const
+{
+    if (!mTexName || !gGLManager.mHasDSA || !FSGLStream::isRecording() || !fsIsTextureLocked(mTexName))
+    {
+        return true; // no move, or generateTextures takes a name from a pool that doesn't wait
+    }
+    return FSGLStream::reserveTextures(mTarget, 1);
+}
+
+// The CPU side of createGLTexture(raw) -> createGLTexture(data) -> setImage() as the texture thread runs it,
+// for the common case: an uncompressed 8-bit RGB(A) 2D texture with generated mips or none
+bool LLImageGL::fsPrepareUpload(S32 discard_level, const LLImageRaw* imageraw, S32 category, FSPreparedUpload& out)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
+    fsDropPreparedUpload(out);
+    if (gGLManager.mIsDisabled || !FSTextureUpload::canStage() || !imageraw || imageraw->isBufferInvalid() ||
+        mTarget != GL_TEXTURE_2D || (sCompressTextures && mAllowCompression))
+    {
+        return false;
+    }
+    const S32 components = imageraw->getComponents();
+    if (components != 3 && components != 4)
+    {
+        return false;
+    }
+    if (mHasExplicitFormat &&
+        (mFormatType != GL_UNSIGNED_BYTE || mFormatSwapBytes ||
+         !((mFormatPrimary == GL_RGBA && components == 4) || (mFormatPrimary == GL_RGB && components == 3))))
+    {
+        return false;
+    }
+
+    if (discard_level < 0)
+    {
+        if (mCurrentDiscardLevel < 0)
+        {
+            return false;
+        }
+        discard_level = mCurrentDiscardLevel;
+    }
+    discard_level = llmin(discard_level, MAX_DISCARD_LEVEL);
+    const S32 raw_w = imageraw->getWidth();
+    const S32 raw_h = imageraw->getHeight();
+    if (!setSize(raw_w << discard_level, raw_h << discard_level, components, discard_level))
+    {
+        return false;
+    }
+    if (!mHasExplicitFormat)
+    {
+        mFormatInternal = components == 4 ? GL_RGBA8 : GL_RGB8;
+        mFormatPrimary = components == 4 ? GL_RGBA : GL_RGB;
+        mFormatType = GL_UNSIGNED_BYTE;
+        calcAlphaChannelOffsetAndStride();
+    }
+    setCategory(category);
+
+    discard_level = llclamp(discard_level, 0, (S32)mMaxDiscardLevel);
+    discard_level = llmin(discard_level, MAX_DISCARD_LEVEL);
+    const S32 w = getWidth(discard_level);
+    const S32 h = getHeight(discard_level);
+    const U8* data = imageraw->getData();
+    if (w != raw_w || h != raw_h ||
+        !FSTextureUpload::stage(data, w, h, mFormatPrimary, mFormatType, out.mStaged))
+    {
+        return false;
+    }
+
+    // setImage's CPU work, with the decoder's analysis when it matches
+    mUploadAlphaInfo = imageraw->getAlphaInfo();
+    analyzeAlpha(data, w, h);
+    updatePickMask(w, h, data);
+    mUploadAlphaInfo = nullptr;
+
+    out.mDiscard = discard_level;
+    return true;
+}
+
+// The GL side of the same, recorded on the main thread into a new texture name
+bool LLImageGL::fsCommitPreparedUpload(FSPreparedUpload& prepared)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
+    if (!prepared.mStaged.mSeq)
+    {
+        return false;
+    }
+    if (gGLManager.mIsDisabled || prepared.mDiscard < 0 || !FSTextureUpload::isStaged(prepared.mStaged))
+    {
+        fsDropPreparedUpload(prepared);
+        return false;
+    }
+    const S32 discard_level = prepared.mDiscard;
+    const S32 w = prepared.mStaged.mWidth;
+    const S32 h = prepared.mStaged.mHeight;
+
+    // createGLTexture(data), off the main thread case: a new name
+    const GLuint old_texname = mTexName;
+    GLuint new_texname = 0;
+    LLImageGL::generateTextures(1, &new_texname, mTarget);
+    if (!new_texname)
+    {
+        fsDropPreparedUpload(prepared);
+        return false;
+    }
+    gGL.getTexUnit(0)->bind(this, false, false, new_texname);
+    glTexParameteri(LLTexUnit::getInternalType(mBindTarget), GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(LLTexUnit::getInternalType(mBindTarget), GL_TEXTURE_MAX_LEVEL, mMaxDiscardLevel - discard_level);
+    if (mUseMipMaps)
+    {
+        mAutoGenMips = true;
+    }
+    mCurrentDiscardLevel = discard_level;
+
+    // setImage(data, false, new_texname)
+    if (mUseMipMaps)
+    {
+        gGL.getTexUnit(0)->unbind(mBindTarget);
+        mHasMipMaps = true;
+        mTexOptionsDirty = true;
+        setFilteringOption(LLTexUnit::TFO_ANISOTROPIC);
+    }
+    else
+    {
+        mHasMipMaps = false;
+    }
+    gGL.getTexUnit(0)->bind(this, false, false, new_texname);
+    if (!FSTextureUpload::texImage2DStaged(prepared.mStaged, mTarget, 0, mFormatInternal))
+    {
+        // The new texture has no pixels: drop it and keep the current one. The caller then
+        // creates the texture the usual way.
+        gGL.getTexUnit(0)->unbind(mBindTarget);
+        LLImageGL::deleteTextures(1, &new_texname);
+        return false;
+    }
+    alloc_tex_image(w, h, mFormatInternal, 1);
+    if (mUseMipMaps)
+    {
+        mMipLevels = wpo2(llmax(w, h));
+        glGenerateMipmap(mTarget);
+        alloc_tex_mips();
+    }
+    else
+    {
+        mMipLevels = 0;
+    }
+    mGLTextureCreated = true;
+
+    // the rest of createGLTexture(data)
+    gGL.getTexUnit(0)->setHasMipMaps(mHasMipMaps);
+    gGL.getTexUnit(0)->setTextureAddressMode(mAddressMode);
+    gGL.getTexUnit(0)->setTextureFilteringOption(mFilterOption);
+    gGL.getTexUnit(0)->unbind(mBindTarget);
+
+    if (old_texname != 0 && old_texname != new_texname)
+    {
+        LLImageGL::deleteTextures(1, &old_texname);
+    }
+    mTexName = new_texname;
+    mFSNoBindlessUntil = 0.f; // a fresh texture can have a handle again
+
+    mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+    mLastBindTime = sLastFrameTime;
+    prepared.mDiscard = -1;
+    return true;
+}
+
+// static
+void LLImageGL::fsDropPreparedUpload(FSPreparedUpload& prepared)
+{
+    FSTextureUpload::release(prepared.mStaged);
+    prepared.mDiscard = -1;
+}
 // </FS:Trish>
 std::unordered_set<LLImageGL*> LLImageGL::sImageList;
 
