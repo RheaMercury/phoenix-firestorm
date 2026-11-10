@@ -72,6 +72,11 @@ uniform sampler2D lightMap;         // log2 luminance at a quarter size, with mi
 uniform vec4 local_tm_params;       // x on, y strength, z detail boost
 uniform vec2 local_tm_lods;         // fine and coarse base levels
 
+uniform float fs_night_vision;      // strength times how dark the sky is, 0 by day or when off
+uniform float exposure;             // tonemapUtilF.glsl's, for how bright a pixel will be on screen
+uniform sampler2D exposureMap;
+uniform float fs_halation;          // share of the bloom that comes back as halation, 0 is off
+
 // Compresses the large scale contrast toward the frame's average and keeps (or boosts) the
 // detail on top of it. The base is the coarse level where it agrees with the fine one and the
 // fine one across strong edges, so a bright window doesn't leave a dark halo around it.
@@ -88,6 +93,49 @@ vec3 localTonemap(vec3 c)
     float detail = clamp(L - base, -4.0, 4.0);
     float stops = (key - base) * local_tm_params.y + detail * (local_tm_params.z - 1.0);
     return c * exp2(clamp(stops, -6.0, 6.0));
+}
+
+// Night vision: in the dark the eye's rods take over from the cones. They can't tell colours
+// apart and are most sensitive to blue-green light, so dark parts of a night scene lose their
+// colour and shift toward blue, reds go darker than blues of the same brightness (the Purkinje
+// shift), and fine detail softens, as rods are pooled over wider areas than cones. Lit parts
+// (lamps, fires, the moon) keep their colour and sharpness. Follows what is dark on screen,
+// after the exposure, so a bright lamp-lit room at night stays in colour.
+
+// How much of the rods' vision this pixel gets: the night strength, for what is dark on screen.
+// The curve is wide and soft, so a whole night scene shifts and not only its blackest parts.
+float fsNightWeight(float display_luma)
+{
+    float dark = 1.0 - smoothstep(0.0, 0.45, display_luma);
+    return fs_night_vision * sqrt(dark);
+}
+
+// Rods pool over wider areas: the dark parts of the image take a little of their neighbours,
+// before the tone mapping so the blur works on the scene's light
+vec3 fsNightSoften(vec3 hdr, vec2 tc)
+{
+    float exposed = dot(hdr, vec3(0.2126, 0.7152, 0.0722)) * exposure * texture(exposureMap, vec2(0.5, 0.5)).r;
+    float w = fsNightWeight(exposed / (1.0 + exposed)); // a rough display brightness, enough to weigh by
+    if (w <= 0.01)
+    {
+        return hdr;
+    }
+    vec2 px = 1.5 / vec2(textureSize(diffuseRect, 0));
+    vec3 n = texture(diffuseRect, tc + vec2(px.x, px.y)).rgb
+           + texture(diffuseRect, tc + vec2(-px.x, px.y)).rgb
+           + texture(diffuseRect, tc + vec2(px.x, -px.y)).rgb
+           + texture(diffuseRect, tc + vec2(-px.x, -px.y)).rgb;
+    return mix(hdr, n * 0.25, 0.6 * w);
+}
+
+vec3 fsNightVision(vec3 c)
+{
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float rods = dot(c, vec3(0.06, 0.56, 0.38));     // scotopic response, peak near 500 nm: red goes dark
+    float w = fsNightWeight(luma);
+    // moonlit blue, scaled so the tint itself neither brightens nor darkens
+    const vec3 tint = vec3(0.58, 0.84, 1.42) / 0.8266;
+    return mix(c, rods * tint, w);
 }
 
 float gradeLuma(vec3 c)
@@ -164,6 +212,16 @@ void main()
         // only what passed the threshold, so it adds light around bright areas.
         vec3 bloom = texture(bloomMap, vary_fragcoord).rgb / max(bloom_levels, 1.0);
         diff.rgb += bloom * bloom_strength;
+        // Halation: on film, light from bright highlights goes through the emulsion, reflects
+        // off the back of the film and exposes the red layer around them again: a warm glow
+        // close around lamps, neon and the sun. The bloom is that light spread, so a warm share
+        // of it is added back.
+        diff.rgb += bloom * (bloom_strength * fs_halation) * vec3(0.9, 0.35, 0.12);
+    }
+
+    if (fs_night_vision > 0.0)
+    {
+        diff.rgb = fsNightSoften(diff.rgb, vary_fragcoord);
     }
 
     if (local_tm_params.x > 0.0)
@@ -177,6 +235,11 @@ void main()
     }
 
     diff.rgb = toneMap(diff.rgb);
+
+    if (fs_night_vision > 0.0)
+    {
+        diff.rgb = fsNightVision(diff.rgb);
+    }
 
     if (grade_enabled != 0)
     {
