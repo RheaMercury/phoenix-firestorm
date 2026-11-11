@@ -27999,6 +27999,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderSSRHalfRes</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Trace the screen-space reflections of opaque surfaces at half resolution, once per 2x2 pixels, before the lighting pass, and upsample them there with a depth and normal aware filter instead of tracing every pixel. Roughly a quarter of the reflection cost; reflections are slightly softer on fine normal map detail. Needs RenderScreenSpaceReflections. Alpha and water keep tracing per pixel. Rebuilds the shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderGTAOHalfRes</key>
     <map>
       <key>Comment</key>
@@ -29679,6 +29690,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>1</integer>
     </map>
+    <key>FSRenderShadowReduceWhileMoving</key>
+    <map>
+      <key>Comment</key>
+      <string>While the camera turns or travels fast, the sun shadow maps past the nearest leave out objects four times smaller than they otherwise would, and the far ones leave out alpha masked objects (leaves, fences). Back to normal a quarter second after the camera settles, so small shadows pop back in.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfPrefetchPreferences</key>
     <map>
       <key>Comment</key>
@@ -29694,6 +29716,28 @@ Change of this parameter will affect the layout of buttons in notification toast
     <map>
       <key>Comment</key>
       <string>With the camera above water and not on mainland, draw the sky below the horizon as the distant sea, the sky mirrored in it, so the sea meets the horizon instead of ending at the draw distance with sky showing below the horizon.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>FSPerfGroupRebuildBudgetMs</key>
+    <map>
+      <key>Comment</key>
+      <string>While the camera turns or travels fast: when rebuilding the geometry of objects in view took longer than this many milliseconds a frame (averaged over a few frames), apply fewer level of detail changes in the next frames, so they spread out instead of costing several milliseconds a frame. Once the camera settles detail catches up at full speed. 0 turns this off.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>4.0</real>
+    </map>
+    <key>FSPerfRebuildNearestFirst</key>
+    <map>
+      <key>Comment</key>
+      <string>When geometry updates (level of detail changes, new objects) can't all be done in one frame, do the ones in view and nearest the camera first, so the objects around you sharpen before distant ones.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>

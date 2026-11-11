@@ -402,6 +402,40 @@ static LLCullResult* sCull = NULL;
 
 // <FS:Trish> Bumped whenever a light joins mLights, so a throttled calcNearbyLights rescans at once
 static U32 sLightSetSerial = 0;
+static bool sFSShadowCameraMoving = false; // <FS:Trish/> FSRenderShadowReduceWhileMoving, see fs_update_shadow_camera_motion
+
+// <FS:Trish> Whether the camera turns or travels fast, and for a quarter second after it settles. Worked out
+// once a frame by updateGeom (before the frame renders); the moving shadow option and the group rebuild
+// throttle use it.
+static bool sFSCameraMovingFast = false;
+
+static void fs_update_camera_motion()
+{
+    static LLVector3 last_origin;
+    static LLVector3 last_at;
+    static bool have_last = false;
+    static LLFrameTimer settle_timer;
+
+    const LLViewerCamera* camera = LLViewerCamera::getInstance();
+    const F32 dt = llmax(gFrameIntervalSeconds.value(), 0.001f);
+    bool moving = false;
+    if (have_last)
+    {
+        const F32 turn_rate = acosf(llclamp(camera->getAtAxis() * last_at, -1.f, 1.f)) / dt; // radians per second
+        const F32 speed = dist_vec(camera->getOrigin(), last_origin) / dt;                   // metres per second
+        moving = turn_rate > 0.6f || speed > 20.f; // about 35 degrees a second, or flying fast
+    }
+    last_origin = camera->getOrigin();
+    last_at = camera->getAtAxis();
+    have_last = true;
+
+    if (moving)
+    {
+        settle_timer.resetWithExpiry(0.25f);
+    }
+    sFSCameraMovingFast = moving || !settle_timer.hasExpired();
+}
+// </FS:Trish>
 // </FS:Trish>
 
 void validate_framebuffer_object();
@@ -1598,6 +1632,7 @@ void LLPipeline::releaseScreenBuffers()
     mRT->deferredLight.release();
     mRT->lightMap.release(); // <FS:Trish/>
     mMainRT.fsGTAOHalf.release(); // <FS:Trish/> Half-resolution GTAO
+    mMainRT.fsSSRHalf.release(); // <FS:Trish/> Half-resolution SSR
     mRlvSphereDepth.release();
 
     mAuxillaryRT.screen.release();
@@ -3242,6 +3277,14 @@ static bool fs_can_defer_group_rebuild(LLSpatialGroup* group)
     return !group->isAnyRecentlyVisible();
 }
 
+// FSPerfGroupRebuildBudgetMs: time this frame spent rebuilding groups in view (their geometry, and the
+// vertex fills after it). A detail change of one object rebuilds its whole group, so while the camera
+// moves and many objects change detail, these rebuilds cost several milliseconds a frame. updateGeom
+// reads it and, when it ran over the budget, applies fewer drawable updates (detail changes) the next
+// frame, so they spread over more frames. A group in view is never drawn from stale geometry: only the
+// change that would dirty it waits.
+static F32 sFSGroupRebuildMs = 0.f;
+
 // Drawables that must be updated this frame even when the rebuild queue is over its time budget.
 static bool fs_is_priority_drawable_rebuild(LLDrawable* drawablep)
 {
@@ -3282,6 +3325,7 @@ void LLPipeline::rebuildPriorityGroups()
     // </FS:Trish>
 
     mGroupQ1Locked = true;
+    LLTimer fs_rebuild_timer; // <FS:Trish/> FSPerfGroupRebuildBudgetMs
     // Iterate through all drawables on the priority build queue,
     for (LLSpatialGroup::sg_vector_t::iterator iter = mGroupQ1.begin();
          iter != mGroupQ1.end(); ++iter)
@@ -3297,6 +3341,7 @@ void LLPipeline::rebuildPriorityGroups()
         group->rebuildGeom();
         group->clearState(LLSpatialGroup::IN_BUILD_Q1);
     }
+    sFSGroupRebuildMs += fs_rebuild_timer.getElapsedTimeF32().value() * 1000.f; // <FS:Trish/>
 
     // <FS:Trish> Swap instead of copying the pointers, the old saved groups are released by the clear just the same
     //mGroupSaveQ1 = mGroupQ1;
@@ -3333,6 +3378,84 @@ void LLPipeline::updateGeom(F32 max_dtime)
     static LLCachedControl<bool> rebuild_budget(gSavedSettings, "FSPerfRebuildTimeBudget", false);
     U32 num_updated = 0;
     bool over_budget = false;
+    fs_update_camera_motion();
+    bool fs_throttling = false;
+    // FSPerfGroupRebuildBudgetMs: fewer drawable updates while the group rebuilds they cause run over
+    // budget, only while the camera moves fast: once it settles, detail catches up at full speed.
+    // Smoothed over a few frames, so one heavy frame doesn't stall detail changes. Independent of
+    // FSPerfRebuildTimeBudget, whose time limit it uses while it throttles.
+    {
+        static LLCachedControl<F32> group_budget_ms(gSavedSettings, "FSPerfGroupRebuildBudgetMs", 4.f);
+        static F32 s_group_ms_avg = 0.f;
+        s_group_ms_avg = s_group_ms_avg * 0.6f + sFSGroupRebuildMs * 0.4f;
+        sFSGroupRebuildMs = 0.f;
+        static U32 s_frames = 0;
+        static U32 s_throttled = 0;
+        static F32 s_peak_ms = 0.f;
+        static LLFrameTimer s_log_timer;
+        ++s_frames;
+        s_peak_ms = llmax(s_peak_ms, s_group_ms_avg);
+        if (sFSCameraMovingFast && group_budget_ms > 0.f && s_group_ms_avg > group_budget_ms)
+        {
+            max_dtime *= llclamp((F32)group_budget_ms / s_group_ms_avg, 0.1f, 1.f);
+            fs_throttling = true;
+            ++s_throttled;
+        }
+        if (s_log_timer.getElapsedTimeF32() > 10.f)
+        {
+            if (s_throttled > 0)
+            {
+                LL_INFOS("FSRebuild") << "Group rebuilds over " << (F32)group_budget_ms << " ms while the camera moved fast in "
+                                      << s_throttled << " of " << s_frames << " frames (peak " << llformat("%.1f", s_peak_ms)
+                                      << " ms): detail changes spread over more frames" << LL_ENDL;
+            }
+            s_frames = 0;
+            s_throttled = 0;
+            s_peak_ms = 0.f;
+            s_log_timer.reset();
+        }
+    }
+    const bool fs_budget_active = rebuild_budget || fs_throttling;
+    // When the queue may be cut short, what is in view and nearest goes first: coming back to where you
+    // were, the objects around you sharpen before the distant ones (as the viewer used to sort it)
+    static LLCachedControl<bool> nearest_first(gSavedSettings, "FSPerfRebuildNearestFirst", true);
+    if (fs_budget_active && nearest_first && mBuildQ1.size() > 1)
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("fs sort build queue");
+        // The keys are taken once, before sorting: isVisible() needs the drawable to be in the octree
+        // (a queued drawable may not be yet, or any more) and marks it visible as it goes, which a
+        // comparison must not do. Null and dead entries go last.
+        struct FSQueuedDrawable
+        {
+            LLPointer<LLDrawable> mDrawable;
+            bool mVisible;
+            F32 mDistance;
+        };
+        static std::vector<FSQueuedDrawable> s_keyed;
+        s_keyed.clear();
+        s_keyed.reserve(mBuildQ1.size());
+        for (LLPointer<LLDrawable>& drawable : mBuildQ1)
+        {
+            const bool alive = drawable.notNull() && !drawable->isDead();
+            const bool visible = alive && drawable->getEntry() && drawable->isVisible();
+            const F32 distance = alive ? drawable->mDistanceWRTCamera : F32_MAX;
+            s_keyed.push_back({ std::move(drawable), visible, distance });
+        }
+        std::stable_sort(s_keyed.begin(), s_keyed.end(),
+            [](const FSQueuedDrawable& lhs, const FSQueuedDrawable& rhs)
+            {
+                if (lhs.mVisible != rhs.mVisible)
+                {
+                    return lhs.mVisible;
+                }
+                return lhs.mDistance < rhs.mDistance;
+            });
+        for (size_t i = 0; i < s_keyed.size(); ++i)
+        {
+            mBuildQ1[i] = std::move(s_keyed[i].mDrawable);
+        }
+        s_keyed.clear();
+    }
     // </FS:Trish>
 
     // Iterate through all drawables on the priority build queue,
@@ -3349,7 +3472,8 @@ void LLPipeline::updateGeom(F32 max_dtime)
         bool keep = false;
     // </FS:Trish>
         // <FS:Trish> Always update at least one drawable, then stop once the time budget is used up
-        if (rebuild_budget && drawablep && !drawablep->isDead() && num_updated > 0 && !over_budget)
+        //if (rebuild_budget && drawablep && !drawablep->isDead() && num_updated > 0 && !over_budget)
+        if (fs_budget_active && drawablep && !drawablep->isDead() && num_updated > 0 && !over_budget)
         {
             over_budget = update_timer.getElapsedTimeF32() > max_dtime;
         }
@@ -4251,10 +4375,12 @@ void LLPipeline::postSort(LLCamera &camera)
     // pack vertex buffers for groups that chose to delay their updates
     {
         LL_PROFILE_GPU_ZONE("rebuildMesh");
+        LLTimer fs_rebuild_timer; // <FS:Trish/> FSPerfGroupRebuildBudgetMs
         for (LLSpatialGroup::sg_vector_t::iterator iter = mMeshDirtyGroup.begin(); iter != mMeshDirtyGroup.end(); ++iter)
         {
             (*iter)->rebuildMesh();
         }
+        sFSGroupRebuildMs += fs_rebuild_timer.getElapsedTimeF32().value() * 1000.f; // <FS:Trish/>
     }
     }
 
@@ -4533,7 +4659,9 @@ bool LLPipeline::postSortBuildRenderMapParallel(LLCamera& camera)
 
             sFSPostSortGroups.push_back(group);
 
-            if (hasRenderType(LLPipeline::RENDER_TYPE_PASS_ALPHA))
+            // The alpha group lists are only read by the alpha pool (depth sorted alpha), which shadow passes
+            // don't draw: skip the two draw map searches per group in every shadow cascade
+            if (!sShadowRender && hasRenderType(LLPipeline::RENDER_TYPE_PASS_ALPHA))
             {
                 LLSpatialGroup::draw_map_t::iterator alpha = group->mDrawMap.find(LLRenderPass::PASS_ALPHA);
 
@@ -11371,6 +11499,84 @@ static void fs_bind_gtao_half(LLGLSLShader& sun_shader, LLRenderTarget* gtao_hal
 }
 // </FS:Trish>
 
+// <FS:Trish> Half-resolution SSR (FSRenderSSRHalfRes). Traces the opaque surfaces' screen-space
+// reflections once per 2x2 pixels into mMainRT.fsSSRHalf (fsSSRHalfF.glsl), for the soften
+// pass's upsample to read instead of tracing every pixel. Call with the screen bound, before the
+// soften program is bound: the pass nests its own target. Returns the target, or null when the soften program traces per pixel
+// (setting off, SSR off, the pass did not build, or a probe capture).
+static LLRenderTarget* fs_render_ssr_half(LLRenderTarget* screen)
+{
+    LLRenderTarget& target = gPipeline.mMainRT.fsSSRHalf;
+    if (!gFSSSRHalfProgram.isComplete() || !gDeferredSoftenProgram.mDefines.count("FS_SSR_HALF"))
+    {
+        if (target.isComplete())
+        {
+            target.release();
+        }
+        return nullptr;
+    }
+    if (gCubeSnapshot)
+    {
+        return nullptr;
+    }
+
+    const U32 full_x = screen->getWidth();
+    const U32 full_y = screen->getHeight();
+    const U32 res_x = (full_x + 1) / 2;
+    const U32 res_y = (full_y + 1) / 2;
+    if (!target.isComplete() || target.getWidth() != res_x || target.getHeight() != res_y)
+    {
+        if (!target.allocate(res_x, res_y, GL_RGBA16F))
+        {
+            target.release();
+            return nullptr;
+        }
+    }
+
+    LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - ssr half");
+    LL_PROFILE_GPU_ZONE("ssr half");
+
+    static LLStaticHashedString s_full_res("fs_ssr_full_res");
+    LLGLSLShader& shader = gFSSSRHalfProgram;
+    target.bindTarget();
+    gPipeline.bindDeferredShader(shader); // the g-buffer, the scene map and hi-Z, the SSR settings
+    shader.uniform2f(s_full_res, (GLfloat)full_x, (GLfloat)full_y);
+    // the march works in full-resolution pixels; bindDeferredShader set screen_res to the g-buffer
+    shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)full_x, (GLfloat)full_y);
+    shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV); // wet shoreline
+    {
+        LLGLDisable blend(GL_BLEND);
+        LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+        gPipeline.mScreenTriangleVB->setBuffer();
+        gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+    }
+    gPipeline.unbindDeferredShader(shader);
+    target.flush();
+    return &target;
+}
+
+// The soften program's upsample reads the half-resolution SSR as fs_ssr_half_map
+static void fs_bind_ssr_half(LLGLSLShader& soften, LLRenderTarget* ssr_half, LLRenderTarget* screen)
+{
+    const S32 channel = soften.getTextureChannel(LLShaderMgr::FS_SSR_HALF_MAP);
+    if (channel < 0)
+    {
+        return;
+    }
+    static LLStaticHashedString s_full_res("fs_ssr_full_res");
+    soften.uniform2f(s_full_res, (GLfloat)screen->getWidth(), (GLfloat)screen->getHeight());
+    if (ssr_half)
+    {
+        soften.bindTexture(LLShaderMgr::FS_SSR_HALF_MAP, ssr_half, false, LLTexUnit::TFO_POINT);
+    }
+    else
+    {
+        // probe captures: the upsample returns early there, but the sampler still needs a 2D texture
+        gGL.getTexUnit(channel)->bindFast(LLViewerFetchedTexture::sBlackImagep);
+    }
+}
+// </FS:Trish>
+
 void LLPipeline::renderDeferredLighting()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
@@ -11607,9 +11813,15 @@ void LLPipeline::renderDeferredLighting()
         {  // apply sunlight contribution
             LLGLSLShader &soften_shader = gDeferredSoftenProgram;
 
+            // <FS:Trish> Half-resolution SSR, traced before the soften program; the pass nests its
+            // own target and returns to the screen
+            LLRenderTarget* fs_ssr_half = fs_render_ssr_half(screen_target);
+            // </FS:Trish>
+
             LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - atmospherics");
             LL_PROFILE_GPU_ZONE("atmospherics");
             bindDeferredShader(soften_shader);
+            fs_bind_ssr_half(soften_shader, fs_ssr_half, screen_target); // <FS:Trish/>
 
             static LLCachedControl<F32> ssao_scale(gSavedSettings, "RenderSSAOIrradianceScale", 0.5f);
             static LLCachedControl<F32> ssao_max(gSavedSettings, "RenderSSAOIrradianceMax", 0.25f);
@@ -12701,8 +12913,10 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
     // masked materials) only in the nearer sun cascades. In the far ones their shadows are a few
     // texels of a large map, and they are a large share of the shadow pass.
     static LLCachedControl<U32> alpha_cascades(gSavedSettings, "FSRenderShadowAlphaCascades", 3);
+    // FSRenderShadowReduceWhileMoving: none in the far cascades while the camera moves fast
+    const S32 fs_alpha_limit = sFSShadowCameraMoving ? llmin((S32)alpha_cascades, 2) : (S32)alpha_cascades;
     const bool fs_alpha_casters = gCubeSnapshot || mFSSunShadowCascade < 0 ||
-                                  mFSSunShadowCascade < (S32)alpha_cascades || mFSSunShadowCascade == mColoredShadowCascade;
+                                  mFSSunShadowCascade < fs_alpha_limit || mFSSunShadowCascade == mColoredShadowCascade;
     if (fs_alpha_casters)
     // </FS:Trish>
     {
@@ -16468,8 +16682,22 @@ static void bucketShadowCull(LLCullResult& src, LLCamera& cam, LLCullResult& dst
 {
     dst.clear();
 
+    // <FS:Trish> Every cascade walks all of the union's groups, which are all over the heap: start loading
+    // each group's flags and bounds a few groups ahead, so the tests don't wait on memory
+    auto prefetch_group = [](LLCullResult::sg_iterator ahead)
+    {
+        _mm_prefetch((const char*)*ahead, _MM_HINT_T0);
+        _mm_prefetch((const char*)(*ahead)->getObjectBounds(), _MM_HINT_T0);
+    };
+    // </FS:Trish>
     for (LLCullResult::sg_iterator i = src.beginVisibleGroups(), end = src.endVisibleGroups(); i != end; ++i)
     {
+        // <FS:Trish>
+        if (end - i > 8)
+        {
+            prefetch_group(i + 8);
+        }
+        // </FS:Trish>
         LLSpatialGroup* group = *i;
         // <FS:Trish>
         //if (!group->isDead() &&
@@ -16485,6 +16713,12 @@ static void bucketShadowCull(LLCullResult& src, LLCamera& cam, LLCullResult& dst
 
     for (LLCullResult::sg_iterator i = src.beginDrawableGroups(), end = src.endDrawableGroups(); i != end; ++i)
     {
+        // <FS:Trish>
+        if (end - i > 8)
+        {
+            prefetch_group(i + 8);
+        }
+        // </FS:Trish>
         LLSpatialGroup* group = *i;
         // <FS:Trish>
         //if (!group->isDead() &&
@@ -16511,6 +16745,33 @@ static void bucketShadowCull(LLCullResult& src, LLCamera& cam, LLCullResult& dst
     }
 }
 
+// <FS:Trish> FSRenderShadowReduceWhileMoving: while the camera turns or travels fast, the sun cascades
+// past the first leave out more of the small casters, and the far ones the alpha masked casters, whose
+// shadows can't be made out in motion. Everything is back a quarter second after the camera settles.
+// Skipping cascade updates instead would show the stale map's edge, as cascades are picked by depth only.
+// sFSShadowCameraMoving is declared near the top of this file.
+
+static void fs_update_shadow_camera_motion(const LLCamera& camera)
+{
+    // the motion itself is worked out by fs_update_camera_motion(), once a frame
+    static LLCachedControl<bool> reduce_while_moving(gSavedSettings, "FSRenderShadowReduceWhileMoving", false);
+    sFSShadowCameraMoving = reduce_while_moving && sFSCameraMovingFast;
+}
+
+// How many times RenderShadowMinCasterTexels a caster must span to be drawn into a sun cascade.
+// Also used by FSPerfParallelShadowCull (fsparallelcull.cpp).
+F32 fs_shadow_cascade_caster_scale(S32 cascade)
+{
+    static LLCachedControl<F32> far_caster_scale(gSavedSettings, "FSRenderShadowFarCascadeMinCasterScale", 1.f);
+    F32 scale = cascade >= 2 ? llclamp((F32)far_caster_scale, 1.f, 16.f) : 1.f;
+    if (sFSShadowCameraMoving && cascade >= 1 && !gCubeSnapshot)
+    {
+        scale *= 4.f;
+    }
+    return scale;
+}
+// </FS:Trish>
+
 void LLPipeline::generateSunShadow(LLCamera& camera)
 {
     if (!sRenderDeferred || RenderShadowDetail <= 0)
@@ -16527,6 +16788,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
     if (!gCubeSnapshot)
     {
         sShadowDistanceOrigin = camera.getOrigin();
+        fs_update_shadow_camera_motion(camera); // FSRenderShadowReduceWhileMoving
     }
     // </FS:Trish>
 
@@ -17430,8 +17692,9 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 // show up in it. Not applied to probe shadows, which use their own path.
                 static LLCachedControl<F32> min_caster_texels(gSavedSettings, "RenderShadowMinCasterTexels", 1.f);
                 // ...and more of them in the far cascades, where small objects barely show
-                static LLCachedControl<F32> far_caster_scale(gSavedSettings, "FSRenderShadowFarCascadeMinCasterScale", 1.f);
-                const F32 cascade_caster_scale = j >= 2 ? llclamp((F32)far_caster_scale, 1.f, 16.f) : 1.f;
+                //static LLCachedControl<F32> far_caster_scale(gSavedSettings, "FSRenderShadowFarCascadeMinCasterScale", 1.f);
+                //const F32 cascade_caster_scale = j >= 2 ? llclamp((F32)far_caster_scale, 1.f, 16.f) : 1.f;
+                const F32 cascade_caster_scale = fs_shadow_cascade_caster_scale(j); // and in motion
                 const F32 min_caster_size = (!gCubeSnapshot && min_caster_texels > 0.f && llfinite(min_texel_size))
                     ? llmax(min_texel_size, 0.f) * min_caster_texels * cascade_caster_scale : 0.f;
                 // </FS:Trish>
