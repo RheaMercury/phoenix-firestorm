@@ -144,6 +144,7 @@
 #include "fsparallelcull.h" // <FS:Trish/> FSPerfParallelShadowCull
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsgpudrivenshadowalpha.h" // <FS:Trish/> FSPerfGPUDrivenShadowAlpha
+#include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 
 #if LL_CLANG
 #pragma clang diagnostic push
@@ -319,6 +320,90 @@ LLTrace::BlockTimerStatHandle FTM_RENDER_UI_3D("3D");
 LLTrace::BlockTimerStatHandle FTM_RENDER_UI_2D("2D");
 
 static LLTrace::BlockTimerStatHandle FTM_STATESORT_DRAWABLE("Sort Drawables");
+
+// <FS:Trish> FSPerfProfileLogInterval: the render passes as block timers, for the profile log's
+// "Render breakdown" line. Per pass, per pool type and per shadow map only, never per object or draw.
+// They count every view these functions render: cube snapshots and HUDs land in the same timers,
+// their totals show under the callers' timers (FS Render Reflection Probes, FS Render HUD).
+static LLTrace::BlockTimerStatHandle FTM_FS_GBUFFER_SETUP("FS GBuffer Setup");
+static LLTrace::BlockTimerStatHandle FTM_FS_GBUFFER_OCCLUSION("FS GBuffer Occlusion");
+static LLTrace::BlockTimerStatHandle FTM_FS_GBUFFER_POOL[] =
+{
+    LLTrace::BlockTimerStatHandle("FS GBuffer Other"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Sky"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Water Exclusion"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer WL Sky"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Simple"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Fullbright"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Bump"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Materials"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer PBR"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Terrain"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Grass"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer PBR Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Tree"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Fullbright Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Avatar"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Animesh"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Glow"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Alpha Pre Water"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Void Water"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Water"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Alpha Post Water"),
+    LLTrace::BlockTimerStatHandle("FS GBuffer Alpha"),
+};
+static LLTrace::BlockTimerStatHandle FTM_FS_POST_POOL[] =
+{
+    LLTrace::BlockTimerStatHandle("FS Post Other"),
+    LLTrace::BlockTimerStatHandle("FS Post Sky"),
+    LLTrace::BlockTimerStatHandle("FS Post Water Exclusion"),
+    LLTrace::BlockTimerStatHandle("FS Post WL Sky"),
+    LLTrace::BlockTimerStatHandle("FS Post Simple"),
+    LLTrace::BlockTimerStatHandle("FS Post Fullbright"),
+    LLTrace::BlockTimerStatHandle("FS Post Bump"),
+    LLTrace::BlockTimerStatHandle("FS Post Materials"),
+    LLTrace::BlockTimerStatHandle("FS Post PBR"),
+    LLTrace::BlockTimerStatHandle("FS Post Terrain"),
+    LLTrace::BlockTimerStatHandle("FS Post Grass"),
+    LLTrace::BlockTimerStatHandle("FS Post PBR Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS Post Tree"),
+    LLTrace::BlockTimerStatHandle("FS Post Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS Post Fullbright Alpha Mask"),
+    LLTrace::BlockTimerStatHandle("FS Post Avatar"),
+    LLTrace::BlockTimerStatHandle("FS Post Animesh"),
+    LLTrace::BlockTimerStatHandle("FS Post Glow"),
+    LLTrace::BlockTimerStatHandle("FS Post Alpha Pre Water"),
+    LLTrace::BlockTimerStatHandle("FS Post Void Water"),
+    LLTrace::BlockTimerStatHandle("FS Post Water"),
+    LLTrace::BlockTimerStatHandle("FS Post Alpha Post Water"),
+    LLTrace::BlockTimerStatHandle("FS Post Alpha"),
+};
+static_assert(LL_ARRAY_SIZE(FTM_FS_GBUFFER_POOL) == LLDrawPool::NUM_POOL_TYPES, "one timer per pool type");
+static_assert(LL_ARRAY_SIZE(FTM_FS_POST_POOL) == LLDrawPool::NUM_POOL_TYPES, "one timer per pool type");
+static LLTrace::BlockTimerStatHandle FTM_FS_POST_HAZE("FS Post Haze and Water Mask");
+static LLTrace::BlockTimerStatHandle FTM_FS_POST_DEFERRED("FS Render Alpha and Post Pools");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_SUN("FS Light Sun Shadow and SSAO");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_SOFTEN("FS Light Shadow Blur");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_ATMOS("FS Light Atmospherics SSR Indirect");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_LOCAL("FS Light Local Lights");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_PROJECTORS("FS Light Projectors");
+static LLTrace::BlockTimerStatHandle FTM_FS_LIGHT_FULLSCREEN("FS Light Fullscreen Lights");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_UNION_CULL("FS Shadow Union Cull");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_CASCADE("FS Shadow Sun Cascade");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_FLUSH("FS Shadow Deferred Cascades");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_PROJECTOR("FS Shadow Projector");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_CULL_SORT("FS Shadow Cull and Sort");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_OPAQUE("FS Shadow Opaque");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_OCCLUSION("FS Shadow Occlusion");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_GEOM("FS Shadow Geom");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_ALPHA("FS Shadow Alpha");
+
+static LLTrace::BlockTimerStatHandle& fs_pool_timer(LLTrace::BlockTimerStatHandle* table, U32 type)
+{
+    return table[type < LLDrawPool::NUM_POOL_TYPES ? type : 0];
+}
+// </FS:Trish>
 
 static LLStaticHashedString sTint("tint");
 static LLStaticHashedString sAmbiance("ambiance");
@@ -5022,6 +5107,10 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 
         LLGLEnable cull(GL_CULL_FACE);
 
+        // <FS:Trish> FSPerfProfileLogInterval
+        {
+        FS_RECORD_BLOCK_TIME(FTM_FS_GBUFFER_SETUP);
+        // </FS:Trish>
         for (pool_set_t::iterator iter = mPools.begin(); iter != mPools.end(); ++iter)
         {
             LLDrawPool *poolp = *iter;
@@ -5049,6 +5138,7 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
             }
             // </FS:Trish>
         }
+        } // <FS:Trish/> FSPerfProfileLogInterval
 
         U32 cur_type = 0;
 
@@ -5068,6 +5158,7 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
                 occlude = false;
                 gGLLastMatrix = NULL;
                 gGL.loadMatrix(gGLModelView);
+                FS_RECORD_BLOCK_TIME(FTM_FS_GBUFFER_OCCLUSION); // <FS:Trish/>
                 doOcclusion(camera);
             }
 
@@ -5075,6 +5166,7 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
             if (hasRenderType(poolp->getType()) && poolp->getNumDeferredPasses() > 0)
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("deferred pool render");
+                FS_RECORD_BLOCK_TIME(fs_pool_timer(FTM_FS_GBUFFER_POOL, cur_type)); // <FS:Trish/>
 
                 gGLLastMatrix = NULL;
                 gGL.loadMatrix(gGLModelView);
@@ -5204,18 +5296,21 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
 
         if (cur_type >= water_exclusion_pass && !done_water_exclusion)
         { // do water exclusion against depth buffer before rendering alpha
+            FS_RECORD_BLOCK_TIME(FTM_FS_POST_HAZE); // <FS:Trish/>
             doWaterExclusionMask();
             done_water_exclusion = true;
         }
 
         if (cur_type >= atmospherics_pass && !done_atmospherics)
         { // do atmospherics against depth buffer before rendering alpha
+            FS_RECORD_BLOCK_TIME(FTM_FS_POST_HAZE); // <FS:Trish/>
             doAtmospherics();
             done_atmospherics = true;
         }
 
         if (cur_type >= water_haze_pass && !done_water_haze)
         { // do water haze against depth buffer before rendering alpha
+            FS_RECORD_BLOCK_TIME(FTM_FS_POST_HAZE); // <FS:Trish/>
             doWaterHaze();
             done_water_haze = true;
         }
@@ -5232,6 +5327,7 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
         if (hasRenderType(poolp->getType()) && poolp->getNumPostDeferredPasses() > 0)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("deferred poolrender");
+            FS_RECORD_BLOCK_TIME(fs_pool_timer(FTM_FS_POST_POOL, cur_type)); // <FS:Trish/>
 
             gGLLastMatrix = NULL;
             gGL.loadMatrix(gGLModelView);
@@ -11636,6 +11732,7 @@ void LLPipeline::renderDeferredLighting()
             deferred_light_target->bindTarget();
             {  // paint shadow/SSAO light map (direct lighting lightmap)
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - sun shadow");
+                FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_SUN); // <FS:Trish/>
 
                 // The existing shadow-only variant also covers zero-strength SSAO, without
                 // adding a per-fragment branch to the normal SSAO shader.
@@ -11738,6 +11835,7 @@ void LLPipeline::renderDeferredLighting()
         {
             // soften direct lighting lightmap
             LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - soften shadow");
+            FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_SOFTEN); // <FS:Trish/>
             LL_PROFILE_GPU_ZONE("soften shadow");
             // blur lightmap
             screen_target->bindTarget();
@@ -11811,6 +11909,7 @@ void LLPipeline::renderDeferredLighting()
 
         if (RenderDeferredAtmospheric)
         {  // apply sunlight contribution
+            FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_ATMOS); // <FS:Trish/>
             LLGLSLShader &soften_shader = gDeferredSoftenProgram;
 
             // <FS:Trish> Half-resolution SSR, traced before the soften program; the pass nests its
@@ -11879,6 +11978,7 @@ void LLPipeline::renderDeferredLighting()
 
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - local lights");
+                FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_LOCAL); // <FS:Trish/>
                 LL_PROFILE_GPU_ZONE("local lights");
                 bindDeferredShader(gDeferredLightProgram);
                 gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0); // <FS:Trish/> once, not per light
@@ -12014,6 +12114,7 @@ void LLPipeline::renderDeferredLighting()
             if (!spot_lights.empty())
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - projectors");
+                FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_PROJECTORS); // <FS:Trish/>
                 LL_PROFILE_GPU_ZONE("projectors");
                 LLGLDepthTest depth(GL_TRUE, GL_FALSE);
                 bindDeferredShader(gDeferredSpotLightProgram);
@@ -12058,6 +12159,7 @@ void LLPipeline::renderDeferredLighting()
 
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - fullscreen lights");
+                FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_FULLSCREEN); // <FS:Trish/>
                 LLGLDepthTest depth(GL_FALSE);
                 LL_PROFILE_GPU_ZONE("fullscreen lights");
 
@@ -12168,6 +12270,7 @@ void LLPipeline::renderDeferredLighting()
     }
 
     {  // render non-deferred geometry (alpha, fullbright, glow)
+        FS_RECORD_BLOCK_TIME(FTM_FS_POST_DEFERRED); // <FS:Trish/>
         LLGLDisable blend(GL_BLEND);
 
         pushRenderTypeMask();
@@ -12801,12 +12904,17 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
     // In RenderShadowCullMode 1, do_cull is false: generateSunShadow did the single union
     // octree cull and pre-filtered `result` to this cascade's frustum (bucketShadowCull),
     // so skip the per-cascade octree walk and only sort/build this cascade's render map.
+    // <FS:Trish> FSPerfProfileLogInterval
+    {
+    FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_CULL_SORT);
+    // </FS:Trish>
     if (do_cull)
     {
         updateCull(shadow_cam, result);
     }
 
     stateSort(shadow_cam, result);
+    } // <FS:Trish/> FSPerfProfileLogInterval
 
     //generate shadow map
     gGL.matrixMode(LLRender::MM_PROJECTION);
@@ -12851,6 +12959,7 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
         }
 
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("shadow simple"); //LL_RECORD_BLOCK_TIME(FTM_SHADOW_SIMPLE);
+        FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_OPAQUE); // <FS:Trish/>
         LL_PROFILE_GPU_ZONE("shadow simple");
         gGL.getTexUnit(0)->disable();
 
@@ -12900,12 +13009,14 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
 
     if (LLPipeline::sUseOcclusion > 1)
     { // do occlusion culling against non-masked only to take advantage of hierarchical Z
+        FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_OCCLUSION); // <FS:Trish/>
         doOcclusion(shadow_cam);
     }
 
 
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("shadow geom");
+        FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_GEOM); // <FS:Trish/>
         renderGeomShadow(shadow_cam);
     }
 
@@ -12922,6 +13033,7 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("shadow alpha");
         LL_PROFILE_GPU_ZONE("shadow alpha");
+        FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_ALPHA); // <FS:Trish/>
         const S32 sun_up = LLEnvironment::instance().getIsSunUp() ? 1 : 0;
         U32 target_width = LLRenderTarget::sCurResX;
         // <FS:Trish> FSPerfGPUDrivenShadowAlpha: the non-rigged alpha tested casters below that can come out of
@@ -17206,7 +17318,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 sUseOcclusion = 0;
                 // One octree walk for the whole sun shadow. No stateSort here -- each
                 // cascade re-buckets these visible groups and sorts its own render map.
-                updateCull(ucam, sUnionShadowResult);
+                // <FS:Trish> FSPerfProfileLogInterval
+                //updateCull(ucam, sUnionShadowResult);
+                {
+                    FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_UNION_CULL);
+                    updateCull(ucam, sUnionShadowResult);
+                }
+                // </FS:Trish>
                 sUseOcclusion = saved_occlusion;
                 LLPipeline::sShadowRender = saved_shadow_render;
 
@@ -17223,6 +17341,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         //for (S32 j = 0; j < (gCubeSnapshot ? 2 : 4); j++)
         for (S32 j = 0; !probe_shadow_done && j < (gCubeSnapshot ? 2 : 4); j++) // <FS:Trish/>
         {
+            FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_CASCADE); // <FS:Trish/>
             // <FS:Trish> Far cascade throttle: keep the map, re-base its matrix on this frame's camera
             if (skip_cascade[j])
             {
@@ -17720,8 +17839,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 mShadowCamera[j+4] = shadow_cam;
             }
         }
+        // <FS:Trish> FSPerfProfileLogInterval
+        {
+        FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_FLUSH);
+        // </FS:Trish>
         fsParallelShadowCullFlush(); // <FS:Trish/> FSPerfParallelShadowCull: cull and draw the deferred cascades
         fsShadowSinglePassFinish(); // <FS:Trish/> FSPerfShadowSinglePass: the recorded casters, once for all cascades
+        } // <FS:Trish/> FSPerfProfileLogInterval
         mColoredShadowCascade = -1; // <FS:Trish/> not for the projector shadows below
     }
 
@@ -17783,6 +17907,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
         for (S32 i = 0; i < 2; i++)
         {
+            FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_PROJECTOR); // <FS:Trish/>
             set_current_modelview(saved_view);
             set_current_projection(saved_proj);
 

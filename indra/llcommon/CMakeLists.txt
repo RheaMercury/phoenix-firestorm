@@ -160,6 +160,7 @@ set(llcommon_HEADER_FILES
     llfasttimer.h
     llfile.h
     fsfiletime.h # <FS:Beq/> Portable filesystem clock conversion.
+    fsblocktimer.h # <FS:Trish/> Block timers that stay apart from Tracy zones
     llfindlocale.h
     llfixedbuffer.h
     llformat.h

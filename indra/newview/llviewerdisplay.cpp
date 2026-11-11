@@ -98,6 +98,7 @@
 #include "fsdata.h"
 #include "fsdynamicresolution.h" // <FS:Trish/> Dynamic resolution
 #include "fsvrs.h" // <FS:Trish/> Variable rate shading
+#include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 
 // <FS:PP> Render chat range spheres in 3D world
 #include "lfsimfeaturehandler.h"
@@ -149,6 +150,31 @@ U32 gRecentFrameCount = 0; // number of 'recent' frames
 LLFrameTimer gRecentFPSTime;
 LLFrameTimer gRecentMemoryTime;
 LLFrameTimer gAssetStorageLogTime;
+
+// <FS:Trish> FSPerfProfileLogInterval: the main thread's render phases as block timers, so the
+// profile log's "Render breakdown" line shows where display() spends the frame. Per phase only:
+// each costs two clock reads a frame.
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER("FS Render");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_PICK("FS Render Pick");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_DYNAMIC_TEXTURES("FS Render Dynamic Textures");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_HERO_PROBES("FS Render Mirrors");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_SCENE_UPDATE("FS Render Camera Env HUD Update");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_UPDATE_GEOM("FS Render Update Geom");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_CULL("FS Render Cull");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_SUN_SHADOW("FS Render Shadows");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_IMPOSTORS("FS Render Impostors");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_UPDATE_IMAGES("FS Render Update Images");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_STATESORT("FS Render StateSort");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_SKY("FS Render Sky");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_GBUFFER("FS Render GBuffer");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_LIGHTING("FS Render Lighting");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_UI_ALL("FS Render UI and Post");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_FINALIZE("FS Render Finalize");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_HUD("FS Render HUD");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_UI_3D("FS Render UI 3D");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_UI_2D("FS Render UI 2D");
+static LLTrace::BlockTimerStatHandle FTM_FS_RENDER_SWAP("FS Render Swap");
+// </FS:Trish>
 
 // Rendering stuff
 void render_ui(F32 zoom_factor = 1.f, int subfield = 0);
@@ -489,6 +515,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 {
     LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Render");
     LL_PROFILE_GPU_ZONE("Render");
+    FS_RECORD_BLOCK_TIME(FTM_FS_RENDER); // <FS:Trish/>
 
     LLPerfStats::RecordSceneTime T (LLPerfStats::StatType_t::RENDER_DISPLAY); // render time capture - This is the main stat for overall rendering.
 
@@ -567,6 +594,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         if (!gNonInteractive)
         {
             LL_PROFILE_ZONE_NAMED("Update Images");
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UPDATE_IMAGES); // <FS:Trish/>
 
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Class");
@@ -599,6 +627,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Picking");
+        FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_PICK); // <FS:Trish/>
         gViewerWindow->performPick();
     }
 
@@ -829,6 +858,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
     {
         LLAppViewer::instance()->pingMainloopTimeout("Display:DynamicTextures");
         LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Update Dynamic Textures");
+        FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_DYNAMIC_TEXTURES); // <FS:Trish/>
         if (LLViewerDynamicTexture::updateAllInstances())
         {
             gGL.setColorMask(true, true);
@@ -848,6 +878,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Update hero probes");
             LL_PROFILE_GPU_ZONE("hero manager")
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_HERO_PROBES); // <FS:Trish/>
             gPipeline.mHeroProbeManager.update();
             gPipeline.mHeroProbeManager.renderProbes();
         }
@@ -864,6 +895,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
         }
 
+        // <FS:Trish> FSPerfProfileLogInterval
+        {
+        FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_SCENE_UPDATE);
+        // </FS:Trish>
         stop_glerror();
         display_update_camera();
         stop_glerror();
@@ -881,17 +916,20 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             LLHUDObject::updateAll();
             stop_glerror();
         }
+        } // <FS:Trish/> FSPerfProfileLogInterval
 
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Update Geom");
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UPDATE_GEOM); // <FS:Trish/>
             const F32 max_geom_update_time = 0.005f*10.f*gFrameIntervalSeconds.value(); // 50 ms/second update time
             gPipeline.createObjects(max_geom_update_time);
             gPipeline.processPartitionQ();
             gPipeline.updateGeom(max_geom_update_time);
             stop_glerror();
+            gPipeline.updateGL(); // <FS:Trish/> FSPerfProfileLogInterval: moved into this block for its timer
         }
 
-        gPipeline.updateGL();
+        //gPipeline.updateGL(); // <FS:Trish/> moved into the block above
 
         stop_glerror();
 
@@ -915,7 +953,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         static LLCullResult result;
         LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
         LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
-        gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+        // <FS:Trish> FSPerfProfileLogInterval
+        //gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+        {
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_CULL);
+            gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+        }
+        // </FS:Trish>
         stop_glerror();
 
         LLGLState::checkStates();
@@ -941,6 +985,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
                 if (gFrameCount > 1 && !for_snapshot)
                 { //for some reason, ATI 4800 series will error out if you
                   //try to generate a shadow before the first frame is through
+                    FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_SUN_SHADOW); // <FS:Trish/>
                     gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
                 }
 
@@ -952,7 +997,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
                 glm::mat4 mod = get_current_modelview();
                 glViewport(0,0,512,512);
 
-                LLVOAvatar::updateImpostors();
+                // <FS:Trish> FSPerfProfileLogInterval
+                //LLVOAvatar::updateImpostors();
+                {
+                    FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_IMPOSTORS);
+                    LLVOAvatar::updateImpostors();
+                }
+                // </FS:Trish>
 
                 set_current_projection(proj);
                 set_current_modelview(mod);
@@ -978,6 +1029,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
         {
             LL_PROFILE_ZONE_NAMED("Update Images");
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UPDATE_IMAGES); // <FS:Trish/>
 
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Class");
@@ -1028,6 +1080,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         LLAppViewer::instance()->pingMainloopTimeout("Display:StateSort");
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("display - 4")
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_STATESORT); // <FS:Trish/>
             LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
             gPipeline.stateSort(camera, result); // <FS:Ansariel> Factor out calls to getInstance
             stop_glerror();
@@ -1053,6 +1106,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         {
             LLAppViewer::instance()->pingMainloopTimeout("Display:Sky");
             LL_PROFILE_ZONE_NAMED_CATEGORY_ENVIRONMENT("update sky"); //LL_RECORD_BLOCK_TIME(FTM_UPDATE_SKY);
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_SKY); // <FS:Trish/>
             gSky.updateSky();
         }
 
@@ -1135,6 +1189,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
                 && !gRestoreGL)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("display - 5")
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_GBUFFER); // <FS:Trish/>
             LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 
             static LLCachedControl<bool> render_depth_pre_pass(gSavedSettings, "RenderDepthPrePass", false);
@@ -1184,6 +1239,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
         if (LLPipeline::sRenderDeferred)
         {
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_LIGHTING); // <FS:Trish/>
             gPipeline.renderDeferredLighting();
         }
 
@@ -1197,8 +1253,18 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
         LLAppViewer::instance()->pingMainloopTimeout("Display:RenderUI");
         if (!for_snapshot)
         {
-            render_ui();
-            swap();
+            // <FS:Trish> FSPerfProfileLogInterval
+            //render_ui();
+            //swap();
+            {
+                FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UI_ALL);
+                render_ui();
+            }
+            {
+                FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_SWAP);
+                swap();
+            }
+            // </FS:Trish>
         }
 
 
@@ -1653,7 +1719,13 @@ void render_ui(F32 zoom_factor, int subfield)
     }
 
     // apply gamma correction and post effects
-    gPipeline.renderFinalize();
+    // <FS:Trish> FSPerfProfileLogInterval
+    //gPipeline.renderFinalize();
+    {
+        FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_FINALIZE);
+        gPipeline.renderFinalize();
+    }
+    // </FS:Trish>
     FSDynamicResolution::endScene(); // <FS:Trish/> Dynamic resolution: ends the GPU timing
 
     {
@@ -1661,7 +1733,13 @@ void render_ui(F32 zoom_factor, int subfield)
 
 
         LL_PROFILE_ZONE_NAMED_CATEGORY_UI("HUD");
-    render_hud_elements();
+    // <FS:Trish> FSPerfProfileLogInterval
+    //render_hud_elements();
+    {
+        FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_HUD);
+        render_hud_elements();
+    }
+    // </FS:Trish>
 // [RLVa:KB] - Checked: RLVa-2.2 (@setoverlay)
         if (RlvActions::hasBehaviour(RLV_BHVR_SETOVERLAY))
         {
@@ -1669,7 +1747,13 @@ void render_ui(F32 zoom_factor, int subfield)
         }
 // [/RLVa:KB]
         LLGLState::checkStates();
-        render_hud_attachments();
+        // <FS:Trish> FSPerfProfileLogInterval
+        //render_hud_attachments();
+        {
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_HUD);
+            render_hud_attachments();
+        }
+        // </FS:Trish>
 
         LLGLState::checkStates();
 
@@ -1685,6 +1769,7 @@ void render_ui(F32 zoom_factor, int subfield)
             if (!gDisconnected)
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_UI("UI 3D"); //LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_3D);
+                FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UI_3D); // <FS:Trish/>
                 LLGLState::checkStates();
                 render_ui_3d();
                 LLGLState::checkStates();
@@ -1703,6 +1788,7 @@ void render_ui(F32 zoom_factor, int subfield)
         if (render_ui)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_UI("UI 2D"); //LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_2D);
+            FS_RECORD_BLOCK_TIME(FTM_FS_RENDER_UI_2D); // <FS:Trish/>
             LLHUDObject::renderAll();
             render_ui_2d();
         }

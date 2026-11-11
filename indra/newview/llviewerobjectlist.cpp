@@ -92,6 +92,7 @@
 #include "fsassetblacklist.h"
 #include "fsparcelderender.h" // <FS:Trish/> Parcel derender
 #include "fsparallelavatar.h" // <FS:Trish/> FSPerfParallelAvatarUpdate
+#include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval
 #include "fsfloaterimport.h"
 #include "fscommon.h"
 #include "llfloaterreg.h"
@@ -1237,6 +1238,15 @@ void LLViewerObjectList::updateApparentAngles(LLAgent &agent)
     LLVOAvatar::cullAvatarsByPixelArea();
 }
 
+// <FS:Trish> FSPerfProfileLogInterval: the parts of Update Objectlist. The avatar poses are only
+// separate from the avatar idle updates with FSPerfParallelAvatarUpdate on; off, they are part of it.
+static LLTrace::BlockTimerStatHandle FTM_FS_OBJ_IDLE_AVATARS("FS Objects Idle Avatars");
+static LLTrace::BlockTimerStatHandle FTM_FS_OBJ_IDLE_OTHER("FS Objects Idle Other");
+static LLTrace::BlockTimerStatHandle FTM_FS_OBJ_AVATAR_POSES("FS Objects Avatar Poses");
+static LLTrace::BlockTimerStatHandle FTM_FS_OBJ_FLEXI_TEXANIM("FS Objects Flexi and Texture Anim");
+static LLTrace::BlockTimerStatHandle FTM_FS_OBJ_COSTS_STATS("FS Objects Costs and Stats");
+// </FS:Trish>
+
 void LLViewerObjectList::update(LLAgent &agent)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
@@ -1367,9 +1377,16 @@ void LLViewerObjectList::update(LLAgent &agent)
         {
             objectp = *idle_iter;
             llassert(objectp->isActive());
+            FS_RECORD_BLOCK_TIME(objectp->isAvatar() ? FTM_FS_OBJ_IDLE_AVATARS : FTM_FS_OBJ_IDLE_OTHER); // <FS:Trish/> FSPerfProfileLogInterval
                 objectp->idleUpdate(agent, frame_time);
         }
-        FSParallelAvatar::endIdle(); // <FS:Trish/> FSPerfParallelAvatarUpdate: evaluate the queued avatar poses
+        // <FS:Trish> FSPerfParallelAvatarUpdate: evaluate the queued avatar poses
+        {
+            FS_RECORD_BLOCK_TIME(FTM_FS_OBJ_AVATAR_POSES); // FSPerfProfileLogInterval
+            FSParallelAvatar::endIdle();
+        }
+        FS_RECORD_BLOCK_TIME(FTM_FS_OBJ_FLEXI_TEXANIM); // FSPerfProfileLogInterval
+        // </FS:Trish>
 
         //update flexible objects
         LLVolumeImplFlexible::updateClass();
@@ -1383,6 +1400,7 @@ void LLViewerObjectList::update(LLAgent &agent)
 
 
 
+    FS_RECORD_BLOCK_TIME(FTM_FS_OBJ_COSTS_STATS); // <FS:Trish/> FSPerfProfileLogInterval
     fetchObjectCosts();
     fetchPhysicsFlags();
 

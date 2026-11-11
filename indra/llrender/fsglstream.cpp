@@ -34,6 +34,7 @@
 #include "llgl.h"
 #include "llglheaders.h"
 #include "llprofiler.h"
+#include "fsblocktimer.h"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +54,11 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// The main thread's waits on the render thread, as their own timers in the periodic profile log
+// (FSPerfProfileLogInterval), so they don't count as rendering work.
+static LLTrace::BlockTimerStatHandle FTM_FS_WAIT_RENDER_THREAD("FS Wait Render Thread");
+static LLTrace::BlockTimerStatHandle FTM_FS_WAIT_GL_SYNC("FS Wait GL Sync");
 
 namespace
 {
@@ -391,6 +397,7 @@ namespace
         submitCurrent();
 
         LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT sync wait");
+        FS_RECORD_BLOCK_TIME(FTM_FS_WAIT_GL_SYNC); // the profile log: main thread blocked on a call that returns a value
         const U64 t0 = nowNs();
         for (U32 spin = 0; spin < 2000 && !ctx.mDone.load(std::memory_order_acquire); ++spin)
         {
@@ -3966,6 +3973,7 @@ namespace FSGLStream
         if (sPresented.load(std::memory_order_acquire) + 1 < sRecordedFrames)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT frame wait");
+            FS_RECORD_BLOCK_TIME(FTM_FS_WAIT_RENDER_THREAD); // the profile log: main thread waiting for the last frame to finish
             const U64 t0 = nowNs();
             for (;;)
             {
