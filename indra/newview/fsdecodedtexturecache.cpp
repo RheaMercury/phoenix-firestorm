@@ -166,6 +166,16 @@ void FSDecodedTextureCache::init(const std::string& cache_dir, bool purge, bool 
 
     mWriter = std::make_unique<LL::ThreadPool>("FSDecodedTextureCache", 1);
     mWriter->start();
+#if LL_WINDOWS
+    // <FS:Trish> Its writes are many MB a texture (more uncompressed) and come in bursts when arriving
+    // somewhere: in background mode Windows gives its disk and memory use the lowest priority, so they
+    // no longer hold up the rest of the viewer's file access
+    mWriter->getQueue().post([]()
+        {
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+        });
+    // </FS:Trish>
+#endif
     mWriter->getQueue().post([this]() { scan(); });
     // <FS:Trish> after the index: the cache is usable while old folders are still being deleted
     if (!read_only)
@@ -701,6 +711,14 @@ void FSDecodedTextureCache::store(const LLUUID& id, const LLPointer<LLImageRaw>&
     {
         std::lock_guard<std::mutex> lock(mMutex);
         auto it = mEntries.find(id);
+        // <FS:Trish> Each pending write holds its decoded pixels in memory: with the writer at
+        // background priority behind a busy disk, stop queueing more than this and keep the rest for
+        // another visit
+        if (mPendingWrites.size() >= 48)
+        {
+            return;
+        }
+        // </FS:Trish>
         if ((it != mEntries.end() && it->second.mDiscard <= discard) || !mPendingWrites.insert(id).second)
         {
             return;
