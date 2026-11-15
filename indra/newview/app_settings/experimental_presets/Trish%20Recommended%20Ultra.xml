@@ -208,10 +208,6 @@
     <boolean>1</boolean>
     <key>FSRenderSSGIStrength</key>
     <real>1.5</real>
-    <key>FSRenderSSRConeTrace</key>
-    <boolean>1</boolean>
-    <key>FSRenderSSRHiZ</key>
-    <boolean>1</boolean>
     <key>FSRenderShadowFarCascadeInterval</key>
     <integer>8</integer>
     <key>FSRenderShadowFarCascadeMinCasterScale</key>
@@ -344,14 +340,6 @@
     <boolean>1</boolean>
     <key>RenderRiggedPreciseMath</key>
     <boolean>1</boolean>
-    <key>RenderScreenSpaceReflectionDistanceBias</key>
-    <real>0.3</real>
-    <key>RenderScreenSpaceReflectionGlossySamples</key>
-    <integer>3</integer>
-    <key>RenderScreenSpaceReflectionIterations</key>
-    <integer>16</integer>
-    <key>RenderScreenSpaceReflectionRayStep</key>
-    <real>0.02</real>
     <key>RenderScreenSpaceReflectionResolutionMultiplier</key>
     <real>0.5</real>
     <key>RenderScreenSpaceReflections</key>

@@ -76,6 +76,8 @@
     <boolean>1</boolean>
     <key>RenderScreenSpaceReflections</key>
     <boolean>1</boolean>
+    <key>RenderScreenSpaceReflectionGlossySamples</key>
+    <integer>4</integer>
     <key>RenderShadowMinCasterTexels</key>
     <real>0.0</real>
     <key>RenderShadowPCSS</key>
