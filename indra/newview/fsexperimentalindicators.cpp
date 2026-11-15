@@ -171,7 +171,7 @@ namespace
         { "FSRenderSpotVolumetricDensity", CL, VM },
         { "FSRenderSpotVolumetricMaxLights", CM, VM },
         { "FSRenderSpotVolumetricResolution", CM, VM },
-        { "FSRenderSpotVolumetricSteps", CM, VM },
+        { "FSRenderSpotVolumetricSteps", CH, VN },
         { "FSRenderSpotVolumetricUnshadowed", CM, VM },
         { "FSRenderSpotVolumetricTemporal", CS, VN },
         { "FSRenderSpotVolumetricNearRange", CL, VM },

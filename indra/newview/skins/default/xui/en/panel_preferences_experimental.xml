@@ -2248,10 +2248,10 @@
                      layout="topleft"
                      left="35"
                      name="fs_fsrenderspotvolumetricsteps_label"
-                     tool_tip="EXPERIMENTAL. Samples along each view ray through a light. More is smoother and slower."
+                     tool_tip="EXPERIMENTAL. HEAVY. Samples along each view ray through a light; the cost grows with this times the number of lights and the screen area they cover. 8 is smooth with blending over frames on, more is only slightly smoother and much slower. Default 8."
                      top="1544"
                      width="285">
-                        Steps
+                        Steps (heavy)
                     </text>
                     <spinner
                      control_name="FSRenderSpotVolumetricSteps"
@@ -2265,7 +2265,7 @@
                      max_val="64"
                      min_val="4"
                      name="fs_fsrenderspotvolumetricsteps"
-                     tool_tip="EXPERIMENTAL. Samples along each view ray through a light. More is smoother and slower."
+                     tool_tip="EXPERIMENTAL. HEAVY. Samples along each view ray through a light; the cost grows with this times the number of lights and the screen area they cover. 8 is smooth with blending over frames on, more is only slightly smoother and much slower. Default 8."
                      top="1542"
                      width="100" />
                     <check_box

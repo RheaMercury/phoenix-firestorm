@@ -15769,7 +15769,7 @@ void LLPipeline::renderSpotVolumetrics()
     static LLCachedControl<F32> density(gSavedSettings, "FSRenderSpotVolumetricDensity", 0.05f);
     static LLCachedControl<S32> max_lights(gSavedSettings, "FSRenderSpotVolumetricMaxLights", 4);
     static LLCachedControl<F32> resolution(gSavedSettings, "FSRenderSpotVolumetricResolution", 0.5f);
-    static LLCachedControl<S32> steps(gSavedSettings, "FSRenderSpotVolumetricSteps", 24);
+    static LLCachedControl<S32> steps(gSavedSettings, "FSRenderSpotVolumetricSteps", 8);
     static LLCachedControl<bool> unshadowed(gSavedSettings, "FSRenderSpotVolumetricUnshadowed", false);
     static LLCachedControl<F32> anisotropy(gSavedSettings, "FSRenderSpotVolumetricAnisotropy", 0.3f);
     static LLCachedControl<bool> dust_motes(gSavedSettings, "FSRenderDustMotes", false); // <FS:Trish/> Dust motes

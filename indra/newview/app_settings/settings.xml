@@ -27375,13 +27375,13 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderSpotVolumetricSteps</key>
     <map>
       <key>Comment</key>
-      <string>Samples along each view ray through a projector's range, 4 to 64. More is smoother and slower.</string>
+      <string>Samples along each view ray through a projector's range, 4 to 64. HEAVY: the cost grows with this times the lights times the covered pixels, and it is the most expensive projector cone setting. 8 is smooth with FSRenderSpotVolumetricTemporal on; more is only slightly smoother and much slower.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>S32</string>
       <key>Value</key>
-      <integer>24</integer>
+      <integer>8</integer>
     </map>
     <key>FSRenderSpotVolumetricTemporal</key>
     <map>
