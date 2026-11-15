@@ -31,6 +31,7 @@
 
 #include "llgl.h"
 #include "llviewercontrol.h"
+#include "llviewertexture.h" // <FS:Trish/> sFreeVRAMMegabytes
 
 namespace
 {
@@ -288,7 +289,26 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
         {   // grow, doubling, up to the limit; every attribute buffer by the same number of vertices
             const U32 want_verts = llmin(max_verts, llmax(mVerts.capacity() * 2, llmax(verts * 4, (U32)(1u << 20))));
             const U32 want_indices = llmin(max_indices, llmax(mIndices.capacity() * 2, llmax(indices * 4, (U32)(3u << 20))));
-            if (!verts_fit && want_verts > mVerts.capacity())
+            // <FS:Trish> Growing allocates the bigger buffer beside the old one and copies into it, and
+            // the arenas are not part of the texture budget. With video memory already at its target the
+            // driver has to evict to make room: on Linux NVIDIA that blocked inside the allocation for
+            // 10-30 s, once past the 60 s watchdog. Only grow into real headroom; what doesn't fit is
+            // drawn the old way (as when the arena is at its limit).
+            const bool grow_verts = !verts_fit && want_verts > mVerts.capacity();
+            const bool grow_indices = !indices_fit && want_indices > mIndices.capacity();
+            U64 grow_bytes = grow_indices ? (U64)want_indices * sizeof(U16) : 0;
+            if (grow_verts)
+            {
+                for (U32 type : mTypes)
+                {
+                    grow_bytes += (U64)want_verts * LLVertexBuffer::sTypeSize[type];
+                }
+            }
+            constexpr F32 GROW_HEADROOM_MB = 256.f;
+            const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes;
+            // </FS:Trish>
+            //if (!verts_fit && want_verts > mVerts.capacity())
+            if (grow_verts && room) // <FS:Trish/>
             {
                 bool grown = true;
                 for (size_t i = 0; i < mTypes.size() && grown; ++i)
@@ -302,7 +322,8 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 }
                 // else: the buffers that did grow hold the old range at the old offsets, still consistent
             }
-            if (!indices_fit && want_indices > mIndices.capacity() &&
+            //if (!indices_fit && want_indices > mIndices.capacity() &&
+            if (grow_indices && room && // <FS:Trish/>
                 growBuffer(mIB, mIndices.capacity() * (U32)sizeof(U16), want_indices * (U32)sizeof(U16)))
             {
                 mIndices.grow(want_indices);
