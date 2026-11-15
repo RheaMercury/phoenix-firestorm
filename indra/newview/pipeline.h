@@ -424,7 +424,13 @@ public:
     // if setup is true, wil lset texture compare mode function and filtering options
     void bindShadowMaps(LLGLSLShader& shader);
     void bindShadowDepthFetch(LLGLSLShader& shader, bool bind); // <Vulkanstorm/> PCSS raw depth units
-    void bindDeferredShaderFast(LLGLSLShader& shader);
+    // <FS:Trish> fs_uniforms_set: this program already got the pass's probe, SSR and hi-Z uniforms
+    // (they don't change within a pass); only its textures are bound again, other programs having
+    // put theirs on the same units meanwhile
+    //void bindDeferredShaderFast(LLGLSLShader& shader);
+    void bindDeferredShaderFast(LLGLSLShader& shader, bool fs_uniforms_set = false);
+    bool mFSPassUniformsSet = false;    // bindReflectionProbes: skip the uniforms, bind the textures
+    // </FS:Trish>
     void bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
     void setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep);
 
@@ -865,7 +871,6 @@ public:
         LLRenderTarget          waterExclusion;
         // </FS:Trish>
         LLRenderTarget          fsGTAOHalf; // <FS:Trish/> Half-resolution GTAO, allocated on use (main pack only)
-        LLRenderTarget          fsSSRHalf; // <FS:Trish/> Half-resolution SSR, allocated on use (main pack only)
         LLRenderTarget          fsIndirectHalf; // <FS:Trish/> Bent normals and indirect light before the temporal blend, two attachments
 
         //sun shadow map

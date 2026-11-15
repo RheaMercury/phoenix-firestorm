@@ -361,11 +361,16 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     // <FS:Trish> Water scratch targets are sized to the pack being rendered
     //gPipeline.bindDeferredShader(*shader, nullptr, &gPipeline.mWaterDis);
     LLRenderTarget& water_dis = gPipeline.getWaterDisTarget();
+    // <FS:Trish> Transparent water reflects the scene under it with this frame's camera: a hi-Z
+    // pyramid of that, built before the water shader is bound (the build binds its own programs)
+    const bool water_ssr = !underwater && !gCubeSnapshot && LLPipeline::sRenderTransparentWater &&
+                           LLPipeline::RenderScreenSpaceReflections;
+    const bool water_hiz = water_ssr && FSSSRHiZ::buildWater(water_dis, *fs_water_opaque_depth(water_dis), gPipeline.mScreenTriangleVB);
+    // </FS:Trish>
     gPipeline.bindDeferredShader(*shader, nullptr, &water_dis);
     // </FS:Trish>
 
-    if (!underwater && !gCubeSnapshot && LLPipeline::sRenderTransparentWater &&
-        LLPipeline::RenderScreenSpaceReflections)
+    if (water_ssr) // <FS:Trish/> same test as above
     {
         // The previous-frame scene map already contains water, allowing SSR to
         // reflect its own output. Use the matching color/depth captured before
@@ -416,7 +421,17 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
         const glm::mat4 identity(1.0f);
         shader->uniformMatrix4fv(LLShaderMgr::MODELVIEW_DELTA_MATRIX, 1, GL_FALSE, glm::value_ptr(identity));
         shader->uniformMatrix4fv(LLShaderMgr::INVERSE_MODELVIEW_DELTA_MATRIX, 1, GL_FALSE, glm::value_ptr(identity));
-        FSSSRHiZ::disable(*shader); // <FS:Trish/> the hi-Z pyramid is of mSceneMap, not this scene map
+        // <FS:Trish> The main hi-Z pyramid is of mSceneMap, not this scene map: the water's own
+        //FSSSRHiZ::disable(*shader);
+        if (water_hiz)
+        {
+            FSSSRHiZ::bindWater(*shader, water_dis);
+        }
+        else
+        {
+            FSSSRHiZ::disable(*shader);
+        }
+        // </FS:Trish>
     }
 
     LLViewerTexture* tex_a = mWaterNormp[0];

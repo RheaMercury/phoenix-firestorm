@@ -228,7 +228,8 @@ namespace
         for (const auto& row : rows)
         {
             const F64 ms = (F64)row.second.mNs * per_frame;
-            if (shown >= 30 || ms < 0.01)
+            // the 30 biggest left most of a heavy pass in zones under the cut; 80 shows nearly all of it
+            if (shown >= 80 || ms < 0.01)
             {
                 break;
             }

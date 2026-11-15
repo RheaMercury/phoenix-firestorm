@@ -1,6 +1,6 @@
 /**
- * @file fsSSRHalfF.glsl
- * @brief Screen-space reflections traced once per 2x2 pixels (FSRenderSSRHalfRes)
+ * @file screenSpaceReflTraceF.glsl
+ * @brief The opaque surfaces' screen-space reflections, traced into their own buffer before lighting
  *
  * $LicenseInfo:firstyear=2026&license=viewerlgpl$
  * Phoenix Firestorm Viewer Source Code
@@ -25,18 +25,24 @@
  * $/LicenseInfo$
  */
 
-// The opaque surfaces' screen-space reflection, traced at half resolution before the lighting
-// pass. Texel t traces the full-resolution pixel 2t with exactly what softenLightF would hand
-// the march there (same glossiness, same direction, the wet shoreline included), and
-// softenLightF's upsample (fsSSRHalfUpsample) reads it back weighted by how well that pixel's
-// depth and normal match its own. Output: the march's colour and blend weight, 0 where nothing
-// was traced (sky, rough surfaces).
+// The opaque surfaces' screen-space reflection, traced before the lighting pass into the SSR
+// buffer (fsssrbuffer.cpp), at RenderScreenSpaceReflectionResolutionMultiplier times the screen
+// size, after the graphics care package's trace pass. Texel t traces the full-resolution pixel at
+// its centre (fsSSRTracedPixel) with exactly what softenLightF would hand the march there (same
+// glossiness, same direction, the wet shoreline included). The resolve blends it with the last
+// frames (screenSpaceReflResolveF.glsl) and softenLightF's upsample reads it back weighted by how
+// well the traced pixel's depth and normal match its own.
+//
+// Output: the reflection colour compressed (ssrCompress) and premultiplied by its blend weight,
+// and the weight; 0 where nothing was traced (sky, rough surfaces). Premultiplied, so the temporal
+// blend and the blur mips can average it directly.
 
 /*[EXTRA_CODE_HERE]*/
 
 out vec4 frag_color;
 
 uniform vec2 fs_ssr_full_res;   // full-resolution size in pixels
+uniform vec2 fs_ssr_res;        // this target's size in pixels
 uniform sampler2D sceneMap;
 uniform vec4 waterPlane;
 
@@ -48,13 +54,15 @@ float unpackRoughness(vec2 p);
 vec3 getSpecularDominantDir(vec3 n, vec3 r, float perceptualRoughness);
 float tapScreenSpaceReflection(int totalSamples, vec2 tc, vec3 viewPos, vec3 n, vec3 rayDir, inout vec4 collectedColor, sampler2D source, float glossiness);
 float ssrMinGlossiness();
+vec3 ssrCompress(vec3 c);
 #ifdef FS_WET_SHORE
 float fsWetShore(vec3 pos, vec3 norm, vec4 water_plane);
 #endif
 
 void main()
 {
-    ivec2 full = min(ivec2(gl_FragCoord.xy) * 2, ivec2(fs_ssr_full_res) - 1);
+    // the full-resolution pixel under this texel's centre (fsSSRTracedPixel in softenLightF)
+    ivec2 full = min(ivec2(gl_FragCoord.xy * (fs_ssr_full_res / fs_ssr_res)), ivec2(fs_ssr_full_res) - 1);
     vec2 tc = (vec2(full) + 0.5) / fs_ssr_full_res;
 
     float depth = getDepth(tc);
@@ -100,5 +108,6 @@ void main()
     {
         tapScreenSpaceReflection(1, tc, pos.xyz, gb.normal, dir, ssr, sceneMap, gloss);
     }
-    frag_color = ssr;
+    ssr.a = clamp(ssr.a, 0.0, 1.0);
+    frag_color = vec4(ssrCompress(ssr.rgb) * ssr.a, ssr.a);
 }

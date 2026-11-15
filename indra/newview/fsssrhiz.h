@@ -35,9 +35,10 @@ class LLRenderTarget;
 class LLVertexBuffer;
 
 // Once per frame, after the lit scene is copied into the SSR scene map, a mip pyramid of it is
-// built: rgb the box-filtered colour (glossy cone lookups), a the nearest linear depth under each
-// texel (hierarchical-Z tracing). Next frame's SSR in the lighting and alpha passes traces
-// through it (class3/deferred/screenSpaceReflUtil.glsl, FS_SSR_HIZ).
+// built: rgb the luminance-weighted colour (glossy cone lookups), a the nearest linear depth under
+// each texel (hierarchical-Z tracing). Next frame's SSR trace and alpha passes trace through it
+// (class3/deferred/screenSpaceReflUtil.glsl, FS_SSR_HIZ). Transparent water reflects this frame's
+// scene under it instead, so the water pass builds a second pyramid of that.
 //
 // Everything is off and nothing is allocated unless RenderScreenSpaceReflections and
 // FSRenderSSRHiZ are both on.
@@ -50,16 +51,25 @@ namespace FSSSRHiZ
     // while the feature is off.
     void loadShaders(S32 shader_level);
 
-    // Rebuilds the pyramid from the SSR scene map (colour + depth)
+    // Rebuilds the main pyramid from the SSR scene map (colour + depth)
     void build(LLRenderTarget& scene_map, LLVertexBuffer* screen_triangle);
 
-    // Binds the pyramid and the tracing uniforms to a shader that samples the SSR scene map.
-    // No-op for shaders without the FS_SSR_HIZ permutation. Until a pyramid of scene_map's size
-    // exists (first frame, resize) the shader is told to use the classic march.
-    void bind(LLGLSLShader& shader, const LLRenderTarget& scene_map);
+    // Rebuilds the water's pyramid from the scene under the water (color) and its opaque depth.
+    // False when it can't (off, sizes differ): the water then keeps the classic march.
+    bool buildWater(LLRenderTarget& color, LLRenderTarget& depth, LLVertexBuffer* screen_triangle);
 
-    // Sends a bound shader back to the classic march, for passes that swap in a scene map the
-    // pyramid wasn't built from (transparent water).
+    // Binds the main pyramid and the tracing uniforms to a shader that samples the SSR scene map.
+    // No-op for shaders without the FS_SSR_HIZ permutation. Until a pyramid of scene_map's size
+    // exists (first frame, resize) the shader is told to use the classic march. uniforms false: only
+    // the pyramid texture, for a program that has this pass's uniforms already.
+    void bind(LLGLSLShader& shader, const LLRenderTarget& scene_map, bool uniforms = true);
+
+    // Swaps the water's pyramid in for the main one on a shader already given bind(), for the
+    // scene map the water samples (color, as given to buildWater)
+    void bindWater(LLGLSLShader& shader, const LLRenderTarget& color);
+
+    // Sends a bound shader back to the classic march, for passes that swap in a scene map no
+    // pyramid was built from.
     void disable(LLGLSLShader& shader);
 
     void release();

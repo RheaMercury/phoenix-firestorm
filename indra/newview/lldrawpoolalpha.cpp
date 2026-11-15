@@ -28,6 +28,8 @@
 
 #include "lldrawpoolalpha.h"
 
+#include <algorithm> // <FS:Trish/> std::find
+
 #include "llglheaders.h"
 #include "llviewercontrol.h"
 #include "llcriticaldamp.h"
@@ -826,6 +828,32 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
     const LLGLSLShader* lastAvatarShader = nullptr;
     bool skipLastSkin = false;
 
+    // <FS:Trish> Program switches are what this loop does most besides drawing: draws stay in their
+    // sorted order, so the program goes back and forth between the legacy, material, fullbright,
+    // PBR and rigged variants, and around every glow pass. Each switch used to set the pass's probe,
+    // SSR and hi-Z uniforms again (and rebind the probe uniform buffer); they don't change within a
+    // pass, so a program gets them once here and only its textures afterwards. The switch back after
+    // a group's glow pass waits for the next draw, which often wants another program anyway.
+    std::vector<LLGLSLShader*> fs_pass_programs;    // fully bound in this pass
+    LLGLSLShader* fs_glow_return = nullptr;         // the program the glow pass interrupted
+    auto fs_bind_program = [&](LLGLSLShader& shader)
+    {
+        if (fs_glow_return == &shader)
+        {   // as the stock rebind after the glow pass: its textures are still on their units
+            fs_glow_return = nullptr;
+            shader.bind();
+            return;
+        }
+        fs_glow_return = nullptr;
+        const bool known = std::find(fs_pass_programs.begin(), fs_pass_programs.end(), &shader) != fs_pass_programs.end();
+        gPipeline.bindDeferredShaderFast(shader, known);
+        if (!known)
+        {
+            fs_pass_programs.push_back(&shader);
+        }
+    };
+    // </FS:Trish>
+
     LLCullResult::sg_iterator begin;
     LLCullResult::sg_iterator end;
 
@@ -990,7 +1018,8 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                     // shader must be bound before LLGLTFMaterial::bind
                     if (current_shader != target_shader)
                     {
-                        gPipeline.bindDeferredShaderFast(*target_shader);
+                        //gPipeline.bindDeferredShaderFast(*target_shader);
+                        fs_bind_program(*target_shader); // <FS:Trish/>
                     }
 
                     params.mGLTFMaterial->bind(params.mTexture);
@@ -1047,7 +1076,8 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                     if (current_shader != target_shader)
                     {// If we need shaders, and we're not ALREADY using the proper shader, then bind it
                     // (this way we won't rebind shaders unnecessarily).
-                        gPipeline.bindDeferredShaderFast(*target_shader);
+                        //gPipeline.bindDeferredShaderFast(*target_shader);
+                        fs_bind_program(*target_shader); // <FS:Trish/>
 
                         if (params.mFullbright)
                         { // make sure the bind the exposure map for fullbright shaders so they can cancel out exposure
@@ -1244,14 +1274,28 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 // restore our alpha blend mode
                 gGL.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
 
+                // <FS:Trish> At the next draw, if it wants this program (fs_bind_program)
+                //if (lastShader && rebind)
+                //{
+                //    lastShader->bind();
+                //}
                 if (lastShader && rebind)
                 {
-                    lastShader->bind();
+                    fs_glow_return = lastShader;
                 }
+                // </FS:Trish>
                 } // <FS:Trish/>
             }
         }
     }
+
+    // <FS:Trish> The pass ends with the program the stock loop would leave bound
+    if (fs_glow_return)
+    {
+        fs_glow_return->bind();
+        fs_glow_return = nullptr;
+    }
+    // </FS:Trish>
 
     gGL.setSceneBlendType(LLRender::BT_ALPHA);
 

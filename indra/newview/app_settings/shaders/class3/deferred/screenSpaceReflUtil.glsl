@@ -76,7 +76,93 @@ uniform float distanceBias;
 uniform float depthRejectBias;
 uniform float glossySampleCount;
 uniform float adaptiveStepMultiplier;
-uniform float noiseSine;
+uniform float noiseSine;     // frame index while the trace is blended over frames, else 0
+uniform float maxZDepth;     // RenderScreenSpaceReflectionMaxDepth
+uniform float maxRoughness;  // RenderScreenSpaceReflectionMaxRoughness
+uniform float ssrJitter;     // 1 while the trace is blended over frames: jitter the hi-Z start
+
+// <FS:Trish> Shared by both marches, after the graphics care package's SSR (Geenz, SLV
+// project/graphics-care-package), so the two stay easy to compare.
+
+// pcg2d: the sin hash breaks down at pixel-scale arguments and correlates across seeds
+uvec2 ssrPcg2d(uvec2 v)
+{
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v ^= v >> 16u;
+    v.x += v.y * 1664525u;
+    v.y += v.x * 1664525u;
+    v ^= v >> 16u;
+    return v;
+}
+
+// Interleaved gradient noise, rotated each frame by the golden ratio
+float ssrIGN(vec2 p)
+{
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))) + noiseSine * 0.61803398875);
+}
+
+// Glossy ray s around the mirror direction R, importance sampled from the GGX lobe. The same
+// pattern every frame unless noiseSine changes, so only the accumulated trace reseeds it.
+vec3 ssrGlossyDir(vec3 R, float roughness, int s)
+{
+    float alpha = roughness * roughness;
+    uint frame = uint(noiseSine);
+    uvec2 hash = ssrPcg2d(uvec2(gl_FragCoord.xy) + uvec2(frame * 7919u + uint(s) * 104729u, frame * 6271u + uint(s) * 15013u));
+    float u1 = float(hash.x) * 2.3283064365386963e-10;
+    float u2 = float(hash.y) * 2.3283064365386963e-10;
+
+    float theta = atan(alpha * sqrt(u1) / sqrt(1.0 - u1));
+    float phi = 6.28318530718 * u2;
+
+    vec3 up = abs(R.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+    vec3 tangent = normalize(cross(up, R));
+    vec3 bitangent = cross(R, tangent);
+    vec3 h = normalize(sin(theta) * cos(phi) * tangent + sin(theta) * sin(phi) * bitangent + cos(theta) * R);
+    return normalize(reflect(-R, h));
+}
+
+// Reinhard on luminance before hit colours are averaged (glossy rays, the temporal blend, the
+// blur mips), so one very bright hit can't turn into a firefly; undone once at the end
+float ssrLuma(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 ssrCompress(vec3 c)
+{
+    return c / (1.0 + ssrLuma(c));
+}
+
+vec3 ssrUncompress(vec3 c)
+{
+    return c / max(1.0 - ssrLuma(c), 0.02); // capped: emissive hits blow out otherwise
+}
+
+// Nothing beyond maxZDepth, faded over its last fifth
+float ssrDepthFade(float z)
+{
+    return 1.0 - smoothstep(maxZDepth * 0.8, maxZDepth, z);
+}
+
+// Rays heading back toward the camera mostly look for what is behind it, which the screen lacks.
+// d, p0: ray direction and origin in the scene map's camera space.
+float ssrFacingFade(vec3 d, vec3 p0)
+{
+    return 1.0 - smoothstep(0.4, 0.9, dot(d, -normalize(p0)));
+}
+
+// Whether a colour read from the scene is usable: not NaN, not infinite, within half float range.
+// A hit on anything else counts as a miss. Surfaces that reflect the scene map see their own last
+// frame in it, so one bad value (uninitialized memory right after the scene map is reallocated,
+// as a snapshot does twice; not zeroed on AMD) would otherwise feed itself frame after frame and
+// never fade, unlike a real colour. NaN fails every comparison, so one test covers all three.
+bool ssrFinite(vec3 c)
+{
+    return all(lessThan(abs(c), vec3(65000.0)));
+}
+// </FS:Trish>
 
 float epsilon = 0.1;
 
@@ -166,7 +252,7 @@ bool traceScreenRay(vec3 position, vec3 reflection, out vec4 hitColor, out float
                     color = vec4( 0.5+ sign(delta)/2,0.3,0.5- sign(delta)/2, 0);
                 hitColor = texture(sceneMap, screenPosition) * color;
                 hitDepth = depthFromScreen;
-                hit = true;
+                hit = ssrFinite(hitColor.rgb); // <FS:Trish/> a bad value is a miss
                 break;
             }
             if (isBinarySearchEnabled && delta > 0)
@@ -246,7 +332,7 @@ bool traceScreenRay(vec3 position, vec3 reflection, out vec4 hitColor, out float
                         color = vec4( 0.5+ sign(delta)/2,0.3,0.5- sign(delta)/2, 0);
                     hitColor = texture(sceneMap, screenPosition) * color;
                     hitDepth = depthFromScreen;
-                    hit = true;
+                    hit = ssrFinite(hitColor.rgb); // <FS:Trish/> a bad value is a miss
                     break;
                 }
             }
@@ -391,20 +477,24 @@ vec3 getPoissonSample(int i) {
     return POISSON3D_SAMPLES[i] * 2 - 1;
 }
 
-// Roughness fade for the ray march, and the glossiness at which it reaches zero.
+// Roughness fade for the ray march, and the glossiness at which it reaches zero: screen-space
+// reflections stop at maxRoughness (RenderScreenSpaceReflectionMaxRoughness), fading out over
+// the last 0.1 below it.
 //
 // The caller that decides whether to march at all lives in another compilation unit and cannot
 // see a constant declared here, so it asks for the threshold through a function. It used to
-// carry its own literal instead, and the two disagreed: this fade ramped up from 0.567 while the
-// gate rejected everything below 0.9, so the whole ramp was unreachable and screen-space
-// reflections switched on at full strength in a single step -- a hard visible edge across any
-// surface whose roughness crossed 0.1.
-#define SSR_GLOSS_FADE_SLOPE 3.0
-#define SSR_GLOSS_FADE_BIAS  1.7
-
+// carry its own literal instead, and the two disagreed: the fade ramped up from one glossiness
+// while the gate rejected everything below another, so the whole ramp was unreachable and
+// screen-space reflections switched on at full strength in a single step -- a hard visible edge
+// across any surface whose roughness crossed the gate.
 float ssrMinGlossiness()
 {
-    return SSR_GLOSS_FADE_BIAS / SSR_GLOSS_FADE_SLOPE;
+    return 1.0 - maxRoughness;
+}
+
+float ssrRoughnessFade(float roughness)
+{
+    return 1.0 - smoothstep(maxRoughness - 0.1, maxRoughness, roughness);
 }
 
 #ifdef FS_SSR_HIZ
@@ -419,13 +509,19 @@ float ssrMinGlossiness()
 // the exact depth: hits more than ssrThickness behind the surface (the ray passing behind a thin
 // object) and hits on a surface's back face are skipped and the march goes on behind them.
 //
-// Each hit carries a confidence -- screen-edge distance of the HIT (not of the pixel),
-// penetration depth, and how directly the ray heads back toward the camera -- which becomes the
-// alpha the caller blends the reflection probe result with, so SSR fades into the probes rather
-// than cutting off.
+// A ray may pass behind at most SSR_MAX_TUNNEL surfaces, and at most SSR_MAX_BEHIND_PX pixels
+// behind any one of them; past that it is a miss and the probes take over. Behind a wall the
+// screen holds nothing the ray could find, and walking it pixel by pixel used up the whole step
+// budget (after the graphics care package's tunnel budget, which counts every pixel; counting
+// surfaces keeps reflections that continue past thin posts and railings).
 //
-// ssrHiZActive is set by the pipeline only while ssrHiZMap matches sceneMap; anything else (the
-// water pass, which swaps in its own scene map) keeps the classic march.
+// Each hit carries a confidence -- screen-edge distance of the HIT (not of the pixel),
+// penetration depth, hit depth against maxZDepth, and how directly the ray heads back toward the
+// camera -- which becomes the alpha the caller blends the reflection probe result with, so SSR
+// fades into the probes rather than cutting off.
+//
+// ssrHiZActive is set by the pipeline only while ssrHiZMap matches sceneMap (the water binds a
+// pyramid of its own scene map); anything else keeps the classic march.
 // ---------------------------------------------------------------------------------------------
 uniform sampler2D ssrHiZMap;
 uniform float ssrHiZActive;
@@ -433,6 +529,9 @@ uniform float ssrHiZSteps;
 uniform float ssrThickness;
 uniform float ssrEdgeFade;
 uniform float ssrConeTrace;
+
+#define SSR_MAX_TUNNEL 2
+#define SSR_MAX_BEHIND_PX 16
 
 // View position (previous frame) -> (pixel x, pixel y, 1 / linear depth). For a perspective
 // projection clip w is the linear depth, so all three are affine in screen space.
@@ -527,15 +626,20 @@ bool fsTraceHiZ(vec3 position, vec3 dir, out vec2 hitUV, out float confidence, o
     int maxLevel = int(floor(log2(max(res.x, res.y))));
     ivec2 lastPx = ivec2(res) - 1;
 
-    // Start just outside the origin pixel.
+    // Start just outside the origin pixel. When the trace is blended over frames the start is
+    // jittered by up to a pixel more, so the stair steps of a pixel-granular hit become noise
+    // the temporal resolve averages away.
     vec2 tb0 = (floor(s0.xy) + cellStep - s0.xy) * invD;
-    float t = min(tb0.x, tb0.y) + tEps;
+    float t = min(tb0.x, tb0.y) + tEps + ssrJitter * ssrIGN(gl_FragCoord.xy) / spanPx;
 
     int level = 0;
     int steps = int(ssrHiZSteps);
     bool hit = false;
     vec3 h = s0;
+    vec3 sp = vec3(0.0);
     float pen = 0.0;
+    int tunnels = 0;
+    int behindPx = 0;
 
     for (int i = 0; i < steps; i++)
     {
@@ -560,6 +664,7 @@ bool fsTraceHiZ(vec3 position, vec3 dir, out vec2 hitUV, out float confidence, o
             // Entirely in front of everything in the cell: skip it and widen the search.
             t = tExit + tEps;
             level = min(level + 1, maxLevel);
+            behindPx = 0; // out from behind whatever it passed
             continue;
         }
 
@@ -588,7 +693,7 @@ bool fsTraceHiZ(vec3 position, vec3 dir, out vec2 hitUV, out float confidence, o
         {
             break; // reached the sky: nothing nearer to find
         }
-        vec3 sp = fsSSRViewPosAt(px, res);
+        sp = fsSSRViewPosAt(px, res);
         pen = 1.0 / h.z + sp.z; // ray depth - surface depth
         if (pen < ssrThickness)
         {
@@ -599,11 +704,22 @@ bool fsTraceHiZ(vec3 position, vec3 dir, out vec2 hitUV, out float confidence, o
                 break;
             }
         }
-        // Behind a thin surface, or on its back face: carry on past this pixel.
+        // Behind a thick surface, or on its back face: carry on past this pixel, within the
+        // tunnel budget.
+        if (behindPx == 0 && ++tunnels > SSR_MAX_TUNNEL)
+        {
+            break;
+        }
+        if (++behindPx > SSR_MAX_BEHIND_PX)
+        {
+            break;
+        }
         t = tExit + tEps;
     }
 
-    if (!hit)
+    // A hit below the clip plane (the water's surface) ends the ray as a miss, as in the classic
+    // march: what lies behind it along the ray is hidden from the ray anyway.
+    if (!hit || fsSSRClipped(sp))
     {
         return false;
     }
@@ -615,9 +731,7 @@ bool fsTraceHiZ(vec3 position, vec3 dir, out vec2 hitUV, out float confidence, o
     float edge = ssrEdgeFade > 0.0 ? smoothstep(0.0, ssrEdgeFade, min(e.x, e.y)) : 1.0;
     float x = clamp(pen / max(ssrThickness, 1e-3), 0.0, 1.0);
     float thick = 1.0 - x * x;
-    // Rays heading back toward the camera mostly find what is behind it, which the screen lacks.
-    float facing = 1.0 - smoothstep(0.4, 0.9, dot(d, -normalize(p0)));
-    confidence = edge * thick * facing;
+    confidence = edge * thick * ssrFacingFade(d, p0) * ssrDepthFade(-sp.z);
     return true;
 }
 
@@ -626,34 +740,36 @@ float fsTapScreenSpaceReflectionHiZ(vec2 tc, vec3 viewPos, vec3 n, vec3 rayDir, 
     collectedColor = vec4(0);
 
     vec3 rayDirection = normalize(rayDir);
+    vec3 v = normalize(viewPos);
+    if (dot(-v, n) <= 0.0)
+    {
+        return 0.0; // a normal facing away from the camera (normal maps at grazing angles)
+    }
 
-    // The classic per-pixel fades, without its screen-edge vignette of the PIXEL: the edge fade
-    // is taken at the hit instead, where the missing information actually is.
-    float vignette = clamp((dot(normalize(viewPos), n) * 0.5 + 0.5) * 5.5 - 0.8, 0, 1);
-    float zFar = 128.0;
-    vignette *= clamp(1.0 + (viewPos.z / zFar), 0.0, 1.0);
-    vignette *= clamp(glossiness * SSR_GLOSS_FADE_SLOPE - SSR_GLOSS_FADE_BIAS, 0, 1);
+    float roughness = clamp(1.0 - glossiness, 0.0, 1.0);
+
+    // Per-pixel fades. The screen edge, the ray's direction and the hit's depth are faded at the
+    // hit, in fsTraceHiZ, where the missing information actually is.
+    float vignette = ssrDepthFade(-viewPos.z) * ssrRoughnessFade(roughness);
     if (vignette <= 0.0)
     {
         return 0.0;
     }
 
-    float roughness = clamp(1.0 - glossiness, 0.0, 1.0);
-
     vec2 uv;
     float conf;
     float travel;
 
-    if (ssrConeTrace > 0.5 || roughness <= 0.0)
+    if (ssrConeTrace > 0.5 || roughness <= 0.001)
     {
         // One ray; roughness widens the colour lookup instead of scattering more rays. The
-        // classic path spreads its rays over a cone of tangent `roughness`, so the footprint at
-        // the hit is 2 * roughness * distance, read from the pyramid level of that size.
+        // footprint of a cone of tangent `roughness` at the hit is 2 * roughness * distance,
+        // read from the pyramid level of that size.
         if (!fsTraceHiZ(viewPos, rayDirection, uv, conf, travel))
         {
             return 0.0;
         }
-        if (roughness > 0.0)
+        if (roughness > 0.001)
         {
             float lod = log2(max(2.0 * roughness * travel, 1.0));
             collectedColor.rgb = textureLod(ssrHiZMap, uv, lod).rgb;
@@ -662,39 +778,41 @@ float fsTapScreenSpaceReflectionHiZ(vec2 tc, vec3 viewPos, vec3 n, vec3 rayDir, 
         {
             collectedColor.rgb = texture(source, uv).rgb;
         }
+        if (!ssrFinite(collectedColor.rgb))
+        {
+            collectedColor = vec4(0); // a bad value is a miss (ssrFinite)
+            return 0.0;
+        }
         collectedColor.a = conf * vignette;
         return 1.0;
     }
 
-    // Jittered rays, as the classic path, each traced through the pyramid.
+    // Glossy rays importance sampled from the GGX lobe around the mirror direction, each traced
+    // through the pyramid.
     int totalSamples = clamp(int(ceil(glossySampleCount * roughness)), 1, max(1, int(glossySampleCount)));
-
-    vec3 axis = abs(rayDirection.z) < 0.999 ? vec3(0, 0, 1) : vec3(0, 1, 0);
-    vec3 firstBasis = normalize(cross(axis, rayDirection));
-    vec3 secondBasis = cross(rayDirection, firstBasis);
-    vec2 sampleRotation = vec2(random(tc), random(tc + vec2(17.0, 59.0)));
+    vec3 mirror = normalize(reflect(v, n));
 
     float hits = 0.0;
+    vec3 colorSum = vec3(0.0);
     float confSum = 0.0;
     for (int i = 0; i < totalSamples; i++)
     {
-        vec2 sampleUV = fract(POISSON3D_SAMPLES[i].xy + sampleRotation);
-        float radius = sqrt(sampleUV.x);
-        float angle = 6.28318530718 * sampleUV.y;
-        vec2 coeffs = radius * vec2(cos(angle), sin(angle));
-        vec3 dir = normalize(rayDirection + (firstBasis * coeffs.x + secondBasis * coeffs.y) * roughness);
-
-        if (fsTraceHiZ(viewPos, dir, uv, conf, travel))
+        if (fsTraceHiZ(viewPos, ssrGlossyDir(mirror, roughness, i), uv, conf, travel))
         {
+            vec3 c = texture(source, uv).rgb;
+            if (!ssrFinite(c))
+            {
+                continue; // a bad value is a miss (ssrFinite)
+            }
             hits += 1.0;
             confSum += conf;
-            collectedColor.rgb += texture(source, uv).rgb;
+            colorSum += ssrCompress(c) * conf;
         }
     }
 
-    if (hits > 0.0)
+    if (confSum > 0.0)
     {
-        collectedColor.rgb /= hits;
+        collectedColor.rgb = ssrUncompress(colorSum / confSum);
     }
     collectedColor.a = confSum / float(totalSamples) * vignette;
     return hits;
@@ -724,77 +842,55 @@ collectedColor = vec4(1, 0, 1, 1);
     float depth = -viewPos.z;
 
     vec3 rayDirection = normalize(rayDir);
+    vec3 v = normalize(viewPos);
+    if (dot(-v, n) <= 0.0)
+    {
+        return 0.0; // a normal facing away from the camera (normal maps at grazing angles)
+    }
 
-    vec2 uv2 = tc * screen_res;
-    float c = (uv2.x + uv2.y) * 0.125;
-    float jitter = mod( c, 1.0);
+    float roughness = clamp(1.0 - glossiness, 0.0, 1.0);
 
+    // This march has no hit-based edge fade, so the pixel's own distance from the screen edge
+    // stands in for it.
     vec2 screenpos = 1 - abs(tc * 2 - 1);
     float vignette = clamp((abs(screenpos.x) * abs(screenpos.y)) * 16,0, 1);
-    vignette *= clamp((dot(normalize(viewPos), n) * 0.5 + 0.5) * 5.5 - 0.8, 0, 1);
-
-    float zFar = 128.0;
-    vignette *= clamp(1.0+(viewPos.z/zFar), 0.0, 1.0);
-
-    vignette *= clamp(glossiness * SSR_GLOSS_FADE_SLOPE - SSR_GLOSS_FADE_BIAS, 0, 1);
+    vignette *= ssrDepthFade(depth);
+    vignette *= ssrRoughnessFade(roughness);
+    // Rays heading back at the camera, measured where the march runs (the scene map's camera).
+    // It used to fade by the angle between the view and the normal instead, which took away
+    // every reflection on surfaces seen within about 45 degrees of head on.
+    vignette *= ssrFacingFade(normalize(mat3(inv_modelview_delta) * rayDirection), (inv_modelview_delta * vec4(viewPos, 1.0)).xyz);
 
     vec4 hitpoint;
 
-    glossiness = clamp(1.0 - glossiness, 0.0, 1.0);
+    // Mirrors and transparent SSR trace the given ray; glossy surfaces importance sample the GGX
+    // lobe around the mirror direction.
+    bool glossy = roughness > 0.001;
+    totalSamples = glossy ? clamp(int(ceil(glossySampleCount * roughness)), 1, max(1, int(glossySampleCount))) : 1;
+    vec3 mirror = normalize(reflect(v, n));
 
-    totalSamples = clamp(int(ceil(glossySampleCount * glossiness)), 1, max(1, int(glossySampleCount)));
-
-    vec3 axis = abs(rayDirection.z) < 0.999 ? vec3(0, 0, 1) : vec3(0, 1, 0);
-    vec3 firstBasis = normalize(cross(axis, rayDirection));
-    vec3 secondBasis = cross(rayDirection, firstBasis);
-
+    vec3 colorSum = vec3(0.0);
+    float fadeSum = 0.0;
+    if (vignette > 0)
     {
-        if (vignette > 0)
+        for (int i = 0; i < totalSamples; i++)
         {
-            // Per-pixel rotation of the Poisson set; the same for every sample, so hash once.
-            vec2 sampleRotation = vec2(random(tc), random(tc + vec2(17.0, 59.0)));
+            vec3 dir = glossy ? ssrGlossyDir(mirror, roughness, i) : rayDirection;
 
-            for (int i = 0; i < totalSamples; i++)
+            float hitDepth;
+            if (traceScreenRay(viewPos, dir, hitpoint, hitDepth, depth, source))
             {
-                vec3 reflectionDirectionRandomized = rayDirection;
-                // Mirrors and transparent SSR use zero spread. Keep the same ray without
-                // computing the random disk sample (sqrt, sin and cos).
-                if (glossiness > 0.0)
-                {
-                    vec2 sampleUV = fract(POISSON3D_SAMPLES[i].xy + sampleRotation);
-                    float radius = sqrt(sampleUV.x);
-                    float angle = 6.28318530718 * sampleUV.y;
-                    vec2 coeffs = radius * vec2(cos(angle), sin(angle));
-                    reflectionDirectionRandomized += (firstBasis * coeffs.x + secondBasis * coeffs.y) * glossiness;
-                }
-
-                //float hitDepth;
-
-                float hitDepth;
-                bool hit = traceScreenRay(viewPos, normalize(reflectionDirectionRandomized), hitpoint, hitDepth, depth, source);
-
-                hitpoint.a = 0;
-
-                if (hit)
-                {
-                    ++hits;
-                    collectedColor += hitpoint;
-                    collectedColor.a += 1;
-                }
-            }
-
-            if (hits > 0)
-            {
-                collectedColor /= hits;
-            }
-            else
-            {
-                collectedColor = vec4(0);
+                ++hits;
+                float f = ssrDepthFade(hitDepth);
+                colorSum += ssrCompress(hitpoint.rgb) * f;
+                fadeSum += f;
             }
         }
     }
-    float hitAlpha = hits;
-    hitAlpha /= totalSamples;
-    collectedColor.a = hitAlpha * vignette;
-    return hits;
+    if (fadeSum > 0.0)
+    {
+        collectedColor.rgb = ssrUncompress(colorSum / fadeSum);
+    }
+    collectedColor.a = fadeSum / float(totalSamples) * vignette;
+    return float(hits);
 }

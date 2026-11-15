@@ -127,6 +127,7 @@
 #include "rlvactions.h"
 #include "rlvlocks.h"
 // [/RLVa:KB]
+#include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
 
 #include "llenvironment.h"
@@ -1293,8 +1294,20 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 
         if(RenderScreenSpaceReflections)
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("SSRBuffer"); // <FS:Beq/> improve Tracy scoping 
-            mSceneMap.allocate(resX, resY, screenFormat, true);
+            LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("SSRBuffer"); // <FS:Beq/> improve Tracy scoping
+            // <FS:Trish> Cleared once allocated: the frame after a reallocation (a snapshot makes two)
+            // reads it for SSR before its end of frame copy fills it, and new memory isn't zeroed on
+            // AMD. Half float garbage there (NaN, infinity) went into the reflections of alpha
+            // surfaces, which then reflected it back out of the next frame's copy indefinitely.
+            //mSceneMap.allocate(resX, resY, screenFormat, true);
+            if (mSceneMap.allocate(resX, resY, screenFormat, true))
+            {
+                mSceneMap.bindTarget();
+                glClearColor(0.f, 0.f, 0.f, 0.f);
+                mSceneMap.clear();
+                mSceneMap.flush();
+            }
+            // </FS:Trish>
         }
         else
         {
@@ -1717,7 +1730,7 @@ void LLPipeline::releaseScreenBuffers()
     mRT->deferredLight.release();
     mRT->lightMap.release(); // <FS:Trish/>
     mMainRT.fsGTAOHalf.release(); // <FS:Trish/> Half-resolution GTAO
-    mMainRT.fsSSRHalf.release(); // <FS:Trish/> Half-resolution SSR
+    FSSSRBuffer::release(); // <FS:Trish/> SSR buffer
     // <FS:Trish> Bent normals and indirect light
     mMainRT.fsIndirectHalf.release();
     mFSIndirectHistory[0].release();
@@ -10870,7 +10883,8 @@ void LLPipeline::bindShadowDepthFetch(LLGLSLShader& shader, bool bind)
 }
 // </Vulkanstorm>
 
-void LLPipeline::bindDeferredShaderFast(LLGLSLShader& shader)
+//void LLPipeline::bindDeferredShaderFast(LLGLSLShader& shader)
+void LLPipeline::bindDeferredShaderFast(LLGLSLShader& shader, bool fs_uniforms_set) // <FS:Trish/>
 {
     if (shader.mCanBindFast)
     { // was previously fully bound, use fast path
@@ -10879,11 +10893,13 @@ void LLPipeline::bindDeferredShaderFast(LLGLSLShader& shader)
         // <FS:Trish> Rebinding: the samplers mostly still hold their textures, switch to a unit
         // only to bind something on it (see LLGLSLShader::sFSLazyTextureEnable)
         LLGLSLShader::sFSLazyTextureEnable = true;
+        mFSPassUniformsSet = fs_uniforms_set;
         // </FS:Trish>
         bindBrdfLut(shader);
         bindShadowMaps(shader);
         bindReflectionProbes(shader);
         LLGLSLShader::sFSLazyTextureEnable = false; // <FS:Trish/>
+        mFSPassUniformsSet = false; // <FS:Trish/>
     }
     else
     { //wasn't previously bound, use slow path
@@ -11621,84 +11637,6 @@ static void fs_bind_gtao_half(LLGLSLShader& sun_shader, LLRenderTarget* gtao_hal
 }
 // </FS:Trish>
 
-// <FS:Trish> Half-resolution SSR (FSRenderSSRHalfRes). Traces the opaque surfaces' screen-space
-// reflections once per 2x2 pixels into mMainRT.fsSSRHalf (fsSSRHalfF.glsl), for the soften
-// pass's upsample to read instead of tracing every pixel. Call with the screen bound, before the
-// soften program is bound: the pass nests its own target. Returns the target, or null when the soften program traces per pixel
-// (setting off, SSR off, the pass did not build, or a probe capture).
-static LLRenderTarget* fs_render_ssr_half(LLRenderTarget* screen)
-{
-    LLRenderTarget& target = gPipeline.mMainRT.fsSSRHalf;
-    if (!gFSSSRHalfProgram.isComplete() || !gDeferredSoftenProgram.mDefines.count("FS_SSR_HALF"))
-    {
-        if (target.isComplete())
-        {
-            target.release();
-        }
-        return nullptr;
-    }
-    if (gCubeSnapshot)
-    {
-        return nullptr;
-    }
-
-    const U32 full_x = screen->getWidth();
-    const U32 full_y = screen->getHeight();
-    const U32 res_x = (full_x + 1) / 2;
-    const U32 res_y = (full_y + 1) / 2;
-    if (!target.isComplete() || target.getWidth() != res_x || target.getHeight() != res_y)
-    {
-        if (!target.allocate(res_x, res_y, GL_RGBA16F))
-        {
-            target.release();
-            return nullptr;
-        }
-    }
-
-    LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - ssr half");
-    LL_PROFILE_GPU_ZONE("ssr half");
-
-    static LLStaticHashedString s_full_res("fs_ssr_full_res");
-    LLGLSLShader& shader = gFSSSRHalfProgram;
-    target.bindTarget();
-    gPipeline.bindDeferredShader(shader); // the g-buffer, the scene map and hi-Z, the SSR settings
-    shader.uniform2f(s_full_res, (GLfloat)full_x, (GLfloat)full_y);
-    // the march works in full-resolution pixels; bindDeferredShader set screen_res to the g-buffer
-    shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)full_x, (GLfloat)full_y);
-    shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV); // wet shoreline
-    {
-        LLGLDisable blend(GL_BLEND);
-        LLGLDepthTest depth(GL_FALSE, GL_FALSE);
-        gPipeline.mScreenTriangleVB->setBuffer();
-        gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-    }
-    gPipeline.unbindDeferredShader(shader);
-    target.flush();
-    return &target;
-}
-
-// The soften program's upsample reads the half-resolution SSR as fs_ssr_half_map
-static void fs_bind_ssr_half(LLGLSLShader& soften, LLRenderTarget* ssr_half, LLRenderTarget* screen)
-{
-    const S32 channel = soften.getTextureChannel(LLShaderMgr::FS_SSR_HALF_MAP);
-    if (channel < 0)
-    {
-        return;
-    }
-    static LLStaticHashedString s_full_res("fs_ssr_full_res");
-    soften.uniform2f(s_full_res, (GLfloat)screen->getWidth(), (GLfloat)screen->getHeight());
-    if (ssr_half)
-    {
-        soften.bindTexture(LLShaderMgr::FS_SSR_HALF_MAP, ssr_half, false, LLTexUnit::TFO_POINT);
-    }
-    else
-    {
-        // probe captures: the upsample returns early there, but the sampler still needs a 2D texture
-        gGL.getTexUnit(channel)->bindFast(LLViewerFetchedTexture::sBlackImagep);
-    }
-}
-// </FS:Trish>
-
 // <FS:Trish> Bent normals and screen-space indirect light (FSRenderBentNormals, FSRenderSSGI).
 // Two RGBA16F attachments: indirect light and view depth, bent normal offset and view depth.
 static bool fs_ensure_indirect_target(LLRenderTarget& target, U32 width, U32 height)
@@ -12101,16 +12039,16 @@ void LLPipeline::renderDeferredLighting()
             FS_RECORD_BLOCK_TIME(FTM_FS_LIGHT_ATMOS); // <FS:Trish/>
             LLGLSLShader &soften_shader = gDeferredSoftenProgram;
 
-            // <FS:Trish> Half-resolution SSR, traced before the soften program; the pass nests its
-            // own target and returns to the screen
-            LLRenderTarget* fs_ssr_half = fs_render_ssr_half(screen_target);
+            // <FS:Trish> SSR buffer, traced, resolved and blurred before the soften program; the
+            // passes nest their own targets and return to the screen
+            const bool fs_ssr_buffer = FSSSRBuffer::render(screen_target);
             LLRenderTarget* fs_indirect = fs_render_indirect(screen_target); // bent normals, indirect light
             // </FS:Trish>
 
             LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - atmospherics");
             LL_PROFILE_GPU_ZONE("atmospherics");
             bindDeferredShader(soften_shader);
-            fs_bind_ssr_half(soften_shader, fs_ssr_half, screen_target); // <FS:Trish/>
+            FSSSRBuffer::bind(soften_shader, screen_target, fs_ssr_buffer); // <FS:Trish/>
             fs_bind_indirect(soften_shader, fs_indirect); // <FS:Trish/>
 
             static LLCachedControl<F32> ssao_scale(gSavedSettings, "RenderSSAOIrradianceScale", 0.5f);
@@ -12940,7 +12878,10 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
     }
 
 
-    if (bound)
+    // <FS:Trish> The probe uniform buffer and the environment matrix hold for the whole pass
+    //if (bound)
+    if (bound && !mFSPassUniformsSet)
+    // </FS:Trish>
     {
         mReflectionMapManager.setUniforms();
 
@@ -12954,19 +12895,38 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
         gGL.getTexUnit(channel)->bind(&mSceneMap);
     }
 
-
+    // <FS:Trish> The SSR settings hold for the whole pass: once per program (mFSPassUniformsSet)
+    if (!mFSPassUniformsSet)
+    {
+    // </FS:Trish>
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_ITR_COUNT, (GLfloat)RenderScreenSpaceReflectionIterations);
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_DIST_BIAS, RenderScreenSpaceReflectionDistanceBias);
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_RAY_STEP, RenderScreenSpaceReflectionRayStep);
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_GLOSSY_SAMPLES, (GLfloat)RenderScreenSpaceReflectionGlossySamples);
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_REJECT_BIAS, RenderScreenSpaceReflectionDepthRejectBias);
-    mPoissonOffset++;
-
-    if (mPoissonOffset > 128 - RenderScreenSpaceReflectionGlossySamples)
-        mPoissonOffset = 0;
-
-    shader.uniform1f(LLShaderMgr::DEFERRED_SSR_NOISE_SINE, (GLfloat)mPoissonOffset);
+    // <FS:Trish> The glossy ray pattern only changes from frame to frame where the frames are
+    // blended (the SSR buffer's trace sets its own); a pattern that moved every bind, as this
+    // counter did, would crawl on alpha and water, which aren't blended
+    //mPoissonOffset++;
+    //
+    //if (mPoissonOffset > 128 - RenderScreenSpaceReflectionGlossySamples)
+    //    mPoissonOffset = 0;
+    //
+    //shader.uniform1f(LLShaderMgr::DEFERRED_SSR_NOISE_SINE, (GLfloat)mPoissonOffset);
+    shader.uniform1f(LLShaderMgr::DEFERRED_SSR_NOISE_SINE, 0.f);
+    {
+        static LLStaticHashedString s_jitter("ssrJitter");
+        static LLStaticHashedString s_max_depth("maxZDepth");
+        static LLStaticHashedString s_max_roughness("maxRoughness");
+        static LLCachedControl<F32> max_depth(gSavedSettings, "RenderScreenSpaceReflectionMaxDepth", 256.f);
+        static LLCachedControl<F32> max_roughness(gSavedSettings, "RenderScreenSpaceReflectionMaxRoughness", 0.7f);
+        shader.uniform1f(s_jitter, 0.f);
+        shader.uniform1f(s_max_depth, llclamp((F32)max_depth, 8.f, 4096.f));
+        shader.uniform1f(s_max_roughness, llclamp((F32)max_roughness, 0.1f, 1.f));
+    }
+    // </FS:Trish>
     shader.uniform1f(LLShaderMgr::DEFERRED_SSR_ADAPTIVE_STEP_MULT, RenderScreenSpaceReflectionAdaptiveStepMultiplier);
+    } // <FS:Trish/>
 
     channel = shader.enableTexture(LLShaderMgr::SCENE_DEPTH);
     if (channel > -1)
@@ -12974,7 +12934,7 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
         gGL.getTexUnit(channel)->bind(&mSceneMap, true);
     }
 
-    FSSSRHiZ::bind(shader, mSceneMap); // <FS:Trish/> hi-Z pyramid of mSceneMap
+    FSSSRHiZ::bind(shader, mSceneMap, !mFSPassUniformsSet); // <FS:Trish/> hi-Z pyramid of mSceneMap
 
 }
 

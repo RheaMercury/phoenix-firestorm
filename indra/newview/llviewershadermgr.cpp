@@ -50,6 +50,7 @@
 #include "lljoint.h"
 #include "llskinningutil.h"
 #include "fspointlightbatch.h" // <FS:Trish/>
+#include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
@@ -229,7 +230,8 @@ LLGLSLShader            gFSNISUpscaleProgram; // <FS:Trish/> NVIDIA Image Scalin
 LLGLSLShader            gFSLocalTonemapLumProgram; // <FS:Trish/> Local tone mapping
 LLGLSLShader            gFSSkinSSSProgram; // <FS:Trish/>
 LLGLSLShader            gFSGTAOHalfProgram; // <FS:Trish/> Half-resolution GTAO
-LLGLSLShader            gFSSSRHalfProgram; // <FS:Trish/> Half-resolution SSR
+LLGLSLShader            gScreenSpaceReflTraceProgram; // <FS:Trish/> SSR buffer (fsssrbuffer.cpp)
+LLGLSLShader            gSSRResolveProgram; // <FS:Trish/>
 LLGLSLShader            gFSIndirectHalfProgram; // <FS:Trish/> FSRenderBentNormals, FSRenderSSGI
 LLGLSLShader            gFSIndirectTemporalProgram; // <FS:Trish/>
 LLGLSLShader            gDeferredPostGammaCorrectProgram;
@@ -1697,7 +1699,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredMultiSpotLightProgram.unload();
         gDeferredSunProgram.unload();
         gFSGTAOHalfProgram.unload(); // <FS:Trish/> Half-resolution GTAO
-        gFSSSRHalfProgram.unload(); // <FS:Trish/> Half-resolution SSR
+        gScreenSpaceReflTraceProgram.unload(); // <FS:Trish/> SSR buffer
+        gSSRResolveProgram.unload(); // <FS:Trish/>
         gFSIndirectHalfProgram.unload(); // <FS:Trish/>
         gFSIndirectTemporalProgram.unload(); // <FS:Trish/>
         gDeferredBlurLightProgram.unload();
@@ -1763,7 +1766,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSLocalTonemapLumProgram.unload(); // <FS:Trish/> Local tone mapping
         gFSSkinSSSProgram.unload(); // <FS:Trish/>
         gFSGTAOHalfProgram.unload(); // <FS:Trish/> Half-resolution GTAO
-        gFSSSRHalfProgram.unload(); // <FS:Trish/> Half-resolution SSR
+        gScreenSpaceReflTraceProgram.unload(); // <FS:Trish/> SSR buffer
+        gSSRResolveProgram.unload(); // <FS:Trish/>
         gFSIndirectHalfProgram.unload(); // <FS:Trish/>
         gFSIndirectTemporalProgram.unload(); // <FS:Trish/>
         // <FS:Trish> WBOIT
@@ -2947,34 +2951,46 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
         // </FS:Trish>
 
-        // <FS:Trish> Half-resolution SSR: the opaque surfaces' reflections are traced once per 2x2
-        // pixels beforehand (fsSSRHalfF.glsl), and the soften pass upsamples them instead of
-        // tracing per pixel. Built with the same features, so it decodes the G-buffer the same way.
-        gFSSSRHalfProgram.unload();
-        static LLCachedControl<bool> ssr_half(gSavedSettings, "FSRenderSSRHalfRes", false);
-        if (ssr_half && gSavedSettings.getBOOL("RenderScreenSpaceReflections") && gDeferredSoftenProgram.mFeatures.hasReflectionProbes)
+        // <FS:Trish> SSR buffer (fsssrbuffer.cpp): the opaque surfaces' reflections are traced into
+        // their own buffer beforehand (screenSpaceReflTraceF.glsl), blended with the last frames
+        // (screenSpaceReflResolveF.glsl) and blurred, and the soften pass reads them back instead of
+        // tracing per pixel. Built with the same features, so they decode the G-buffer the same way.
+        gScreenSpaceReflTraceProgram.unload();
+        gSSRResolveProgram.unload();
+        if (gSavedSettings.getBOOL("RenderScreenSpaceReflections") && gDeferredSoftenProgram.mFeatures.hasReflectionProbes)
         {
-            gFSSSRHalfProgram.mName = "FS SSR Half Resolution";
-            gFSSSRHalfProgram.mFeatures = gDeferredSoftenProgram.mFeatures;
-            gFSSSRHalfProgram.mShaderFiles.clear();
-            gFSSSRHalfProgram.clearPermutations();
-            add_common_permutations(&gFSSSRHalfProgram);
-            gFSSSRHalfProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
-            gFSSSRHalfProgram.mShaderFiles.push_back(make_pair("deferred/fsSSRHalfF.glsl", GL_FRAGMENT_SHADER));
+            gScreenSpaceReflTraceProgram.mName = "Screen Space Reflection Trace";
+            gScreenSpaceReflTraceProgram.mFeatures = gDeferredSoftenProgram.mFeatures;
+            gScreenSpaceReflTraceProgram.mShaderFiles.clear();
+            gScreenSpaceReflTraceProgram.clearPermutations();
+            add_common_permutations(&gScreenSpaceReflTraceProgram);
+            gScreenSpaceReflTraceProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+            gScreenSpaceReflTraceProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflTraceF.glsl", GL_FRAGMENT_SHADER));
             if (wet_shore)
             {
-                gFSSSRHalfProgram.mShaderFiles.push_back(make_pair("deferred/fsWetShoreF.glsl", GL_FRAGMENT_SHADER));
-                gFSSSRHalfProgram.addPermutation("FS_WET_SHORE", "1");
+                gScreenSpaceReflTraceProgram.mShaderFiles.push_back(make_pair("deferred/fsWetShoreF.glsl", GL_FRAGMENT_SHADER));
+                gScreenSpaceReflTraceProgram.addPermutation("FS_WET_SHORE", "1");
             }
-            gFSSSRHalfProgram.mShaderLevel = gDeferredSoftenProgram.mShaderLevel;
-            if (gFSSSRHalfProgram.createShader())
+            gScreenSpaceReflTraceProgram.mShaderLevel = gDeferredSoftenProgram.mShaderLevel;
+
+            gSSRResolveProgram.mName = "Screen Space Reflection Resolve";
+            gSSRResolveProgram.mFeatures = gDeferredSoftenProgram.mFeatures;
+            gSSRResolveProgram.mShaderFiles.clear();
+            gSSRResolveProgram.clearPermutations();
+            add_common_permutations(&gSSRResolveProgram);
+            gSSRResolveProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+            gSSRResolveProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflResolveF.glsl", GL_FRAGMENT_SHADER));
+            gSSRResolveProgram.mShaderLevel = gDeferredSoftenProgram.mShaderLevel;
+
+            if (gScreenSpaceReflTraceProgram.createShader() && gSSRResolveProgram.createShader())
             {
-                gDeferredSoftenProgram.addPermutation("FS_SSR_HALF", "1");
+                gDeferredSoftenProgram.addPermutation("FS_SSR_BUFFER", "1");
             }
             else
             {
-                LL_WARNS("ShaderLoading") << "FS SSR half resolution failed to build, reflections stay full resolution" << LL_ENDL;
-                gFSSSRHalfProgram.unload();
+                LL_WARNS("ShaderLoading") << "SSR buffer programs failed to build, reflections are traced per pixel" << LL_ENDL;
+                gScreenSpaceReflTraceProgram.unload();
+                gSSRResolveProgram.unload();
             }
         }
 
@@ -4077,6 +4093,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     if (success)
     {
         FSSSRHiZ::loadShaders(mShaderLevel[SHADER_DEFERRED]);
+        FSSSRBuffer::loadShaders(mShaderLevel[SHADER_DEFERRED]);
     }
     // </FS:Trish>
 

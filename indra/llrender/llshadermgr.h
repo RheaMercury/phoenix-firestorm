@@ -384,7 +384,11 @@ public:
         FS_WATER_FOG_VIEW_TO_WORLD1,        // "fs_water_fog_vtw1"
         FS_WATER_FOG_VIEW_TO_WORLD2,        // "fs_water_fog_vtw2"
         // </FS:Trish>
-        FS_SSR_HALF_MAP,                    // "fs_ssr_half_map" <FS:Trish/> half-resolution SSR (FSRenderSSRHalfRes)
+        // <FS:Trish> Screen-space reflection buffers (fsssrbuffer.cpp)
+        FS_SSR_MAP,                         // "fs_ssr_map": the resolved reflections the soften pass reads
+        FS_SSR_TRACE_MAP,                   // "fs_ssr_trace": this frame's trace, for the resolve
+        FS_SSR_HISTORY_MAP,                 // "fs_ssr_history": last frame's resolve, for the resolve
+        // </FS:Trish>
         // <FS:Trish> Bent normals and screen-space indirect light (FSRenderBentNormals, FSRenderSSGI)
         FS_INDIRECT_GI_MAP,                 // "fs_indirect_gi"
         FS_INDIRECT_BENT_MAP,               // "fs_indirect_bent"

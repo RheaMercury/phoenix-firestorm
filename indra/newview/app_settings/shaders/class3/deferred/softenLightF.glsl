@@ -97,24 +97,34 @@ uniform int cube_snapshot;
 
 uniform float sky_hdr_scale;
 
-#ifdef FS_SSR_HALF
-// Screen-space reflections traced at half resolution beforehand (fsSSRHalfF.glsl): texel t
-// holds the march of full-resolution pixel 2t. Each pixel blends the 2x2 texels around it by
-// distance, and by how well the traced pixel's depth and normal match its own, so a
-// reflection doesn't bleed across a silhouette or onto a differently facing surface.
-uniform sampler2D fs_ssr_half_map;
+#ifdef FS_SSR_BUFFER
+// Screen-space reflections traced beforehand into their own buffer (screenSpaceReflTraceF.glsl),
+// at RenderScreenSpaceReflectionResolutionMultiplier times the screen size, blended over frames
+// (screenSpaceReflResolveF.glsl) and blurred into mips (fsssrbuffer.cpp). The sharp term blends
+// the 2x2 texels around the pixel by distance, and by how well each traced pixel's depth and
+// normal match its own, so a reflection doesn't bleed across a silhouette or onto a differently
+// facing surface; rougher surfaces read the blur mips, as the graphics care package does.
+uniform sampler2D fs_ssr_map;
 uniform vec2 fs_ssr_full_res;
+uniform float ssrMipScale;      // the buffer's highest mip; 0 when the cone trace blurs instead
 
 bool isFarDepth(float d);
+vec3 ssrUncompress(vec3 c);
 
-vec4 fsSSRHalfUpsample(vec3 pos, vec3 norm)
+// The full-resolution pixel SSR texel t was traced from (screenSpaceReflTraceF.glsl)
+ivec2 fsSSRTracedPixel(ivec2 t, vec2 ratio)
 {
-    if (cube_snapshot != 0)
+    return min(ivec2((vec2(t) + 0.5) * ratio), ivec2(fs_ssr_full_res) - 1);
+}
+
+vec4 fsSSRSharp(vec3 pos, vec3 norm, vec2 ratio)
+{
+    ivec2 hi_max = textureSize(fs_ssr_map, 0) - 1;
+    if (ratio.x < 1.001 && ratio.y < 1.001)
     {
-        return vec4(0); // probe captures don't use screen-space reflections
+        return texelFetch(fs_ssr_map, min(ivec2(gl_FragCoord.xy), hi_max), 0); // traced here
     }
-    ivec2 hi_max = textureSize(fs_ssr_half_map, 0) - 1;
-    vec2 c = (gl_FragCoord.xy - 0.5) * 0.5;
+    vec2 c = gl_FragCoord.xy / ratio - 0.5;
     vec2 base_f = floor(c);
     vec2 f = c - base_f;
     ivec2 base = ivec2(base_f);
@@ -131,7 +141,7 @@ vec4 fsSSRHalfUpsample(vec3 pos, vec3 norm)
     {
         ivec2 o = ivec2(i & 1, i >> 1);
         ivec2 t = clamp(base + o, ivec2(0), hi_max);
-        vec2 stc = (vec2(min(t * 2, ivec2(fs_ssr_full_res) - 1)) + 0.5) / fs_ssr_full_res;
+        vec2 stc = (vec2(fsSSRTracedPixel(t, ratio)) + 0.5) / fs_ssr_full_res;
         float sd = getDepth(stc);
         if (isFarDepth(sd))
         {
@@ -145,7 +155,7 @@ vec4 fsSSRHalfUpsample(vec3 pos, vec3 norm)
 
         vec2 tent = mix(vec2(1.0) - f, f, vec2(o));
         float w = tent.x * tent.y * nd / (1.0 + rel * rel);
-        vec4 s = texelFetch(fs_ssr_half_map, t, 0);
+        vec4 s = texelFetch(fs_ssr_map, t, 0);
         sum += w * s;
         sum_w += w;
 
@@ -158,9 +168,38 @@ vec4 fsSSRHalfUpsample(vec3 pos, vec3 norm)
     }
     return sum_w > 1e-4 ? sum / sum_w : best;
 }
+
+// lod: the blur mip for the surface's roughness. Returns the reflection colour and its blend
+// weight, decoded.
+vec4 fsSSRBufferSample(vec2 tc, vec3 pos, vec3 norm, float lod)
+{
+    if (cube_snapshot != 0)
+    {
+        return vec4(0); // probe captures don't use screen-space reflections
+    }
+    vec4 e;
+    if (lod >= 1.0)
+    {
+        e = textureLod(fs_ssr_map, tc, lod);
+    }
+    else
+    {
+        vec2 ratio = fs_ssr_full_res / vec2(textureSize(fs_ssr_map, 0));
+        e = fsSSRSharp(pos, norm, ratio);
+        if (lod > 0.0)
+        {
+            e = mix(e, textureLod(fs_ssr_map, tc, 1.0), lod); // only the mip 0 term is sharpened
+        }
+    }
+    if (e.a <= 0.001)
+    {
+        return vec4(0);
+    }
+    return vec4(ssrUncompress(e.rgb / e.a), min(e.a, 1.0));
+}
 #endif
 
-#if defined(FS_SSR_HALF) || defined(FS_INDIRECT)
+#if defined(FS_SSR_BUFFER) || defined(FS_INDIRECT)
 void sampleReflectionProbesFS(inout vec3 ambenv, inout vec3 glossenv,
         vec2 tc, vec3 pos, vec3 norm, vec3 amb_norm, float glossiness, vec3 amblit, bool ssr_given, vec4 ssr);
 void sampleReflectionProbesLegacyFS(inout vec3 ambenv, inout vec3 glossenv, inout vec3 legacyenv,
@@ -399,7 +438,7 @@ void main()
 
     vec3  radiance  = vec3(0);
 
-    // Firestorm inputs to the ambient and reflection terms below: the half-resolution SSR, the
+    // Firestorm inputs to the ambient and reflection terms below: the SSR buffer, the
     // bent normal the irradiance lobe looks along, and the bounced light
     vec4 fs_ssr = vec4(0);
     bool fs_ssr_given = false;
@@ -407,9 +446,8 @@ void main()
     vec3 fs_gi = vec3(0);
     if (needs_atmos)
     {
-#ifdef FS_SSR_HALF
-        fs_ssr = fsSSRHalfUpsample(pos.xyz, gb.normal);
-        fs_ssr_given = true;
+#ifdef FS_SSR_BUFFER
+        fs_ssr_given = true; // read below, once the roughness is known
 #endif
 #ifdef FS_INDIRECT
         vec3 fs_bend;
@@ -437,7 +475,14 @@ void main()
         // PBR IBL
         float gloss      = 1.0 - perceptualRoughness;
 
-#if defined(FS_SSR_HALF) || defined(FS_INDIRECT)
+#ifdef FS_SSR_BUFFER
+        if (fs_ssr_given)
+        {
+            fs_ssr = fsSSRBufferSample(tc, pos.xyz, gb.normal, perceptualRoughness * ssrMipScale);
+        }
+#endif
+
+#if defined(FS_SSR_BUFFER) || defined(FS_INDIRECT)
         sampleReflectionProbesFS(irradiance, radiance, tc, pos.xyz, gb.normal, fs_amb_norm, gloss, amblit_linear, fs_ssr_given, fs_ssr);
 #else
         sampleReflectionProbes(irradiance, radiance, tc, pos.xyz, gb.normal, gloss, false, amblit_linear);
@@ -508,7 +553,14 @@ void main()
         vec3 glossenv = vec3(0);
         vec3 legacyenv = vec3(0);
 
-#if defined(FS_SSR_HALF) || defined(FS_INDIRECT)
+#ifdef FS_SSR_BUFFER
+        if (fs_ssr_given)
+        {
+            float r = 1.0 - spec.a;
+            fs_ssr = fsSSRBufferSample(tc, pos.xyz, gb.normal, clamp(log2(1.0 + r * r * ssrMipScale * 4.0), 0.0, ssrMipScale));
+        }
+#endif
+#if defined(FS_SSR_BUFFER) || defined(FS_INDIRECT)
         sampleReflectionProbesLegacyFS(irradiance, glossenv, legacyenv, tc, pos.xyz, gb.normal, fs_amb_norm, spec.a, envIntensity, amblit_linear, fs_ssr_given, fs_ssr);
 #else
         sampleReflectionProbesLegacy(irradiance, glossenv, legacyenv, tc, pos.xyz, gb.normal, spec.a, envIntensity, false, amblit_linear);

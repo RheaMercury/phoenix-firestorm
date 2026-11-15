@@ -216,6 +216,7 @@ set(viewer_SOURCE_FILES
     fsscrolllistctrl.cpp
     fsslurlcommand.cpp
     fsshadowsinglepass.cpp
+    fsssrbuffer.cpp
     fsssrhiz.cpp
     fsvirtualtrackpad.cpp
     fsvrs.cpp
@@ -1121,6 +1122,7 @@ set(viewer_HEADER_FILES
     fsslurl.h
     fsslurlcommand.h
     fsshadowsinglepass.h
+    fsssrbuffer.h
     fsssrhiz.h
     fsvirtualtrackpad.h
     fsvrs.h

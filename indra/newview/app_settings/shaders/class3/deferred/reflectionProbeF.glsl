@@ -953,8 +953,8 @@ void tapHeroProbe(inout vec3 glossenv, vec3 pos, vec3 norm, float glossiness)
 
 
 
-// fs_given: the screen-space reflection was traced beforehand (the half-resolution SSR pass,
-// FSRenderSSRHalfRes) and arrives in fs_ssr, in place of tracing it here.
+// fs_given: the screen-space reflection was traced beforehand into the SSR buffer
+// (fsssrbuffer.cpp) and arrives in fs_ssr, decoded, in place of tracing it here.
 // fs_amb_norm: the direction the irradiance lobe looks up, the normal itself unless the bent
 // normal (FSRenderBentNormals) leans it toward where the surface sees open sky
 void fsDoProbeSample(inout vec3 ambenv, inout vec3 glossenv,
@@ -1023,7 +1023,7 @@ void doProbeSample(inout vec3 ambenv, inout vec3 glossenv,
 
 // sampleReflectionProbes for an opaque surface in the soften pass with the Firestorm inputs:
 // the irradiance lobe along amb_norm (the bent normal, FSRenderBentNormals), and the
-// screen-space reflection traced beforehand at half resolution when ssr_given (FSRenderSSRHalfRes)
+// screen-space reflection read from the SSR buffer when ssr_given (fsssrbuffer.cpp)
 void sampleReflectionProbesFS(inout vec3 ambenv, inout vec3 glossenv,
         vec2 tc, vec3 pos, vec3 norm, vec3 amb_norm, float glossiness, vec3 amblit, bool ssr_given, vec4 ssr)
 {

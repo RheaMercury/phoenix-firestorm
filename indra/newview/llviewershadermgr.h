@@ -288,7 +288,8 @@ extern LLGLSLShader         gFSNISUpscaleProgram; // <FS:Trish/> NVIDIA Image Sc
 extern LLGLSLShader         gFSLocalTonemapLumProgram; // <FS:Trish/> Local tone mapping
 extern LLGLSLShader         gFSSkinSSSProgram; // <FS:Trish/>
 extern LLGLSLShader         gFSGTAOHalfProgram; // <FS:Trish/> Half-resolution GTAO
-extern LLGLSLShader         gFSSSRHalfProgram; // <FS:Trish/> Half-resolution SSR
+extern LLGLSLShader         gScreenSpaceReflTraceProgram; // <FS:Trish/> SSR buffer (fsssrbuffer.cpp)
+extern LLGLSLShader         gSSRResolveProgram; // <FS:Trish/>
 extern LLGLSLShader         gFSIndirectHalfProgram; // <FS:Trish/> FSRenderBentNormals, FSRenderSSGI
 extern LLGLSLShader         gFSIndirectTemporalProgram; // <FS:Trish/>
 extern LLGLSLShader         gExposureProgram;

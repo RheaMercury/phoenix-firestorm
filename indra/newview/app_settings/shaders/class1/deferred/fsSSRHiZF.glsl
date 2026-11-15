@@ -65,7 +65,11 @@ void main()
     vec4 c = texelFetch(diffuseRect, min(p + ivec2(0, 1), m), 0);
     vec4 d = texelFetch(diffuseRect, min(p + ivec2(1, 1), m), 0);
 
-    vec3 col = (a.rgb + b.rgb + c.rgb + d.rgb) * 0.25;
+    // Luminance-weighted (Karis) average: one very bright texel would otherwise spread into a
+    // firefly over every coarser level the cone-traced reflections read
+    vec4 w = 1.0 / (1.0 + vec4(dot(a.rgb, vec3(0.2126, 0.7152, 0.0722)), dot(b.rgb, vec3(0.2126, 0.7152, 0.0722)),
+                               dot(c.rgb, vec3(0.2126, 0.7152, 0.0722)), dot(d.rgb, vec3(0.2126, 0.7152, 0.0722))));
+    vec3 col = (a.rgb * w.x + b.rgb * w.y + c.rgb * w.z + d.rgb * w.w) / (w.x + w.y + w.z + w.w);
     float z = min(min(a.a, b.a), min(c.a, d.a));
 
     // An odd source size loses its last row or column to the halving. The last destination

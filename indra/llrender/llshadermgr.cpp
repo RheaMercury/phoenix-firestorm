@@ -2016,7 +2016,11 @@ void LLShaderMgr::initAttribsAndUniforms()
     mReservedUniforms.push_back("fs_water_fog_vtw1");
     mReservedUniforms.push_back("fs_water_fog_vtw2");
     // </FS:Trish>
-    mReservedUniforms.push_back("fs_ssr_half_map"); // <FS:Trish/>
+    // <FS:Trish> Screen-space reflection buffers
+    mReservedUniforms.push_back("fs_ssr_map");
+    mReservedUniforms.push_back("fs_ssr_trace");
+    mReservedUniforms.push_back("fs_ssr_history");
+    // </FS:Trish>
     // <FS:Trish> Bent normals and screen-space indirect light
     mReservedUniforms.push_back("fs_indirect_gi");
     mReservedUniforms.push_back("fs_indirect_bent");
