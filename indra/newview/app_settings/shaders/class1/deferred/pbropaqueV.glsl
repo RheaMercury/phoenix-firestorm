@@ -42,6 +42,9 @@ precise gl_Position;
 // Every draw command has a record, an instanced attribute the command's base instance selects, naming
 // its matrices and its material in the storage buffers below. They hold exactly the values the stock
 // path puts in the uniforms of the same names for that batch, computed the same way on the CPU.
+// Skinned (HAS_SKIN, FSPerfGPUDrivenRigged): the record's w is where the batch's joint palette starts in the
+// storage buffer objectSkinV.glsl (built with FS_GDD_RIGGED) reads it from; projection_matrix stays the
+// uniform the stock skinned branch reads (set by gGL.syncMatrices before the multi-draw).
 layout(std430) readonly buffer FSGDDPBRMatrices
 {
     mat4 fs_gdd_matrix[];   // per model matrix: modelview, modelview projection, normal matrix; texture matrices
@@ -61,7 +64,19 @@ layout(std430) readonly buffer FSGDDPBRMaterials
     FSGDDMaterial fs_gdd_material[];
 };
 
-in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: material
+in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: material, w: palette (skinned)
+
+#ifdef HAS_SKIN
+uniform mat4 projection_matrix;
+mat3x4 getSkinBlend();
+vec3 skinNormal(mat3x4 b, vec3 pos, vec3 dir, mat4 m);
+vec4 skinTransformH(mat3x4 b, vec3 pos, mat4 m);
+
+uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's first vec4
+{
+    return fs_gdd_draw.w;
+}
+#endif
 
 // the material's constants (and textures) for the fragment shader, which reads them in place of its uniforms
 flat out vec4 fs_gdd_factors;

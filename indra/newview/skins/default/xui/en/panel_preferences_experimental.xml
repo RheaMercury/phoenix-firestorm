@@ -6843,7 +6843,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1937"
+                 height="1991"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -7320,7 +7320,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfGPUDrivenDraws,FSPerfGPUDrivenDrawsVerify,FSPerfGPUDrivenDrawsArenaMB,FSPerfGPUDrivenPBR,FSPerfGPUDrivenPBRBindless,FSPerfGPUDrivenPBRArenaMB,FSPerfGPUDrivenLegacy,FSPerfGPUDrivenLegacyArenaMB,FSPerfGPUDrivenPBRGroupRuns,FSPerfGPUDrivenMaterials,FSPerfGPUDrivenMaterialsArenaMB,FSPerfGPUDrivenShadowAlpha,FSPerfGPUDrivenShadowAlphaArenaMB" />
+                         parameter="FSPerfGPUDrivenDraws,FSPerfGPUDrivenDrawsVerify,FSPerfGPUDrivenDrawsArenaMB,FSPerfGPUDrivenPBR,FSPerfGPUDrivenPBRBindless,FSPerfGPUDrivenPBRArenaMB,FSPerfGPUDrivenLegacy,FSPerfGPUDrivenLegacyArenaMB,FSPerfGPUDrivenPBRGroupRuns,FSPerfGPUDrivenMaterials,FSPerfGPUDrivenMaterialsArenaMB,FSPerfGPUDrivenShadowAlpha,FSPerfGPUDrivenShadowAlphaArenaMB,FSPerfRiggedPaletteBuffer,FSPerfGPUDrivenRigged" />
                     </button>
                     <check_box
                      control_name="FSPerfGPUDrivenDraws"
@@ -7544,6 +7544,29 @@
                      tool_tip="EXPERIMENTAL. Most video memory the copy of the alpha tested shadow casters' vertex data may use, 16 to 2048 MB. Casters that don't fit are drawn the old way."
                      top="1254"
                      width="100" />
+                    <check_box
+                     control_name="FSPerfRiggedPaletteBuffer"
+                     follows="left|top"
+                     height="20"
+                     label="Rigged mesh joint matrices in one buffer per frame"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfriggedpalettebuffer"
+                     tool_tip="EXPERIMENTAL. Write each rigged mesh&apos;s joint matrices once a frame into one buffer that every program, pass and shadow cascade reads, instead of uploading them to each program that draws the mesh. Saves main and render thread time with many avatars around; nothing looks different. Rebuilds shaders."
+                     top="1284"
+                     width="475" />
+                    <check_box
+                     control_name="FSPerfGPUDrivenRigged"
+                     enabled_control="FSPerfRiggedPaletteBuffer"
+                     follows="left|top"
+                     height="20"
+                     label="GPU driven draws for rigged meshes"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsperfgpudrivenrigged"
+                     tool_tip="EXPERIMENTAL. Draw the opaque rigged meshes of the G-buffer pass (bodies, clothes, attachments) as a few multi-draw calls, like the GPU driven paths above do for static objects, instead of one draw call each with its own state changes. Needs the joint matrix buffer. Saves main and render thread time with many avatars around; nothing looks different. Rebuilds shaders."
+                     top="1310"
+                     width="455" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -7551,7 +7574,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_render_thread"
-                     top="1296"
+                     top="1350"
                      width="340">
                         Render thread
                     </text>
@@ -7563,7 +7586,7 @@
                      left="370"
                      name="reset_fs_heading_render_thread"
                      tool_tip="Set every option in &quot;Render thread&quot; back to its default value."
-                     top="1295"
+                     top="1349"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7578,7 +7601,7 @@
                      left="15"
                      name="fs_fsrenderthread"
                      tool_tip="EXPERIMENTAL. Windows only, takes effect after a restart. The main thread hands its OpenGL work to a render thread, which talks to the graphics driver while the main thread already prepares the next frame. Can raise the frame rate when the main thread is the bottleneck. The picture is the same; if something renders wrongly or the viewer stalls, turn it off."
-                     top="1322"
+                     top="1376"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7587,7 +7610,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_shaders"
-                     top="1364"
+                     top="1418"
                      width="340">
                         Shaders
                     </text>
@@ -7599,7 +7622,7 @@
                      left="370"
                      name="reset_fs_heading_shaders"
                      tool_tip="Set every option in &quot;Shaders&quot; back to its default value."
-                     top="1363"
+                     top="1417"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7614,7 +7637,7 @@
                      left="15"
                      name="fs_fsperfparallelshadercompile"
                      tool_tip="EXPERIMENTAL. Shorter pauses when graphics settings change and shaders are rebuilt, because the graphics driver compiles them on several threads at once. Needs a driver that supports parallel shader compile (current NVIDIA and AMD drivers, Mesa). Without that support nothing changes. Applies from the next shader rebuild."
-                     top="1390"
+                     top="1444"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7623,7 +7646,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_user_interface"
-                     top="1432"
+                     top="1486"
                      width="340">
                         User interface
                     </text>
@@ -7635,7 +7658,7 @@
                      left="370"
                      name="reset_fs_heading_user_interface"
                      tool_tip="Set every option in &quot;User interface&quot; back to its default value."
-                     top="1431"
+                     top="1485"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7648,7 +7671,7 @@
                      left="35"
                      name="fs_fsrenderuicap_label"
                      tool_tip="EXPERIMENTAL. Draws the interface into its own image and redraws it only when needed: every frame while you use it (mouse over it, typing into it, dragging a window), at most this many times a second when something in it changes, otherwise a few times a second. Saves a large part of the main thread's frame when windows and chat are open. 0 draws the interface every frame as before."
-                     top="1460"
+                     top="1514"
                      width="285">
                         UI redraw cap (per second, 0 = every frame)
                     </text>
@@ -7664,7 +7687,7 @@
                      min_val="0"
                      name="fs_fsrenderuicap"
                      tool_tip="EXPERIMENTAL. Draws the interface into its own image and redraws it only when needed: every frame while you use it (mouse over it, typing into it, dragging a window), at most this many times a second when something in it changes, otherwise a few times a second. Saves a large part of the main thread's frame when windows and chat are open. 0 draws the interface every frame as before."
-                     top="1458"
+                     top="1512"
                      width="100" />
                     <text
                      follows="left|top"
@@ -7673,7 +7696,7 @@
                      left="35"
                      name="fs_fsrenderuiidlerate_label"
                      tool_tip="EXPERIMENTAL. With the redraw cap on, how often the interface is redrawn while nothing uses it. Most changes (text, counters, chat) show up at this rate."
-                     top="1488"
+                     top="1542"
                      width="285">
                         UI idle refresh (per second)
                     </text>
@@ -7690,7 +7713,7 @@
                      min_val="0.5"
                      name="fs_fsrenderuiidlerate"
                      tool_tip="EXPERIMENTAL. With the redraw cap on, how often the interface is redrawn while nothing uses it. Most changes (text, counters, chat) show up at this rate."
-                     top="1486"
+                     top="1540"
                      width="100" />
                     <text
                      follows="left|top"
@@ -7699,7 +7722,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_uploads_inventory"
-                     top="1528"
+                     top="1582"
                      width="340">
                         Uploads and inventory
                     </text>
@@ -7711,7 +7734,7 @@
                      left="370"
                      name="reset_fs_heading_uploads_inventory"
                      tool_tip="Set every option in &quot;Uploads and inventory&quot; back to its default value."
-                     top="1527"
+                     top="1581"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7726,7 +7749,7 @@
                      left="35"
                      name="fs_fsperfparalleltextureencode"
                      tool_tip="The viewer freezes while it compresses a texture for upload, about a second per large texture, and a material upload compresses up to four. With this on, each texture is compressed on several cores and the maps of a material at the same time, so the freeze is several times shorter. Applies to textures, materials, snapshots and mesh textures."
-                     top="1551"
+                     top="1605"
                      width="455" />
                     <check_box
                      control_name="FSPerfInventoryLazySort"
@@ -7737,7 +7760,7 @@
                      left="35"
                      name="fs_fsperfinventorylazysort"
                      tool_tip="Opening the inventory, switching its tabs or changing the sort order sorted every folder at once, a freeze of a few hundred milliseconds with large inventories. With this on, open folders are sorted right away and each closed folder when you open it. With folders sorted by date everything is still sorted at once, since that order depends on what is inside them."
-                     top="1574"
+                     top="1628"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7746,7 +7769,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_other"
-                     top="1616"
+                     top="1670"
                      width="340">
                         Other
                     </text>
@@ -7758,7 +7781,7 @@
                      left="370"
                      name="reset_perf_heading_other"
                      tool_tip="Set every option in &quot;Other&quot; back to its default value."
-                     top="1615"
+                     top="1669"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7773,7 +7796,7 @@
                      left="15"
                      name="perf_audiothrottlechecks"
                      tool_tip="EXPERIMENTAL. Re-check whether each sound source is muted or allowed by parcel rules 4 times a second, or right away when the mute list, parcel or your position changes, instead of every frame."
-                     top="1639"
+                     top="1693"
                      width="475" />
                     <check_box
                      control_name="FSPerfInventoryIdleThrottle"
@@ -7784,7 +7807,7 @@
                      left="15"
                      name="perf_inventoryidlethrottle"
                      tool_tip="EXPERIMENTAL. Inventory panels that are not on screen update their folder views twice a second instead of every frame."
-                     top="1661"
+                     top="1715"
                      width="475" />
                     <check_box
                      control_name="FSPerfHoverPickThrottle"
@@ -7795,7 +7818,7 @@
                      left="15"
                      name="fs_fsperfhoverpickthrottle"
                      tool_tip="EXPERIMENTAL. While the mouse, its buttons and the camera stay still, the viewer reuses what it found under the mouse for up to a tenth of a second instead of casting a ray through the scene every frame. Something moving under a still mouse is noticed within that time."
-                     top="1691"
+                     top="1745"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7804,7 +7827,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_scene_updates"
-                     top="1733"
+                     top="1787"
                      width="340">
                         Scene updates
                     </text>
@@ -7816,7 +7839,7 @@
                      left="370"
                      name="reset_fs_heading_scene_updates"
                      tool_tip="Set every option in &quot;Scene updates&quot; back to its default value."
-                     top="1732"
+                     top="1786"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7831,7 +7854,7 @@
                      left="15"
                      name="fs_fsperfvertexarrayobjects"
                      tool_tip="Vertex buffers drawn more than once keep a vertex array object per shader layout, so a draw binds one object instead of setting up its buffers and attributes again. Off: the standard path."
-                     top="1761"
+                     top="1815"
                      width="475" />
                     <check_box
                      control_name="FSPerfRebuildNearestFirst"
@@ -7842,7 +7865,7 @@
                      left="15"
                      name="fs_fsperfrebuildnearestfirst"
                      tool_tip="When geometry updates (level of detail changes, new objects) can't all be done in one frame, do the ones in view and nearest the camera first, so the objects around you sharpen before distant ones. Off: the standard order."
-                     top="1787"
+                     top="1841"
                      width="475" />
                     <check_box
                      control_name="RenderReflectionProbeSharedShadows"
@@ -7853,7 +7876,7 @@
                      left="15"
                      name="fs_renderreflectionprobesharedshadows"
                      tool_tip="Render the sun shadows once per reflection probe update and share them between its 12 face renders, instead of rendering them for every face. Off: the standard path."
-                     top="1813"
+                     top="1867"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7862,7 +7885,7 @@
                      left="35"
                      name="fs_renderreflectionproberefreshframeinterval_label"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="1841"
+                     top="1895"
                      width="285">
                         Frames per face when refreshing a probe
                     </text>
@@ -7878,7 +7901,7 @@
                      min_val="1"
                      name="fs_renderreflectionproberefreshframeinterval"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="1839"
+                     top="1893"
                      width="100" />
                     <text
                      follows="left|top"
@@ -7887,7 +7910,7 @@
                      left="35"
                      name="fs_renderreflectionprobeminrefresh_label"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="1869"
+                     top="1923"
                      width="285">
                         Shortest time between probe refreshes (s)
                     </text>
@@ -7903,7 +7926,7 @@
                      min_val="0"
                      name="fs_renderreflectionprobeminrefresh"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="1867"
+                     top="1921"
                      width="100" />
                     <text
                      follows="left|top"
@@ -7912,7 +7935,7 @@
                      left="35"
                      name="fs_renderhiddenavatarupdateperiod_label"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="1897"
+                     top="1951"
                      width="285">
                         Frames between off-screen avatar updates
                     </text>
@@ -7928,7 +7951,7 @@
                      min_val="1"
                      name="fs_renderhiddenavatarupdateperiod"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="1895"
+                     top="1949"
                      width="100" />
                 </panel>
             </scroll_container>

@@ -56,6 +56,7 @@
 // <FS:Trish> Fade-in
 #include "llappviewer.h" // gFrameTimeSeconds
 #include "llframetimer.h"
+#include "fsskinpalettebuffer.h" // <FS:Trish/>
 // </FS:Trish>
 
 S32 LLDrawPool::sNumDrawPools = 0;
@@ -731,6 +732,26 @@ static inline bool fs_palette_uploaded(U32 serial)
     shader->mFSPaletteSerial = serial;
     return false;
 }
+
+// Uploads a palette to the bound program unless it has this build already, or with
+// FSPerfRiggedPaletteBuffer writes it into this frame's palette buffer (once) and binds its range
+static inline void fs_upload_palette(const LLVOAvatar::MatrixPaletteCache& mpc, U32 count)
+{
+    if (FSSkinPaletteBuffer::active())
+    {
+        FSSkinPaletteBuffer::bind(mpc.mFSBuildSerial, mpc.mGLMp.data(), count, mpc.mSkinOrigin);
+        return;
+    }
+    if (!fs_palette_uploaded(mpc.mFSBuildSerial))
+    {
+        LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
+            count,
+            false,
+            (GLfloat*)&(mpc.mGLMp[0]));
+        LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLViewerShaderMgr::AVATAR_MATRIX_SIZE, count);
+        LLGLSLShader::sCurBoundShaderPtr->uniform3fv(LLViewerShaderMgr::SKIN_ORIGIN, 1, mpc.mSkinOrigin.mV);
+    }
+}
 // </FS:Trish>
 
 bool LLRenderPass::uploadMatrixPalette(LLDrawInfo& params)
@@ -764,17 +785,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
         return false;
     }
 
-    // <FS:Trish> This program already has this palette build
-    if (!fs_palette_uploaded(mpc.mFSBuildSerial))
-    {
-    LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
-        count,
-        false,
-        (GLfloat*)&(mpc.mGLMp[0]));
-    LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLViewerShaderMgr::AVATAR_MATRIX_SIZE, count);
-    LLGLSLShader::sCurBoundShaderPtr->uniform3fv(LLViewerShaderMgr::SKIN_ORIGIN, 1, mpc.mSkinOrigin.mV);
-    }
-    // </FS:Trish>
+    fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
 
     return true;
 }
@@ -814,17 +825,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        // <FS:Trish> This program already has this palette build
-        if (!fs_palette_uploaded(mpc.mFSBuildSerial))
-        {
-        LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
-            count,
-            false,
-            (GLfloat*)&(mpc.mGLMp[0]));
-        LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLViewerShaderMgr::AVATAR_MATRIX_SIZE, count);
-        LLGLSLShader::sCurBoundShaderPtr->uniform3fv(LLViewerShaderMgr::SKIN_ORIGIN, 1, mpc.mSkinOrigin.mV);
-        }
-        // </FS:Trish>
+        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;
@@ -866,17 +867,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        // <FS:Trish> This program already has this palette build
-        if (!fs_palette_uploaded(mpc.mFSBuildSerial))
-        {
-        LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
-            count,
-            false,
-            (GLfloat*)&(mpc.mGLMp[0]));
-        LLGLSLShader::sCurBoundShaderPtr->uniform1i(LLViewerShaderMgr::AVATAR_MATRIX_SIZE, count);
-        LLGLSLShader::sCurBoundShaderPtr->uniform3fv(LLViewerShaderMgr::SKIN_ORIGIN, 1, mpc.mSkinOrigin.mV);
-        }
-        // </FS:Trish>
+        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;

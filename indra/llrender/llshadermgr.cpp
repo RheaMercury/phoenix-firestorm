@@ -168,7 +168,10 @@ bool LLShaderMgr::attachShaderFeatures(LLGLSLShader * shader)
     if (features->hasObjectSkinning)
     {
         shader->mRiggedVariant = shader;
-        if (!shader->attachVertexObject("avatar/objectSkinV.glsl"))
+        // <FS:Trish> FSPerfGPUDrivenRigged: the multi-draw programs read their palettes from a storage buffer
+        //if (!shader->attachVertexObject("avatar/objectSkinV.glsl"))
+        if (!shader->attachVertexObject(features->mFSGDDSkinning ? FS_GDD_SKIN_OBJECT : "avatar/objectSkinV.glsl"))
+        // </FS:Trish>
         {
             return false;
         }

@@ -42,7 +42,8 @@ precise gl_Position;
 // with glMultiDrawElementsIndirect out of a vertex arena. Every draw command has a record, an instanced
 // attribute its base instance selects, naming its matrices and its material in the storage buffers below,
 // which hold exactly what the stock path puts in the uniforms of the same names and binds on the texture
-// units for that batch. Never skinned.
+// units for that batch. Skinned (HAS_SKIN, FSPerfGPUDrivenRigged): the record's w is where the batch's joint
+// palette starts in the storage buffer objectSkinV.glsl (built with FS_GDD_RIGGED) reads it from.
 layout(std430) readonly buffer FSGDDMaterialMatrices
 {
     mat4 fs_gdd_matrix[];   // per model matrix: modelview, modelview projection, normal matrix; texture matrices
@@ -61,7 +62,14 @@ layout(std430) readonly buffer FSGDDMaterialRecords
     FSGDDLegacyMaterial fs_gdd_material[];
 };
 
-in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: material
+in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: material, w: palette (skinned)
+
+#ifdef HAS_SKIN
+uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's first vec4
+{
+    return fs_gdd_draw.w;
+}
+#endif
 
 // the material for the fragment shader, which reads it in place of its uniforms and samplers
 flat out vec4 fs_gdd_specular_color;

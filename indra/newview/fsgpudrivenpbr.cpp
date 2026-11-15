@@ -73,6 +73,20 @@
 // only where the stock geometry is nearer than what the multi-draws left, which is logged. It also reads back
 // a couple of arena entries per pass and compares them with their vertex buffers, checks for GL errors, and
 // logs statistics every 10 seconds (FSPerfGPUDrivenPBRStats logs only the statistics).
+//
+// FSPerfGPUDrivenRigged (with FSPerfRiggedPaletteBuffer, fsskinpalettebuffer.h): the rigged opaque passes
+// (PASS_GLTF_PBR_RIGGED, PASS_GLTF_PBR_ALPHA_MASK_RIGGED: LLRenderPass::pushRiggedGLTFBatches with the skinned
+// variant of gDeferredPBROpaqueProgram bound) the same way, both with bound textures and bindless, as in the
+// legacy material passes (fsgpudrivenmaterials.cpp). The skinned programs are built from the stock skinned
+// one with FS_GDD (and FS_GDD_BINDLESS) and LLShaderFeatures::mFSGDDSkinning, which links the copy of
+// objectSkinV.glsl built with FS_GDD_RIGGED. Their batches come from a second arena that also holds the joint
+// weights, and each record names (its w, Record::mSkin) where the batch's palette starts in this frame's
+// palette buffer, which the pass binds whole as a storage buffer: the palette the stock loop would bind, the
+// same floats the stock programs read through FSSkinPalette, read by the same skinning code. The skinned
+// branch of pbropaqueV.glsl projects with the projection_matrix uniform, which only gGL.syncMatrices sets: it
+// runs before the multi-draws. A batch without avatar, skin or palette yet is skipped, as the stock loop skips
+// it. All palettes of the pass go into the buffer before it draws (FSSkinPaletteBuffer::place), the stock
+// fallbacks' too; should the buffer still be replaced mid pass, the multi-draws left are drawn the stock way.
 
 #include "llviewerprecompiledheaders.h"
 
@@ -81,6 +95,8 @@
 #include "fsglstream.h"
 
 #include "fsgddarena.h"
+#include "fsgpudrivenmaterials.h"
+#include "fsskinpalettebuffer.h"
 
 #include "lldrawpool.h"
 #include "llfetchedgltfmaterial.h"
@@ -95,6 +111,7 @@
 #include "llviewercontrol.h"
 #include "llviewershadermgr.h"
 #include "llviewertexture.h"
+#include "llvoavatar.h"
 #include "pipeline.h"
 
 #include <atomic>
@@ -117,6 +134,9 @@ namespace
 {
     constexpr GLuint FS_GDD_PBR_MATRIX_BINDING = 5;     // shader storage binding of FSGDDPBRMatrices
     constexpr GLuint FS_GDD_PBR_MATERIAL_BINDING = 6;   // and of FSGDDPBRMaterials
+    constexpr GLuint FS_GDD_PBR_SKIN_BINDING = 7;       // and of FSGDDSkinPalettes (objectSkinV.glsl, rigged)
+    constexpr U32 FS_GDD_PBR_RIGGED = 2;                // program index bit of the rigged programs (bit 0: bindless)
+    constexpr U32 FS_GDD_PBR_PROGRAMS = 4;
     constexpr U32 FS_GDD_PBR_ATTRIBS = LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_NORMAL | LLVertexBuffer::MAP_TANGENT |
                                        LLVertexBuffer::MAP_TEXCOORD0 | LLVertexBuffer::MAP_COLOR;
     constexpr U32 FS_GDD_HANDLE_IDLE_FRAMES = 300;      // frames a handle may go unused before it is made non resident
@@ -128,6 +148,12 @@ namespace
                       { LLVertexBuffer::TYPE_VERTEX, LLVertexBuffer::TYPE_NORMAL, LLVertexBuffer::TYPE_TANGENT,
                         LLVertexBuffer::TYPE_TEXCOORD0, LLVertexBuffer::TYPE_COLOR },
                       "FSPerfGPUDrivenPBRArenaMB", 512, 8);
+    // FSPerfGPUDrivenRigged: the same plus the joint weights, for the rigged passes, so rigged buffers neither
+    // crowd the static ones out nor make every vertex of the first arena carry weights. The same size limit, its own.
+    FSGDDArena sRiggedArena("FSPerfGPUDrivenRigged PBR arena",
+                            { LLVertexBuffer::TYPE_VERTEX, LLVertexBuffer::TYPE_NORMAL, LLVertexBuffer::TYPE_TANGENT,
+                              LLVertexBuffer::TYPE_TEXCOORD0, LLVertexBuffer::TYPE_COLOR, LLVertexBuffer::TYPE_WEIGHT4 },
+                            "FSPerfGPUDrivenPBRArenaMB", 512, 8);
 
     struct DrawCommand  // DrawElementsIndirectCommand
     {
@@ -143,7 +169,7 @@ namespace
         U32 mMatrix;    // modelview; modelview projection and normal matrix follow
         U32 mTexMatrix;
         U32 mMaterial;
-        U32 mPad;
+        U32 mSkin;      // rigged: the palette's first vec4 in the palette buffer (FSSkinPaletteBuffer::place)
     };
 
     struct Material     // FSGDDMaterial, std430
@@ -205,8 +231,19 @@ namespace
     GLuint sMatrixBuffer = 0;
     GLuint sMaterialBuffer = 0;
     GLuint sQuery = 0;
-    GLint sRecordAttrib[2] = { -1, -1 };    // location of fs_gdd_draw: bound, bindless
-    S32 sInputsReady[2] = { 0, 0 };         // bind_inputs done: 0 not yet, 1 yes, -1 failed
+    GLint sRecordAttrib[FS_GDD_PBR_PROGRAMS] = { -1, -1, -1, -1 };  // location of fs_gdd_draw, by program()
+    S32 sInputsReady[FS_GDD_PBR_PROGRAMS] = {};                     // bind_inputs done: 0 not yet, 1 yes, -1 failed
+    LLGLSLShader sRiggedProgram;            // FSPerfGPUDrivenRigged: the skinned gFSGDDPBRProgram
+    LLGLSLShader sRiggedBindlessProgram;    // and gFSGDDPBRBindlessProgram
+    // the pass being drawn: rigged, its stock program (gDeferredPBROpaqueProgram or its skinned variant), its arena
+    bool sRiggedPass = false;
+    LLGLSLShader* sStockProgram = &gDeferredPBROpaqueProgram;
+    FSGDDArena* sPassArena = &sArena;
+    // rigged pass: the batches drawn the stock way (their palettes go into the buffer too), the palette
+    // offsets' generation (FSSkinPaletteBuffer)
+    std::vector<LLDrawInfo*> sStockRigged;
+    std::vector<U32> sPaletteOffsets;
+    U32 sPaletteGeneration = 0;
 
     std::vector<Op> sOps;
     std::vector<DrawCommand> sCommands;
@@ -233,9 +270,12 @@ namespace
     U64 sStatReasons[R_COUNT] = {};
     U64 sStatMismatches = 0;
 
+    // which: bit 0 bindless, bit 1 rigged (FS_GDD_PBR_RIGGED)
     LLGLSLShader& program(U32 which)
     {
-        return which ? gFSGDDPBRBindlessProgram : gFSGDDPBRProgram;
+        static LLGLSLShader* const programs[FS_GDD_PBR_PROGRAMS] = { &gFSGDDPBRProgram, &gFSGDDPBRBindlessProgram,
+                                                                     &sRiggedProgram, &sRiggedBindlessProgram };
+        return *programs[which & 3];
     }
 }
 
@@ -951,9 +991,9 @@ namespace
 
 namespace
 {
-    bool create_program(LLGLSLShader& shader, const char* name, bool bindless)
+    // stock: gDeferredPBROpaqueProgram, or (rigged) its skinned variant
+    bool create_program(LLGLSLShader& shader, const LLGLSLShader& stock, const char* name, bool bindless, bool rigged)
     {
-        const LLGLSLShader& stock = gDeferredPBROpaqueProgram;
         shader.mName = name;
         shader.mFeatures = stock.mFeatures;
         shader.mShaderFiles = stock.mShaderFiles;
@@ -966,21 +1006,30 @@ namespace
         {
             shader.addPermutation("FS_GDD_BINDLESS", "1");
         }
+        // rigged (HAS_SKIN among the stock defines): the skinning object that reads the palettes from the storage buffer
+        shader.mFeatures.mFSGDDSkinning = rigged;
         return shader.createShader();
     }
 
     // the storage block bindings, and where the driver put the per command record
-    bool bind_inputs(LLGLSLShader& shader, GLint& record_attrib)
+    bool bind_inputs(LLGLSLShader& shader, bool rigged, GLint& record_attrib)
     {
         const GLuint matrices = glGetProgramResourceIndex(shader.mProgramObject, GL_SHADER_STORAGE_BLOCK, "FSGDDPBRMatrices");
         const GLuint materials = glGetProgramResourceIndex(shader.mProgramObject, GL_SHADER_STORAGE_BLOCK, "FSGDDPBRMaterials");
+        const GLuint palettes = rigged ? glGetProgramResourceIndex(shader.mProgramObject, GL_SHADER_STORAGE_BLOCK, "FSGDDSkinPalettes")
+                                       : GL_INVALID_INDEX;
         record_attrib = glGetAttribLocation(shader.mProgramObject, "fs_gdd_draw");
-        if (matrices == GL_INVALID_INDEX || materials == GL_INVALID_INDEX || record_attrib < 0)
+        if (matrices == GL_INVALID_INDEX || materials == GL_INVALID_INDEX || (rigged && palettes == GL_INVALID_INDEX) ||
+            record_attrib < 0 || (rigged && !(shader.mAttributeMask & LLVertexBuffer::MAP_WEIGHT4)))
         {
             return false;
         }
         glShaderStorageBlockBinding(shader.mProgramObject, matrices, FS_GDD_PBR_MATRIX_BINDING);
         glShaderStorageBlockBinding(shader.mProgramObject, materials, FS_GDD_PBR_MATERIAL_BINDING);
+        if (rigged)
+        {
+            glShaderStorageBlockBinding(shader.mProgramObject, palettes, FS_GDD_PBR_SKIN_BINDING);
+        }
         return true;
     }
 
@@ -995,7 +1044,7 @@ namespace
         }
         if (!sInputsReady[which])
         {
-            sInputsReady[which] = bind_inputs(shader, sRecordAttrib[which]) ? 1 : -1;
+            sInputsReady[which] = bind_inputs(shader, (which & FS_GDD_PBR_RIGGED) != 0, sRecordAttrib[which]) ? 1 : -1;
             if (sInputsReady[which] < 0)
             {
                 LL_WARNS("Rendering") << "FSPerfGPUDrivenPBR: " << shader.mName << " lacks its storage blocks or draw "
@@ -1013,10 +1062,12 @@ namespace
 
 void fsGDDPBRUnloadShaders()
 {
-    gFSGDDPBRProgram.unload();
-    gFSGDDPBRBindlessProgram.unload();
-    sInputsReady[0] = 0;
-    sInputsReady[1] = 0;
+    for (U32 which = 0; which < FS_GDD_PBR_PROGRAMS; ++which)
+    {
+        program(which).unload();
+        sInputsReady[which] = 0;
+        sRecordAttrib[which] = -1;
+    }
     fsGDDPBRReleaseGL();
 }
 
@@ -1050,7 +1101,7 @@ void fsGDDPBRLoadShaders()
         return;
     }
 
-    if (!create_program(gFSGDDPBRProgram, "FS GPU-Driven PBR Opaque Shader", false))
+    if (!create_program(gFSGDDPBRProgram, gDeferredPBROpaqueProgram, "FS GPU-Driven PBR Opaque Shader", false, false))
     {
         LL_WARNS("ShaderLoading") << "FSPerfGPUDrivenPBR: the multi-draw PBR program failed to build, "
                                   << "PBR batches are drawn as before" << LL_ENDL;
@@ -1076,7 +1127,8 @@ void fsGDDPBRLoadShaders()
         }
         if (sBindlessTested > 0)
         {
-            if (create_program(gFSGDDPBRBindlessProgram, "FS GPU-Driven PBR Opaque Bindless Shader", true))
+            if (create_program(gFSGDDPBRBindlessProgram, gDeferredPBROpaqueProgram, "FS GPU-Driven PBR Opaque Bindless Shader",
+                               true, false))
             {
                 LLImageGL::sFSTextureUnlock = &unlock_texture;  // stays set; does nothing while there are no handles
             }
@@ -1088,11 +1140,34 @@ void fsGDDPBRLoadShaders()
             }
         }
     }
+
+    // FSPerfGPUDrivenRigged: the skinned programs, from the stock skinned one; the bindless one only next to the
+    // static bindless one. Optional: without them the rigged passes stay stock.
+    const LLGLSLShader* stock_rigged = gDeferredPBROpaqueProgram.mRiggedVariant;
+    if (stock_rigged && stock_rigged != &gDeferredPBROpaqueProgram && !stock_rigged->mShaderFiles.empty() &&
+        fsGDDRiggedLoadable(vs_blocks))
+    {
+        if (!create_program(sRiggedProgram, *stock_rigged, "FS GPU-Driven Skinned PBR Opaque Shader", false, true))
+        {
+            LL_WARNS("ShaderLoading") << "FSPerfGPUDrivenRigged: the skinned multi-draw PBR program failed to build, "
+                                      << "rigged PBR batches are drawn as before" << LL_ENDL;
+            sRiggedProgram.unload();
+        }
+        else if (gFSGDDPBRBindlessProgram.isComplete() &&
+                 !create_program(sRiggedBindlessProgram, *stock_rigged, "FS GPU-Driven Skinned PBR Opaque Bindless Shader",
+                                 true, true))
+        {
+            LL_WARNS("ShaderLoading") << "FSPerfGPUDrivenRigged: the skinned bindless PBR program failed to build, "
+                                      << "rigged PBR textures are bound as before" << LL_ENDL;
+            sRiggedBindlessProgram.unload();
+        }
+    }
 }
 
 void fsGDDPBRReleaseGL()
 {
     sArena.releaseGL();
+    sRiggedArena.releaseGL();
     GLuint buffers[4] = { sIndirectBuffer, sRecordBuffer, sMatrixBuffer, sMaterialBuffer };
     for (GLuint buffer : buffers)
     {
@@ -1352,6 +1427,7 @@ namespace
     {
         sPending.clear();
         sStockParams.clear();
+        sStockRigged.clear();
         sOps.clear();
         sCommands.clear();
         sRecords.clear();
@@ -1366,17 +1442,25 @@ namespace
         }
 
         const U32 frame = LLFrameTimer::getFrameCount();
-        sArena.beginFrame(frame);
+        FSGDDArena& arena = *sPassArena;
+        arena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
         sMatrices.push_back(glm::mat4(1.f));   // texture matrix 0: identity
 
         for (LLCullResult::drawinfo_iterator i = begin; i != end; )
         {
-            sArena.prefetchAhead(i, end - i);
+            arena.prefetchAhead(i, end - i);
             LLDrawInfo& params = **i;
             LLCullResult::increment_iterator(i, end);
             ++sStatBatches;
+
+            // rigged: as pushRiggedGLTFBatch, which draws nothing (and binds nothing) for a batch without avatar,
+            // skin or palette yet
+            if (sRiggedPass && !FSSkinPaletteBuffer::drawable(params))
+            {
+                continue;
+            }
 
             LLFetchedGLTFMaterial* mat = params.mGLTFMaterial.get();
             S32 reason = -1;
@@ -1385,7 +1469,7 @@ namespace
             {
                 reason = R_NO_MATERIAL;
             }
-            else if (params.mAvatar.notNull() || params.mSkinInfo.notNull())
+            else if (!sRiggedPass && (params.mAvatar.notNull() || params.mSkinInfo.notNull()))
             {
                 reason = R_RIGGED;
             }
@@ -1400,7 +1484,7 @@ namespace
             else
             {
                 U32 fail = 0;
-                entry = sArena.find(params.mVertexBuffer.get(), frame, &fail);
+                entry = arena.find(params.mVertexBuffer.get(), frame, &fail);
                 if (!entry)
                 {
                     reason = R_ARENA + fail;
@@ -1414,6 +1498,10 @@ namespace
             if (reason >= 0)
             {
                 count(reason);
+                if (sRiggedPass)
+                {
+                    sStockRigged.push_back(&params);
+                }
                 if (group_runs)
                 {
                     sStockParams.push_back(&params);
@@ -1493,15 +1581,25 @@ namespace
     {
         // the record attribute goes into the global vertex array object, never a buffer's own
         LLVertexBuffer::fsUseDefaultVAO();
+        if (sRiggedPass)
+        {   // the skinned branch of pbropaqueV.glsl projects with the projection_matrix uniform (the static one only
+            // reads the records' matrices). Only gGL's sync sets it, which every stock draw goes through and a
+            // multi-draw doesn't: left unset it is all zeros and every rigged vertex collapses to one point.
+            gGL.syncMatrices();
+        }
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATRIX_BINDING, sMatrixBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING, sMaterialBuffer);
+        if (sRiggedPass)
+        {   // the palette buffer whole; the records hold the offsets
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_SKIN_BINDING, FSSkinPaletteBuffer::glName());
+        }
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectBuffer);
         const GLuint record = (GLuint)sRecordAttrib[which];
         glBindBuffer(GL_ARRAY_BUFFER, sRecordBuffer);
         glEnableVertexAttribArray(record);
         glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), nullptr);
         glVertexAttribDivisor(record, 1);
-        sArena.bindForDraw(FS_GDD_PBR_ATTRIBS);
+        sPassArena->bindForDraw(FS_GDD_PBR_ATTRIBS | (sRiggedPass ? LLVertexBuffer::MAP_WEIGHT4 : 0));
     }
 
     // undo setup_inputs: the program's attribute mask doesn't have the record's location, so LLVertexBuffer
@@ -1512,9 +1610,39 @@ namespace
         glVertexAttribDivisor(record, 0);
         glDisableVertexAttribArray(record);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATRIX_BINDING, 0);
+        if (sRiggedPass)
+        {
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_SKIN_BINDING, 0);
+        }
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING, 0);  // also unbinds the generic binding
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         LLVertexBuffer::unbind();   // the next setBuffer() binds and sets up its own attributes again
+    }
+
+    // One batch the stock way: pushGLTFBatch, or for a rigged pass pushRiggedGLTFBatch (its palette's range
+    // first; build left only batches that have one). The pass's stock program must be bound.
+    void push_stock(LLDrawInfo& params, LLFetchedGLTFMaterial*& last_mat, LLViewerTexture*& last_tex)
+    {
+        if (sRiggedPass && !LLRenderPass::uploadMatrixPalette(params.mAvatar, params.mSkinInfo.get()))
+        {
+            return;
+        }
+        LLRenderPass::pushGLTFBatch(params, last_mat, last_tex);
+    }
+
+    // Rigged pass: every palette it draws with into the palette buffer, and the offsets into the records
+    bool assign_palettes()
+    {
+        if (!FSSkinPaletteBuffer::place(sCommandParams, sStockRigged, sPaletteOffsets, sPaletteGeneration) ||
+            sPaletteOffsets.size() != sRecords.size())
+        {
+            return false;
+        }
+        for (size_t c = 0; c < sRecords.size(); ++c)
+        {
+            sRecords[c].mSkin = sPaletteOffsets[c];
+        }
+        return true;
     }
 
     // Draws the ops. The stock program is bound on entry and on return. False if a GPU-driven program
@@ -1533,8 +1661,9 @@ namespace
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         LLVertexBuffer::sGLRenderBuffer = 0;    // or the next setBuffer of the buffer it named skips binding it
 
-        LLGLSLShader* stock = &gDeferredPBROpaqueProgram;
-        S32 current = -1;                       // GPU-driven program bound: 0 bound textures, 1 bindless, -1 stock
+        LLGLSLShader* stock = sStockProgram;
+        const U32 base = sRiggedPass ? FS_GDD_PBR_RIGGED : 0;
+        S32 current = -1;                       // GPU-driven program bound (program()), -1 stock
         bool drew = false;
         LLFetchedGLTFMaterial* stock_mat = nullptr;     // pushGLTFBatch's material cache
         LLViewerTexture* stock_tex = nullptr;
@@ -1553,12 +1682,32 @@ namespace
                     stock_mat = nullptr;    // the GPU-driven program may have bound other textures on the units
                     ++switches;
                 }
-                LLRenderPass::pushGLTFBatch(*op.mParams, stock_mat, stock_tex);
+                push_stock(*op.mParams, stock_mat, stock_tex);
                 drew = true;
                 continue;
             }
 
-            const S32 which = op.mKind == OP_BINDLESS ? 1 : 0;
+            if (sRiggedPass && FSSkinPaletteBuffer::generation() != sPaletteGeneration)
+            {   // the palette buffer was replaced after the offsets were taken (not expected: place() put every
+                // palette of the pass in it); the run the stock way, which binds each palette again
+                LL_WARNS_ONCE("Rendering") << "FSPerfGPUDrivenRigged: the palette buffer was replaced mid PBR pass" << LL_ENDL;
+                if (current >= 0)
+                {
+                    finish_inputs(current);
+                    stock->bind();
+                    current = -1;
+                    stock_mat = nullptr;
+                    ++switches;
+                }
+                for (U32 c = op.mFirst; c < op.mFirst + op.mCount; ++c)
+                {
+                    push_stock(*sCommandParams[c], stock_mat, stock_tex);
+                }
+                drew = true;
+                continue;
+            }
+
+            const S32 which = (S32)(base + (op.mKind == OP_BINDLESS ? 1 : 0));
             if (current != which)
             {
                 if (current >= 0)
@@ -1581,13 +1730,13 @@ namespace
                         const Op& rest = sOps[i];
                         if (rest.mKind == OP_STOCK)
                         {
-                            LLRenderPass::pushGLTFBatch(*rest.mParams, stock_mat, stock_tex);
+                            push_stock(*rest.mParams, stock_mat, stock_tex);
                         }
                         else
                         {
                             for (U32 c = rest.mFirst; c < rest.mFirst + rest.mCount; ++c)
                             {
-                                LLRenderPass::pushGLTFBatch(*sCommandParams[c], stock_mat, stock_tex);
+                                push_stock(*sCommandParams[c], stock_mat, stock_tex);
                             }
                         }
                     }
@@ -1649,10 +1798,10 @@ namespace
         for (LLDrawInfo* params : sCommandParams)
         {
             LLVertexBuffer* vb = params->mVertexBuffer.get();
-            FSGDDArenaEntry* found = sArena.peek(vb);
+            FSGDDArenaEntry* found = sPassArena->peek(vb);
             if (found && !found->mVerified)
             {
-                if (!sArena.verifyEntry(vb, *found))
+                if (!sPassArena->verifyEntry(vb, *found))
                 {
                     ++sStatMismatches;
                     static LLFrameTimer warn_timer;
@@ -1685,7 +1834,7 @@ namespace
             LLViewerTexture* last_tex = nullptr;
             for (LLDrawInfo* params : sCommandParams)
             {
-                LLRenderPass::pushGLTFBatch(*params, last_mat, last_tex);
+                push_stock(*params, last_mat, last_tex);
             }
             glEndQuery(GL_SAMPLES_PASSED);
             glColorMask(mask[0], mask[1], mask[2], mask[3]);
@@ -1735,7 +1884,9 @@ namespace
                                    << sStatSwitches << " program switches; stock path or bound textures for: "
                                    << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
                                    << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices, "
-                                   << sArena.entries() << " buffers, " << sArena.uploads() << " copies; bindless "
+                                   << sArena.entries() << " buffers, " << sArena.uploads() << " copies; rigged arena "
+                                   << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices, "
+                                   << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; bindless "
                                    << handle_textures << " textures, " << sResident << " resident handles, "
                                    << sStatHandlesMade << " made, " << sStatHandleFailures << " failed, "
                                    << sStatUnlocks << " dropped for texture changes; " << sStatMismatches
@@ -1743,7 +1894,14 @@ namespace
         sStatPasses = sStatBatches = sStatBindless = sStatBound = sStatCalls = sStatSwitches = 0;
         sStatHandlesMade = sStatHandleFailures = sStatUnlocks = 0;
         sArena.clearCounts();
+        sRiggedArena.clearCounts();
     }
+}
+
+namespace
+{
+    // fsGDDDrawPBR (rigged false) and fsGDDDrawRiggedPBR (rigged true)
+    bool draw_pbr(U32 type, bool rigged);
 }
 
 bool fsGDDDrawPBR(U32 type)
@@ -1751,10 +1909,28 @@ bool fsGDDDrawPBR(U32 type)
     // before any early return, so idle handles go non resident and away also while no PBR batch (or no
     // bindless one) is drawn; cheap, it does something every 120 frames
     sweep_handles(LLFrameTimer::getFrameCount());
+    return draw_pbr(type, false);
+}
 
+bool fsGDDDrawRiggedPBR(U32 type)
+{
+    if (!fsGDDRiggedEnabled())
+    {
+        return false;
+    }
+    return draw_pbr(type, true);
+}
+
+namespace
+{
+bool draw_pbr(U32 type, bool rigged)
+{
+    // the stock program the pool bound: gDeferredPBROpaqueProgram, or for the rigged pass its skinned variant
+    LLGLSLShader* stock = rigged ? gDeferredPBROpaqueProgram.mRiggedVariant : &gDeferredPBROpaqueProgram;
+    const U32 base = rigged ? FS_GDD_PBR_RIGGED : 0;
     static LLCachedControl<bool> enabled(gSavedSettings, "FSPerfGPUDrivenPBR", false);
-    if (!enabled || !gGLManager.mFSHasGPUDrivenDraws || !program_usable(0) ||
-        LLGLSLShader::sCurBoundShaderPtr != &gDeferredPBROpaqueProgram || LLPipeline::sShadowRender)
+    if (!enabled || !gGLManager.mFSHasGPUDrivenDraws || !stock || (rigged && stock == &gDeferredPBROpaqueProgram) ||
+        !program_usable(base) || LLGLSLShader::sCurBoundShaderPtr != stock || LLPipeline::sShadowRender)
     {
         return false;
     }
@@ -1772,31 +1948,40 @@ bool fsGDDDrawPBR(U32 type)
 
     // The first bind of each program finds its inputs; do that now, so a failure leaves the whole pass
     // to the stock loop rather than part of it
-    if (!sInputsReady[0])
+    if (!sInputsReady[base])
     {
-        const bool ready = bind_program(0);
-        gDeferredPBROpaqueProgram.bind();
+        const bool ready = bind_program(base);
+        stock->bind();
         if (!ready)
         {
             return false;
         }
     }
-    bool bindless = want_bindless && sBindlessTested > 0 && program_usable(1);
-    if (bindless && !sInputsReady[1])
+    bool bindless = want_bindless && sBindlessTested > 0 && program_usable(base + 1);
+    if (bindless && !sInputsReady[base + 1])
     {
-        bindless = bind_program(1);
-        gDeferredPBROpaqueProgram.bind();
+        bindless = bind_program(base + 1);
+        stock->bind();
     }
 
     // The environment uniforms (LLEnvironment marks the programs of the shader list dirty when they change,
     // and the stock program took them when the pool bound it); ours aren't in that list, so they take the
     // current values at their first bind in each pass
-    gFSGDDPBRProgram.mUniformsDirty = true;
-    gFSGDDPBRBindlessProgram.mUniformsDirty = true;
+    program(base).mUniformsDirty = true;
+    program(base + 1).mUniformsDirty = true;
 
+    sRiggedPass = rigged;
+    sStockProgram = stock;
+    sPassArena = rigged ? &sRiggedArena : &sArena;
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr build");
         build(begin, end, bindless, group_runs);
+    }
+    if (rigged && !sCommands.empty() && !assign_palettes())
+    {   // no buffer, or it never held still: the stock loop draws the pass
+        LL_WARNS_ONCE("Rendering") << "FSPerfGPUDrivenRigged: the joint palettes could not be put in the palette buffer; "
+                                   << "a rigged PBR pass is drawn as before" << LL_ENDL;
+        return false;
     }
     if (sCommands.empty())
     {   // nothing from the arena: the stock loop draws exactly the same
@@ -1831,3 +2016,4 @@ bool fsGDDDrawPBR(U32 type)
     }
     return true;
 }
+} // namespace

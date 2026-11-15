@@ -36,7 +36,10 @@ precise gl_Position;
 // FSPerfGPUDrivenLegacy (fsgpudrivenlegacy.cpp): static batches drawn with glMultiDrawElementsIndirect out
 // of a vertex arena. Every draw command has a record, an instanced attribute its base instance selects,
 // naming its matrices and its textures in the storage buffers below, which hold exactly what the stock
-// path puts in the uniforms of the same names and binds on the texture units for that batch.
+// path puts in the uniforms of the same names and binds on the texture units for that batch. Skinned
+// (HAS_SKIN, FSPerfGPUDrivenRigged): the record's w is where the batch's joint palette starts in the storage
+// buffer objectSkinV.glsl (built with FS_GDD_RIGGED) reads it from; projection_matrix stays the uniform the
+// stock skinned branch reads (set by gGL.syncMatrices before the multi-draw).
 layout(std430) readonly buffer FSGDDLegacyMatrices
 {
     mat4 fs_gdd_matrix[];   // per model matrix: modelview, modelview projection, normal matrix; texture matrices
@@ -47,8 +50,15 @@ layout(std430) readonly buffer FSGDDLegacyTextures
     uvec2 fs_gdd_tex[];     // per draw: (minimum_alpha bits, texture count), then a bindless handle per texture
 };
 
-in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: first entry in fs_gdd_tex
+in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: first entry in fs_gdd_tex, w: palette (skinned)
 in int texture_index;       // the unit diffuseLookup would pick (indexedTextureV.glsl)
+
+#ifdef HAS_SKIN
+uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's first vec4
+{
+    return fs_gdd_draw.w;
+}
+#endif
 
 flat out uvec2 fs_gdd_diffuse;
 flat out float fs_gdd_minimum_alpha;

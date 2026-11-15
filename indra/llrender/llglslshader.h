@@ -60,6 +60,7 @@ public:
     bool hasHeroProbes = false;
     bool isPBRTerrain = false;
     bool hasTonemap = false;
+    bool mFSGDDSkinning = false; // <FS:Trish/> with hasObjectSkinning: attach LLShaderMgr::FS_GDD_SKIN_OBJECT (FSPerfGPUDrivenRigged)
 };
 
 // ============= Structure for caching shader uniforms ===============
@@ -154,6 +155,7 @@ public:
         UB_GLTF_JOINTS,         // "GLTFJoints"
         UB_GLTF_NODES,          // "GLTFNodes"
         UB_GLTF_MATERIALS,      // "GLTFMaterials"
+        UB_FS_SKIN_PALETTE,     // "FSSkinPalette" <FS:Trish/> FSPerfRiggedPaletteBuffer
         NUM_UNIFORM_BLOCKS
     };
 

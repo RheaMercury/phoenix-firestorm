@@ -506,6 +506,7 @@ void FSGDDArena::bindForDraw(U32 attrib_mask)
             glVertexAttribPointer(type, 3, GL_FLOAT, GL_FALSE, stride, nullptr);
             break;
         case LLVertexBuffer::TYPE_TANGENT:
+        case LLVertexBuffer::TYPE_WEIGHT4:  // the rigged arena (FSPerfGPUDrivenRigged)
             glVertexAttribPointer(type, 4, GL_FLOAT, GL_FALSE, stride, nullptr);
             break;
         case LLVertexBuffer::TYPE_TEXCOORD0:

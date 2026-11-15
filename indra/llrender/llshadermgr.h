@@ -445,6 +445,11 @@ public:
     // </FS:Trish>
 
 public:
+    // <FS:Trish> FSPerfGPUDrivenRigged: the key in mVertexShaderObjects of avatar/objectSkinV.glsl compiled with
+    // FS_GDD_RIGGED (LLViewerShaderMgr::loadBasicShaders), attached instead of it for LLShaderFeatures::mFSGDDSkinning
+    static constexpr const char* FS_GDD_SKIN_OBJECT = "avatar/objectSkinV.glsl#FS_GDD_RIGGED";
+    // </FS:Trish>
+
     // Map of shader names to compiled
     std::map<std::string, GLuint> mVertexShaderObjects;
     std::map<std::string, GLuint> mFragmentShaderObjects;

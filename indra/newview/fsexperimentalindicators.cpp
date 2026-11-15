@@ -405,6 +405,8 @@ namespace
         { "FSPerfGPUDrivenDrawsVerify", CH, VN },
         { "FSPerfGPUDrivenDrawsArenaMB", CL, VN },
         { "FSPerfGPUDrivenPBR", CS, VN },
+        { "FSPerfRiggedPaletteBuffer", CS, VN },
+        { "FSPerfGPUDrivenRigged", CS, VN },
         { "FSPerfGPUDrivenPBRBindless", CS, VN },
         { "FSPerfGPUDrivenPBRArenaMB", CL, VN },
         { "FSPerfGPUDrivenLegacy", CS, VN },

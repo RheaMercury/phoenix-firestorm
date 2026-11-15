@@ -35,7 +35,9 @@ class LLGLSLShader;
 // gDeferredPBROpaqueProgram built with FS_GDD (matrices and material from storage buffers, textures bound
 // per material), and with FS_GDD + FS_GDD_BINDLESS (textures as bindless handles too). Built only while
 // FSPerfGPUDrivenPBR is on and the driver has gGLManager.mFSHasGPUDrivenDraws; the bindless one only with
-// FSPerfGPUDrivenPBRBindless and GL_ARB_bindless_texture as well.
+// FSPerfGPUDrivenPBRBindless and GL_ARB_bindless_texture as well. Their skinned counterparts (from the stock
+// skinned program, for FSPerfGPUDrivenRigged) are private to fsgpudrivenpbr.cpp and built only when
+// fsGDDRiggedLoadable (fsgpudrivenmaterials.h) holds as well.
 extern LLGLSLShader gFSGDDPBRProgram;
 extern LLGLSLShader gFSGDDPBRBindlessProgram;
 
@@ -50,6 +52,10 @@ void fsGDDPBRReleaseGL();
 // stock way (LLRenderPass::pushGLTFBatch). False, with nothing drawn, when the feature is off or can't run
 // here; the caller then draws the pass the stock way. gDeferredPBROpaqueProgram is bound again on return.
 bool fsGDDDrawPBR(U32 type);
+// FSPerfGPUDrivenRigged: the same for the rigged pass, in place of pushRiggedGLTFBatches(type) with the skinned
+// variant of gDeferredPBROpaqueProgram bound (bind(true)), which is bound again on return. The stock fallback
+// is pushRiggedGLTFBatch's: the batch's palette, then pushGLTFBatch.
+bool fsGDDDrawRiggedPBR(U32 type);
 
 // The bindless texture handles (one sampler per texture state, dropped when LLImageGL changes the texture),
 // shared with FSPerfGPUDrivenLegacy (fsgpudrivenlegacy.cpp).

@@ -114,7 +114,13 @@ void LLDrawPoolSimple::renderDeferred(S32 pass)
 
     //render rigged
     gDeferredDiffuseProgram.bind(true);
-    pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
+    // <FS:Trish> FSPerfGPUDrivenRigged: the rigged batches as multi-draws too
+    //pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
+    if (!fsGDDDrawLegacy(*this, LLRenderPass::PASS_SIMPLE_RIGGED))
+    {
+        pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
+    }
+    // </FS:Trish>
 }
 
 static LLTrace::BlockTimerStatHandle FTM_RENDER_ALPHA_MASK_DEFERRED("Deferred Alpha Mask");
@@ -137,7 +143,13 @@ void LLDrawPoolAlphaMask::renderDeferred(S32 pass)
 
     //render rigged
     shader->bind(true);
-    pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
+    // <FS:Trish> FSPerfGPUDrivenRigged
+    //pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
+    if (!fsGDDDrawLegacy(*this, LLRenderPass::PASS_ALPHA_MASK_RIGGED))
+    {
+        pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
+    }
+    // </FS:Trish>
 }
 
 // grass drawpool
@@ -196,7 +208,13 @@ void LLDrawPoolFullbright::renderPostDeferred(S32 pass)
     {
         // render rigged
         shader->bind(true);
-        pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_RIGGED, true, true);
+        // <FS:Trish> FSPerfGPUDrivenRigged
+        //pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_RIGGED, true, true);
+        if (!fsGDDDrawLegacy(*this, LLRenderPass::PASS_FULLBRIGHT_RIGGED))
+        {
+            pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_RIGGED, true, true);
+        }
+        // </FS:Trish>
     }
 }
 
@@ -234,7 +252,13 @@ void LLDrawPoolFullbrightAlphaMask::renderPostDeferred(S32 pass)
     {
         // render rigged
         shader->bind(true);
-        pushRiggedMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, true, true);
+        // <FS:Trish> FSPerfGPUDrivenRigged
+        //pushRiggedMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, true, true);
+        if (!fsGDDDrawLegacy(*this, LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED))
+        {
+            pushRiggedMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, true, true);
+        }
+        // </FS:Trish>
     }
 }
 

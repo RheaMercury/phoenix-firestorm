@@ -37,7 +37,9 @@ class LLViewerTexture;
 // gDeferredDiffuseProgram, gDeferredDiffuseAlphaMaskProgram, gDeferredFullbrightProgram and
 // gDeferredFullbrightAlphaMaskProgram built with FS_GDD_LEGACY: matrices from a storage buffer, the diffuse
 // texture as a bindless handle. Built only while FSPerfGPUDrivenLegacy is on, the driver has
-// gGLManager.mFSHasGPUDrivenDraws and bindless textures work (NVIDIA, fsGDDBindlessSetup).
+// gGLManager.mFSHasGPUDrivenDraws and bindless textures work (NVIDIA, fsGDDBindlessSetup). Their skinned
+// counterparts (from the stock skinned programs, for FSPerfGPUDrivenRigged) are private to fsgpudrivenlegacy.cpp
+// and built only when fsGDDRiggedLoadable (fsgpudrivenmaterials.h) holds as well.
 extern LLGLSLShader gFSGDDDiffuseProgram;
 extern LLGLSLShader gFSGDDDiffuseAlphaMaskProgram;
 extern LLGLSLShader gFSGDDFullbrightProgram;
@@ -50,8 +52,10 @@ void fsGDDLegacyUnloadShaders();
 void fsGDDLegacyReleaseGL();
 
 // In place of pushBatches(type, true, true) (PASS_SIMPLE, PASS_FULLBRIGHT) or pushMaskBatches(type, true, true)
-// (PASS_ALPHA_MASK, PASS_FULLBRIGHT_ALPHA_MASK) with the pass's stock program bound. Draws the pass's batches
-// in their order: runs that can come from the arena as multi-draws, the rest the stock way (pool.pushBatch).
+// (PASS_ALPHA_MASK, PASS_FULLBRIGHT_ALPHA_MASK) with the pass's stock program bound, or, FSPerfGPUDrivenRigged,
+// of pushRiggedBatches / pushRiggedMaskBatches for their rigged passes (PASS_*_RIGGED) with its skinned variant
+// bound. Draws the pass's batches in their order: runs that can come from the arena as multi-draws, the rest the
+// stock way (pool.pushBatch, after the batch's palette in a rigged pass).
 // False, with nothing drawn, when the feature is off or can't run here; the caller then draws the pass the
 // stock way. The stock program is bound again on return.
 bool fsGDDDrawLegacy(LLRenderPass& pool, U32 type);

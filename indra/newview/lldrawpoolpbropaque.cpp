@@ -72,7 +72,13 @@ void LLDrawPoolGLTFPBR::renderDeferred(S32 pass)
     LL::GLTFSceneManager::instance().render(true, true);
 
     gDeferredPBROpaqueProgram.bind(true);
-    pushRiggedGLTFBatches(mRenderType + 1);
+    // <FS:Trish> FSPerfGPUDrivenRigged: the rigged batches as multi-draws too
+    //pushRiggedGLTFBatches(mRenderType + 1);
+    if (!fsGDDDrawRiggedPBR(mRenderType + 1))
+    {
+        pushRiggedGLTFBatches(mRenderType + 1);
+    }
+    // </FS:Trish>
 }
 
 S32 LLDrawPoolGLTFPBR::getNumPostDeferredPasses()

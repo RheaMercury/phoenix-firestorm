@@ -50,6 +50,8 @@
 #include "lljoint.h"
 #include "llskinningutil.h"
 #include "fspointlightbatch.h" // <FS:Trish/>
+#include "fsskinpalettebuffer.h" // <FS:Trish/>
+#include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
@@ -1152,6 +1154,7 @@ void LLViewerShaderMgr::setShaders()
 void LLViewerShaderMgr::unloadShaders()
 {
     fsGDDReleaseGL(); // <FS:Trish/> FSPerfGPUDrivenDraws arenas
+    FSSkinPaletteBuffer::release(); // <FS:Trish/> FSPerfRiggedPaletteBuffer
     while (!LLGLSLShader::sInstances.empty())
     {
         LLGLSLShader* shader = *(LLGLSLShader::sInstances.begin());
@@ -1216,6 +1219,18 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     std::map<std::string, std::string> attribs;
     attribs["MAX_JOINTS_PER_MESH_OBJECT"] =
         std::to_string(LLSkinningUtil::getMaxJointCount());
+
+    // <FS:Trish> FSPerfRiggedPaletteBuffer: rigged programs read their joint palette from the
+    // FSSkinPalette uniform block (fsskinpalettebuffer.cpp)
+    {
+        const bool palette_buffer = FSSkinPaletteBuffer::wanted();
+        if (palette_buffer)
+        {
+            attribs["FS_SKIN_PALETTE_BUFFER"] = "1";
+        }
+        FSSkinPaletteBuffer::setShadersBuilt(palette_buffer);
+    }
+    // </FS:Trish>
 
     // Keep these choices in the global defines so shader binaries and all
     // separately compiled skinning dependencies use the same test permutation.
@@ -1367,6 +1382,30 @@ std::string LLViewerShaderMgr::loadBasicShaders()
             return shaders[i].first;
         }
     }
+
+    // <FS:Trish> FSPerfGPUDrivenRigged: objectSkinV.glsl once more with FS_GDD_RIGGED, for the multi-draw rigged
+    // programs (LLShaderFeatures::mFSGDDSkinning). loadShaderFile files every object under its file name, so the
+    // stock object is put back and this one filed under its own key. Optional: without it those programs fail to
+    // build and their passes stay stock.
+    if (fsGDDRiggedWanted())
+    {
+        std::map<std::string, std::string> gdd_attribs = attribs;
+        gdd_attribs["FS_GDD_RIGGED"] = "1";
+        S32 level = 1;
+        const GLuint stock_skin = mVertexShaderObjects["avatar/objectSkinV.glsl"];
+        const GLuint gdd_skin = loadShaderFile("avatar/objectSkinV.glsl", level, GL_VERTEX_SHADER, &gdd_attribs);
+        mVertexShaderObjects["avatar/objectSkinV.glsl"] = stock_skin;
+        if (gdd_skin)
+        {
+            mVertexShaderObjects[FS_GDD_SKIN_OBJECT] = gdd_skin;
+        }
+        else
+        {
+            LL_WARNS("Shader") << "FSPerfGPUDrivenRigged: objectSkinV.glsl failed to build with FS_GDD_RIGGED; rigged "
+                               << "meshes are drawn as before" << LL_ENDL;
+        }
+    }
+    // </FS:Trish>
 
     // Load the Basic Fragment Shaders at the appropriate level.
     // (in order of shader function call depth for reference purposes, deepest level first)

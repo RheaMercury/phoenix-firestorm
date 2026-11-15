@@ -167,8 +167,10 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
     }
 
     // <FS:Trish> FSPerfGPUDrivenMaterials: the static batches as multi-draws out of a vertex arena, in the same
-    // order; false with nothing drawn when it can't, then the loop below draws the pass
-    if (!rigged && fsGDDDrawMaterials(type, *mShader))
+    // order; false with nothing drawn when it can't, then the loop below draws the pass. Rigged passes too with
+    // FSPerfGPUDrivenRigged (fsGDDDrawMaterials tells them by the program).
+    //if (!rigged && fsGDDDrawMaterials(type, *mShader))
+    if (fsGDDDrawMaterials(type, *mShader))
     {
         return;
     }
