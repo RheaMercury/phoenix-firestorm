@@ -3949,12 +3949,18 @@ void AOEngine::onRegionChange()
 
     // FIRE-35825: Transient animations (ground sit, jump, landing, standing up) are managed by the
     // simulator's own agent state. After a region change, reset to standing to avoid getting stuck.
+    // <FS:Trish> Crouching too: the simulator drives it from the agent's controls. Requested here, the
+    // region kept crouch as an animation of the agent after the crouch ended, and the next region
+    // crossing carried it over, so a teleport while crouching left you crouch walking after a crossing.
     if (mLastMotion == ANIM_AGENT_SIT_GROUND ||
         mLastMotion == ANIM_AGENT_SIT_GROUND_CONSTRAINED ||
         mLastMotion == ANIM_AGENT_PRE_JUMP ||
         mLastMotion == ANIM_AGENT_STANDUP ||
         mLastMotion == ANIM_AGENT_LAND ||
-        mLastMotion == ANIM_AGENT_MEDIUM_LAND)
+        mLastMotion == ANIM_AGENT_MEDIUM_LAND ||
+        mLastMotion == ANIM_AGENT_CROUCH ||
+        mLastMotion == ANIM_AGENT_CROUCHWALK)
+    // </FS:Trish>
     {
         LL_DEBUGS("AOEngine") << "not restarting transient motion " << gAnimLibrary.animationName(mLastMotion) << " on region change" << LL_ENDL;
         setLastMotion(ANIM_AGENT_STAND);
