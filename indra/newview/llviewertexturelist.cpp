@@ -1290,7 +1290,7 @@ namespace
         }
     }
 
-    // Per-frame upload bytes and time, logged every 5 seconds while any upload happened.
+    // Per-frame upload bytes and time, logged every 60 seconds while any upload happened.
     void fs_record_upload_frame(S64 bytes, F32 seconds, size_t queue_left, S64 budget_bytes)
     {
         static LLFrameTimer log_timer;
@@ -1316,7 +1316,7 @@ namespace
         }
         max_queue_left = llmax(max_queue_left, queue_left);
 
-        if (log_timer.getElapsedTimeF32() < 5.f)
+        if (log_timer.getElapsedTimeF32() < 60.f) // <FS:Trish/> was 5: a large share of the log
         {
             return;
         }
@@ -1330,7 +1330,7 @@ namespace
         if (upload_frames > 0 || thread_uploads > 0 || thread_skipped > 0)
         {
             constexpr F64 MB = 1024.0 * 1024.0;
-            LL_INFOS("Texture") << "Texture uploads (5s): frames=" << frames
+            LL_INFOS("Texture") << "Texture uploads (60s): frames=" << frames
                                 << " upload_frames=" << upload_frames
                                 << " total_mb=" << (F64)total_bytes / MB
                                 << " avg_mb_per_upload_frame=" << (F64)total_bytes / MB / llmax(upload_frames, 1U)

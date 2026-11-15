@@ -503,7 +503,7 @@ namespace
     // Copies the freshly built image into the PBO. sRateFBO must be bound.
     void request_stats()
     {
-        static LLCachedControl<F32> interval(gSavedSettings, "FSRenderVRSLogInterval", 5.f);
+        static LLCachedControl<F32> interval(gSavedSettings, "FSRenderVRSLogInterval", 60.f); // <FS:Trish/> was 5: most of the log
         const F64 now = now_seconds();
         if (interval <= 0.f || sStatsState.load(std::memory_order_acquire) != STATS_IDLE || now - sLastStats < (F64)interval)
         {

@@ -53,7 +53,7 @@ namespace
     U32 sFrames = 0;
     F64 sFrameSeconds = 0.0;
 
-    constexpr F32 STATS_PERIOD = 10.f;
+    constexpr F32 STATS_PERIOD = 60.f; // <FS:Trish/> was 10: four lines each time, a large share of the log
 
 #if LL_WINDOWS
     HDC sDC = nullptr;
