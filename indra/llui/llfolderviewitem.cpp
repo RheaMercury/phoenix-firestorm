@@ -384,8 +384,18 @@ void LLFolderViewItem::refresh()
     }
     LLFolderViewModelItem& vmi = *vmi_ptr;
 
-    mLabel = utf8str_to_wstring(vmi.getDisplayName());
-    mLabelFontBuffer.reset();
+    // <FS:Trish> Keep the cached label geometry when the text is unchanged: a mass refresh (outfit
+    // change, inventory update) would otherwise free and rebuild it for every item at once.
+    // The buffer itself rebuilds on any change of position, font, color or style.
+    //mLabel = utf8str_to_wstring(vmi.getDisplayName());
+    //mLabelFontBuffer.reset();
+    LLWString label = utf8str_to_wstring(vmi.getDisplayName());
+    if (label != mLabel)
+    {
+        mLabel = std::move(label);
+        mLabelFontBuffer.reset();
+    }
+    // </FS:Trish>
     mIsFavorite = vmi.isFavorite() && !vmi.isItemInTrash();
     // icons are slightly expensive to get, can be optimized
     // see LLInventoryIcon::getIcon()
@@ -399,8 +409,16 @@ void LLFolderViewItem::refresh()
         // Can do a number of expensive checks, like checking active motions, wearables or friend list
         mLabelStyle = vmi.getLabelStyle();
         pLabelFont = nullptr; // refresh can be called from a coro, don't use getLabelFontForStyle, coro trips font list tread safety
-        mLabelSuffix = utf8str_to_wstring(vmi.getLabelSuffix());
-        mSuffixFontBuffer.reset();
+        // <FS:Trish> Same for the suffix
+        //mLabelSuffix = utf8str_to_wstring(vmi.getLabelSuffix());
+        //mSuffixFontBuffer.reset();
+        LLWString suffix = utf8str_to_wstring(vmi.getLabelSuffix());
+        if (suffix != mLabelSuffix)
+        {
+            mLabelSuffix = std::move(suffix);
+            mSuffixFontBuffer.reset();
+        }
+        // </FS:Trish>
     }
 
     // Dirty the filter flag of the model from the view (CHUI-849)
@@ -432,7 +450,15 @@ void LLFolderViewItem::refreshSuffix()
         // Can do a number of expensive checks, like checking active motions, wearables or friend list
         mLabelStyle = vmi->getLabelStyle();
         pLabelFont = nullptr;
-        mLabelSuffix = utf8str_to_wstring(vmi->getLabelSuffix());
+        // <FS:Trish> A new suffix needs new geometry: the cached buffer does not compare the text
+        //mLabelSuffix = utf8str_to_wstring(vmi->getLabelSuffix());
+        LLWString suffix = utf8str_to_wstring(vmi->getLabelSuffix());
+        if (suffix != mLabelSuffix)
+        {
+            mLabelSuffix = std::move(suffix);
+            mSuffixFontBuffer.reset();
+        }
+        // </FS:Trish>
     }
 
     mLabelWidthDirty = true;
