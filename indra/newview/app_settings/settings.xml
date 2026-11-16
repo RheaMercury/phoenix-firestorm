@@ -27738,7 +27738,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderHairAlphaThreshold</key>
     <map>
       <key>Comment</key>
-      <string>With FSRenderHairTwoPass: alpha at or above which a rigged alpha fragment counts as solid core (depth sorted). Lower values sort more of each layer, but their soft edges get harder. Clamped to 0.05-1.0.</string>
+      <string>With FSRenderHairTwoPass or FSRenderAlphaHybridOIT: alpha at or above which a rigged alpha fragment counts as solid core (depth sorted). Lower values sort more of each layer, but their soft edges get harder. Clamped to 0.05-1.0.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -27778,6 +27778,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <string>F32</string>
       <key>Value</key>
       <real>1.5</real>
+    </map>
+    <key>FSRenderAlphaHybridOIT</key>
+    <map>
+      <key>Comment</key>
+      <string>Hybrid order-independent transparency: the solid part of every alpha-blended surface, rigged or not (alpha at or above FSRenderHairAlphaThreshold), is drawn first and writes depth, and the soft rest of all of them is blended order independently (WBOIT) against it. Fixes hair showing through or cutting holes into glass and other alpha, and layers of one mesh drawing in the wrong order. Main view only. Replaces FSRenderHairTwoPass and FSRenderAlphaWBOIT there while on. Changing it rebuilds the shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
     </map>
     <key>FSRenderSkinSSSTint</key>
     <map>

@@ -372,6 +372,7 @@ namespace
         { "FSRenderSkinSSSToneMatch", CL, VM },
         { "FSRenderSkinSSSTranslucency", CL, VM },
         { "FSRenderHairTwoPass", CM, VL },
+        { "FSRenderAlphaHybridOIT", CM, VL },
         { "FSRenderHairAlphaThreshold", CL, VM },
 
         // Performance

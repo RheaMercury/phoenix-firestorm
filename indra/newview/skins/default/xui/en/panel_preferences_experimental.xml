@@ -6451,7 +6451,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="703"
+                 height="731"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -6829,7 +6829,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderHairTwoPass,FSRenderHairAlphaThreshold" />
+                         parameter="FSRenderHairTwoPass,FSRenderHairAlphaThreshold,FSRenderAlphaHybridOIT" />
                     </button>
                     <check_box
                      control_name="FSRenderHairTwoPass"
@@ -6856,7 +6856,6 @@
                     <spinner
                      control_name="FSRenderHairAlphaThreshold"
                      decimal_digits="2"
-                     enabled_control="FSRenderHairTwoPass"
                      follows="left|top"
                      height="20"
                      increment="0.01"
@@ -6868,6 +6867,17 @@
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
                      top="661"
                      width="100" />
+                    <check_box
+                     control_name="FSRenderAlphaHybridOIT"
+                     follows="left|top"
+                     height="20"
+                     label="Hybrid order-independent transparency (hair and glass)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderalphahybridoit"
+                     tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
+                     top="689"
+                     width="475" />
                 </panel>
             </scroll_container>
         </panel>

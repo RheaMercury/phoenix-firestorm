@@ -217,6 +217,11 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
     // already being setup for rendering
     LLGLSLShader::unbind();
 
+    // <FS:Trish> Hybrid order-independent transparency, when FSRenderAlphaHybridOIT is on; otherwise
+    // the passes below, as without it
+    if (!renderHybridOIT())
+    {
+    // </FS:Trish>
     if (!LLPipeline::sRenderingHUDs)
     {
         // <FS:Trish> Two-pass rigged alpha (hair), when FSRenderHairTwoPass is on
@@ -261,6 +266,7 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
         forwardRender();
     }
     // </FS:Trish>
+    } // <FS:Trish/> hybrid OIT
 
     // final pass, render to depth for depth of field effects
     if (!LLPipeline::sImpostorRender && LLPipeline::RenderDepthOfField && !gCubeSnapshot && !LLPipeline::sRenderingHUDs && getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
@@ -321,6 +327,10 @@ void LLDrawPoolAlpha::forwardRender(bool rigged, EWBOITPhase wboit_phase)
     {
         write_depth = false;
     }
+    else if (mHairPass == HAIR_CORE)
+    {   // non-rigged too, in the hybrid OIT
+        write_depth = true;
+    }
     else if (mHairPass == HAIR_DEPTH)
     {
         gGL.setColorMask(false, false);
@@ -347,7 +357,8 @@ void LLDrawPoolAlpha::forwardRender(bool rigged, EWBOITPhase wboit_phase)
 
     // <FS:Trish> Two-pass rigged alpha: once, before the first pass
     //if (rigged && mType == LLDrawPool::POOL_ALPHA_POST_WATER)
-    if (rigged && mType == LLDrawPool::POOL_ALPHA_POST_WATER && mHairPass <= HAIR_CORE)
+    if (rigged && mType == LLDrawPool::POOL_ALPHA_POST_WATER &&
+        (mHairPass == HAIR_CORE || (mHairPass == HAIR_OFF && !mFSHybridOIT))) // the hybrid's first rigged pass is its core
     // </FS:Trish>
     { // draw GLTF scene to depth buffer before rigged alpha
         LL::GLTFSceneManager::instance().render(false, false);
@@ -368,7 +379,7 @@ void LLDrawPoolAlpha::forwardRender(bool rigged, EWBOITPhase wboit_phase)
 
     // <FS:Trish> WBOIT: highlights go on the scene once, with the residual pass
     //if (!rigged && (LLPipeline::sRenderingHUDs || getType() == LLDrawPoolAlpha::POOL_ALPHA_POST_WATER))
-    if (!rigged && (wboit_phase == WBOIT_OFF || wboit_phase == WBOIT_RESIDUAL) &&
+    if (!rigged && (wboit_phase == WBOIT_OFF || wboit_phase == WBOIT_RESIDUAL) && mHairPass == HAIR_OFF &&
         (LLPipeline::sRenderingHUDs || getType() == LLDrawPoolAlpha::POOL_ALPHA_POST_WATER))
     // </FS:Trish>
     { //render "highlight alpha" on final non-rigged pass for non-HUDs (HUDs only run pre-water alpha pass)
@@ -401,6 +412,13 @@ void LLDrawPoolAlpha::setWBOITOutput(bool enable)
         {
             shader->bind();
             shader->uniform1i(fs_wboit, enable ? 1 : 0);
+        }
+        // the hybrid OIT accumulates the rigged fringe too
+        LLGLSLShader* rigged = shader && mFSHybridOIT ? shader->mRiggedVariant : nullptr;
+        if (rigged && rigged != shader && rigged->isComplete())
+        {
+            rigged->bind();
+            rigged->uniform1i(fs_wboit, enable ? 1 : 0);
         }
     }
 
@@ -465,19 +483,101 @@ void LLDrawPoolAlpha::setHairUniforms(F32 threshold, bool reset)
 
     for (LLGLSLShader* shader : shaders)
     {
+        // the static shaders have FS_HAIR in the hybrid OIT
         LLGLSLShader* rigged = shader ? shader->mRiggedVariant : nullptr;
-        if (rigged && rigged != shader && rigged->isComplete() && rigged->getUniformLocation(fs_hair_pass) >= 0)
+        for (LLGLSLShader* variant : { rigged != shader ? rigged : nullptr, shader })
         {
-            rigged->bind();
-            rigged->uniform1i(fs_hair_pass, (S32)HAIR_OFF);
-            if (!reset)
+            if (variant && variant->isComplete() && variant->getUniformLocation(fs_hair_pass) >= 0)
             {
-                rigged->uniform1f(fs_hair_cut, threshold);
+                variant->bind();
+                variant->uniform1i(fs_hair_pass, (S32)HAIR_OFF);
+                if (!reset)
+                {
+                    variant->uniform1f(fs_hair_cut, threshold);
+                }
             }
         }
     }
 
     LLGLSLShader::unbind();
+}
+// </FS:Trish>
+
+// <FS:Trish> Hybrid order-independent transparency (FSRenderAlphaHybridOIT). Sorting by object can't
+// order hair against glass, or the layers of one mesh, and stock rigged alpha writes depth for every
+// fragment it blends, so a wisp of hair cuts a hole into any alpha behind it. WBOIT alone is accurate
+// for faint layers but turns stacked, nearly opaque ones soft. Here every plain source-over alpha draw,
+// rigged or not, is split at FSRenderHairAlphaThreshold:
+//  1. the solid core (coverage at or above it) is drawn blended and writes depth, so cores are depth
+//     sorted per pixel against each other and the scene;
+//  2. the soft rest (below it) is accumulated by WBOIT, depth tested against the cores, writing no
+//     depth, and composited: hair wisps, glass and particles blend with each other in any order;
+//  3. draws with a custom blend function follow sorted, with the glow of every draw, as with WBOIT;
+//  4. depth is laid down where the stock passes write it (rigged alpha; non-rigged below the water
+//     plane), for the water fog and depth of field after.
+// Main camera only (canUseWBOIT); reflection probes, mirrors, impostors and HUDs take the other paths.
+bool LLDrawPoolAlpha::renderHybridOIT()
+{
+    static LLCachedControl<bool> hybrid(gSavedSettings, "FSRenderAlphaHybridOIT", false);
+    static LLCachedControl<F32> threshold_setting(gSavedSettings, "FSRenderHairAlphaThreshold", 0.9f);
+
+    if (!hybrid || !gFSAlphaHybridOITShaders || LLPipeline::sRenderingHUDs || !gPipeline.canUseWBOIT())
+    {
+        return false;
+    }
+
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
+
+    const F32 threshold = llclamp((F32)threshold_setting, 0.05f, 1.f);
+    mFSHybridOIT = true;
+    setHairUniforms(threshold, false);
+
+    // 1. solid cores, writing depth
+    {
+        LL_PROFILE_GPU_ZONE("alpha oit core");
+        mHairPass = HAIR_CORE;
+        forwardRender(true);
+        forwardRender(false);
+    }
+
+    // 2. the soft rest, order independent. Without the targets it is blended in sorted order
+    // instead, still tested against the cores.
+    {
+        LL_PROFILE_GPU_ZONE("alpha oit fringe");
+        mHairPass = HAIR_FRINGE;
+        if (gPipeline.beginWBOIT())
+        {
+            setWBOITOutput(true);
+            forwardRender(true, WBOIT_ACCUMULATE);
+            forwardRender(false, WBOIT_ACCUMULATE);
+            setWBOITOutput(false);
+            gPipeline.endWBOIT();
+        }
+        else
+        {
+            forwardRender(true);
+            forwardRender(false);
+        }
+    }
+
+    // 3. custom blends and glow; the shaders back to their stock output first
+    mHairPass = HAIR_OFF;
+    setHairUniforms(threshold, true);
+    forwardRender(true, WBOIT_RESIDUAL);
+    forwardRender(false, WBOIT_RESIDUAL);
+
+    // 4. the stock depth
+    mHairPass = HAIR_DEPTH;
+    forwardRender(true);
+    mHairPass = HAIR_OFF;
+    if (LLDrawPoolWater::sSkipScreenCopy || getType() == LLDrawPool::POOL_ALPHA_PRE_WATER)
+    {
+        forwardRender(false, WBOIT_DEPTH);
+    }
+
+    setHairUniforms(threshold, true);
+    mFSHybridOIT = false;
+    return true;
 }
 // </FS:Trish>
 
@@ -994,7 +1094,9 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 // <FS:Trish> WBOIT: only plain source-over blending can be accumulated. The
                 // residual phase draws the rest and queues the glow of the accumulated draws
                 // (the model matrix above is what the glow pass below draws them with).
-                if (wboit_phase != WBOIT_OFF)
+                // Hybrid OIT: its core pass takes the same draws as its accumulation; the rest are
+                // drawn sorted by its residual pass
+                if (wboit_phase != WBOIT_OFF || (mFSHybridOIT && mHairPass == HAIR_CORE))
                 {
                     const bool accumulated = params.mBlendFuncSrc == LLRender::BF_SOURCE_ALPHA &&
                         params.mBlendFuncDst == LLRender::BF_ONE_MINUS_SOURCE_ALPHA &&
@@ -1241,6 +1343,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 // </FS:Trish>
                     // <FS:Trish> Two-pass rigged alpha: a split draw's glow goes with its fringe pass
                     (mHairPass == HAIR_OFF || hair_split == (mHairPass == HAIR_FRINGE)) &&
+                    !(mFSHybridOIT && mHairPass == HAIR_CORE) && // the hybrid's residual pass queues it
                     // </FS:Trish>
                     // <FS:Trish> FSPerfAlphaGlowSkip
                     //params.mVertexBuffer->hasDataType(LLVertexBuffer::TYPE_EMISSIVE))

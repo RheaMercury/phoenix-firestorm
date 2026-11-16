@@ -288,6 +288,7 @@ LLGLSLShader            gGLTFPBRMetallicRoughnessProgram;
 // <FS:Trish> Weighted blended order-independent transparency
 LLGLSLShader            gFSWBOITCompositeProgram;
 bool                    gFSAlphaWBOITShaders = false;  // the alpha shaders were built with FS_WBOIT
+bool                    gFSAlphaHybridOITShaders = false; // <FS:Trish/> and with FS_HAIR, rigged and not (FSRenderAlphaHybridOIT)
 // </FS:Trish>
 
 // <FS:Trish> Coloured shadows: translucent casters into the sun cascades' colour maps
@@ -457,23 +458,36 @@ static void add_fade_in(LLGLSLShader* shader)
 // <FS:Trish> Two-pass rigged alpha (FSRenderHairTwoPass, see LLDrawPoolAlpha::renderRiggedAlphaTwoPass):
 // FS_HAIR goes on the rigged world alpha shaders only. make_rigged_variant copies the defines, so the
 // static shader takes it off again before it is built.
+// Hybrid order-independent transparency (FSRenderAlphaHybridOIT, see LLDrawPoolAlpha::renderHybridOIT)
+// needs both on every world alpha shader, rigged and not: FS_HAIR for the core and fringe split,
+// FS_WBOIT for the fringe accumulation.
 static bool fs_use_hair_two_pass()
 {
     static LLCachedControl<bool> two_pass(gSavedSettings, "FSRenderHairTwoPass", false);
-    return two_pass;
+    static LLCachedControl<bool> hybrid(gSavedSettings, "FSRenderAlphaHybridOIT", false);
+    return two_pass || hybrid;
 }
 
 static bool make_rigged_variant_fs_hair(LLGLSLShader& shader, LLGLSLShader& riggedShader)
 {
     const bool hair = fs_use_hair_two_pass();
+    const bool hybrid = gFSAlphaHybridOITShaders;
     if (hair)
     {
         shader.addPermutation("FS_HAIR", "1");
     }
+    if (hybrid)
+    {   // the caller adds it back for the static shader, as without the hybrid
+        shader.addPermutation("FS_WBOIT", "1");
+    }
     bool success = make_rigged_variant(shader, riggedShader);
-    if (hair)
+    if (hair && !hybrid)
     {
         shader.removePermutation("FS_HAIR");
+    }
+    if (hybrid)
+    {
+        shader.removePermutation("FS_WBOIT");
     }
     return success;
 }
@@ -1706,9 +1720,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     // <FS:Trish> WBOIT: the non-rigged world alpha shaders get a second, explicitly located
     // output. Explicit fragment output locations need GLSL 3.30.
-    const bool use_wboit = gSavedSettings.getBOOL("FSRenderAlphaWBOIT") &&
+    // The hybrid OIT needs the same shaders and targets.
+    const bool use_wboit = (gSavedSettings.getBOOL("FSRenderAlphaWBOIT") || gSavedSettings.getBOOL("FSRenderAlphaHybridOIT")) &&
         (gGLManager.mGLSLVersionMajor > 3 || (gGLManager.mGLSLVersionMajor == 3 && gGLManager.mGLSLVersionMinor >= 30));
     gFSAlphaWBOITShaders = false;
+    gFSAlphaHybridOITShaders = use_wboit && gSavedSettings.getBOOL("FSRenderAlphaHybridOIT");
     // </FS:Trish>
 
     // <FS:Trish> Coloured shadows, sun shadows only
@@ -1817,6 +1833,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         // <FS:Trish> WBOIT
         gFSWBOITCompositeProgram.unload();
         gFSAlphaWBOITShaders = false;
+        gFSAlphaHybridOITShaders = false;
         // </FS:Trish>
         unload_fs_colored_shadow_casters(); // <FS:Trish/>
         fsUnloadShadowSinglePassShaders(); // <FS:Trish/>
@@ -2036,6 +2053,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 {
                     gDeferredMaterialProgram[i].addPermutation("FS_HAIR", "1");
                 }
+                // Hybrid OIT: the rigged fringe accumulates too
+                if (alpha_mode == LLMaterial::DIFFUSE_ALPHA_MODE_BLEND && gFSAlphaHybridOITShaders)
+                {
+                    gDeferredMaterialProgram[i].addPermutation("FS_WBOIT", "1");
+                }
                 // </FS:Trish>
             }
             else
@@ -2045,6 +2067,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 if (use_wboit && alpha_mode == LLMaterial::DIFFUSE_ALPHA_MODE_BLEND)
                 {
                     gDeferredMaterialProgram[i].addPermutation("FS_WBOIT", "1");
+                }
+                // Hybrid OIT: in-world alpha gets the core and fringe split too
+                if (gFSAlphaHybridOITShaders && alpha_mode == LLMaterial::DIFFUSE_ALPHA_MODE_BLEND)
+                {
+                    gDeferredMaterialProgram[i].addPermutation("FS_HAIR", "1");
                 }
                 // </FS:Trish>
             }
@@ -2691,6 +2718,12 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 }
                 // </FS:Trish>
             }
+            // <FS:Trish> Hybrid OIT: in-world alpha gets the core and fringe split too
+            else if (gFSAlphaHybridOITShaders && !hud)
+            {
+                shader->addPermutation("FS_HAIR", "1");
+            }
+            // </FS:Trish>
 
             if (hud)
             {
@@ -2698,7 +2731,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             }
 
             // <FS:Trish> WBOIT
-            if (use_wboit && !rigged && !hud)
+            if (use_wboit && !hud && (!rigged || gFSAlphaHybridOITShaders)) // rigged too for the hybrid OIT
             {
                 shader->addPermutation("FS_WBOIT", "1");
             }

@@ -119,6 +119,10 @@ private:
     bool renderRiggedAlphaTwoPass();
     void setHairUniforms(F32 threshold, bool reset);
     EHairPass mHairPass = HAIR_OFF;
+    // Hybrid order-independent transparency (FSRenderAlphaHybridOIT): solid cores of all blended alpha
+    // depth sorted, the soft rest accumulated by WBOIT. False when the stock or older paths apply.
+    bool renderHybridOIT();
+    bool mFSHybridOIT = false;          // inside renderHybridOIT
     // </FS:Trish>
 
     // <FS:Trish> Whether the current forwardRender pass writes depth (FSPerfAlphaGlowSkip)

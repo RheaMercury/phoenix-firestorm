@@ -341,6 +341,7 @@ extern LLGLSLShader         gGLTFPBRMetallicRoughnessProgram;
 // <FS:Trish> Weighted blended order-independent transparency
 extern LLGLSLShader         gFSWBOITCompositeProgram;
 extern bool                 gFSAlphaWBOITShaders;   // the alpha shaders were built with FS_WBOIT
+extern bool                 gFSAlphaHybridOITShaders; // <FS:Trish/> and with FS_HAIR, rigged and not (FSRenderAlphaHybridOIT)
 // </FS:Trish>
 
 // <FS:Trish> Coloured shadows (FSRenderColoredShadows)

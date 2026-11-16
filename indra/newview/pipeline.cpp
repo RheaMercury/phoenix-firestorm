@@ -5420,7 +5420,8 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
 bool LLPipeline::canUseWBOIT()
 {
     static LLCachedControl<bool> wboit(gSavedSettings, "FSRenderAlphaWBOIT", false);
-    if (!wboit || !gFSAlphaWBOITShaders || !gFSWBOITCompositeProgram.isComplete())
+    static LLCachedControl<bool> hybrid(gSavedSettings, "FSRenderAlphaHybridOIT", false); // its fringes accumulate here
+    if (!(wboit || hybrid) || !gFSAlphaWBOITShaders || !gFSWBOITCompositeProgram.isComplete())
     {
         if (mWBOITTarget.isComplete() && !mWBOITTarget.isBoundInStack())
         {
