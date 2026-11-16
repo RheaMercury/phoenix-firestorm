@@ -4205,6 +4205,25 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
     static const F32 chat_range_shout_squared = (F32)(LFSimFeatureHandler::getInstance()->shoutRange() * LFSimFeatureHandler::getInstance()->shoutRange());
     // </FS:Ansariel>
 
+    // <FS:Trish> Pill style name tags (LLHUDNameTag::setFSPill): whose profile picture, and the ring that
+    // tells the chat range: green within whisper range, yellow within chat range, red within shout range
+    {
+        static LLUIColor ring_whisper = LLUIColorTable::instance().getColor("NameTagRingWhisper", LLColor4(0.30f, 0.85f, 0.35f, 1.f));
+        static LLUIColor ring_say = LLUIColorTable::instance().getColor("NameTagRingSay", LLColor4(0.98f, 0.80f, 0.20f, 1.f));
+        static LLUIColor ring_shout = LLUIColorTable::instance().getColor("NameTagRingShout", LLColor4(0.95f, 0.30f, 0.25f, 1.f));
+        bool has_ring = false;
+        LLColor4 ring_color;
+        if (!isSelf())
+        {
+            const F64 distance_squared = dist_vec_squared(getPositionGlobal(), gAgent.getPositionGlobal());
+            has_ring = distance_squared <= chat_range_shout_squared;
+            ring_color = distance_squared <= chat_range_whisper_squared ? ring_whisper.get()
+                       : distance_squared <= chat_range_say_squared ? ring_say.get() : ring_shout.get();
+        }
+        mNameText->setFSPill(getID(), has_ring, ring_color);
+    }
+    // </FS:Trish>
+
 // [RLVa:KB] - Checked: RLVa-2.0.1
     bool fRlvShowAvName = RlvActions::canShowName(RlvActions::SNC_DEFAULT, getID());
 // [/RLVa:KB]

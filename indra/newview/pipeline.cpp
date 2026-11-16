@@ -1742,6 +1742,7 @@ void LLPipeline::releaseScreenBuffers()
     mFSIndirectHistoryFrame = 0;
     // </FS:Trish>
     mRlvSphereDepth.release();
+    mFSTagDepth.release(); // <FS:Trish/>
 
     mAuxillaryRT.screen.release();
     mAuxillaryRT.deferredScreen.release();
@@ -10779,7 +10780,12 @@ void LLPipeline::renderFinalize()
 
     // Whatever is last in the above post processing chain should _always_ be rendered directly here.  If not, expect problems.
     present_shader.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, sourceBuffer);
-    present_shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
+    // <FS:Trish> FSNameTagIgnoreAlpha: the depth before alpha, taken this frame, for the UI over the world
+    //present_shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
+    const bool fs_tag_depth = !avatars_only && mFSTagDepth.isComplete() && mFSTagDepthFrame == LLFrameTimer::getFrameCount() &&
+        mFSTagDepth.getWidth() == mRT->deferredScreen.getWidth() && mFSTagDepth.getHeight() == mRT->deferredScreen.getHeight();
+    present_shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, fs_tag_depth ? &mFSTagDepth : &mRT->deferredScreen, true);
+    // </FS:Trish>
 
     present_shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)sourceBuffer->getWidth(), (GLfloat)sourceBuffer->getHeight());
 
@@ -12518,6 +12524,40 @@ void LLPipeline::renderDeferredLighting()
     }
 
     fs_render_skin_sss(screen_target); // <FS:Trish/>
+
+    // <FS:Trish> FSNameTagIgnoreAlpha: the window's depth, which the UI drawn over the world tests against,
+    // was the scene's after alpha. Rigged alpha writes depth for every fragment it blends (hair, layered
+    // clothing, even nearly invisible parts), as does alpha below the water and the depth of field pass,
+    // so name tags and floating text behind them were cut away. The depth before alpha is kept here and
+    // presented instead (renderFinalize). Main view only.
+    {
+        static LLCachedControl<bool> tag_ignore_alpha(gSavedSettings, "FSNameTagIgnoreAlpha", true);
+        if (tag_ignore_alpha && mRT == &mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender && !isAvatarOnlyRender())
+        {
+            const U32 depth_w = mRT->deferredScreen.getWidth();
+            const U32 depth_h = mRT->deferredScreen.getHeight();
+            if (!mFSTagDepth.isComplete() || mFSTagDepth.getWidth() != depth_w || mFSTagDepth.getHeight() != depth_h)
+            {
+                if (!mFSTagDepth.allocate(depth_w, depth_h, 0, true))
+                {
+                    mFSTagDepth.release();
+                }
+            }
+            if (mFSTagDepth.isComplete())
+            {
+                LL_PROFILE_GPU_ZONE("tag depth snapshot");
+                LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
+                mFSTagDepth.copyContents(mRT->deferredScreen, 0, 0, depth_w, depth_h, 0, 0, depth_w, depth_h,
+                                         GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+                mFSTagDepthFrame = LLFrameTimer::getFrameCount();
+            }
+        }
+        else if (!tag_ignore_alpha && mFSTagDepth.isComplete())
+        {
+            mFSTagDepth.release();
+        }
+    }
+    // </FS:Trish>
 
     static LLCachedControl<bool> rlv_sphere_opaque_depth(gSavedSettings, "RLVaDebugSphereUseOpaqueDepth", false);
     if (rlv_sphere_opaque_depth() && RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE))

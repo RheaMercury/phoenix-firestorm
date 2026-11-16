@@ -49,6 +49,8 @@
 #include "llmenugl.h"
 #include "pipeline.h"
 #include <boost/tokenizer.hpp>
+#include "llavatarpropertiesprocessor.h" // <FS:Trish/> pill style name tags: profile pictures
+#include <glm/gtc/matrix_transform.hpp> // <FS:Trish/> pill style name tags: glm::project
 
 
 const F32 SPRING_STRENGTH = 0.7f;
@@ -68,6 +70,422 @@ std::vector<LLPointer<LLHUDNameTag> > LLHUDNameTag::sVisibleTextObjects;
 bool LLHUDNameTag::sDisplayText = true ;
 const F32 LLHUDNameTag::NAMETAG_MAX_WIDTH = 298.f;
 const F32 LLHUDNameTag::HUD_TEXT_MAX_WIDTH = 190.f;
+
+// <FS:Trish> Pill style name tags (FSNameTagPillStyle). A rounded pill sized to the text, with less
+// padding than the stock bubble, and on its left, optionally (FSNameTagProfilePictures), the avatar's
+// profile picture filling the round end. Without a picture, a dot tells the chat range they are in
+// (FSNameTagChatRangeRing): green within whisper range, yellow within chat range, red within shout range.
+namespace
+{
+    constexpr F32 FS_PILL_PAD_TOP = 2.f;
+    constexpr F32 FS_PILL_PAD_BOTTOM = 2.f;
+    constexpr F32 FS_PILL_LINE_PAD = 0.f;
+    constexpr F32 FS_PILL_GAP = 5.f;            // picture or dot to the text
+    constexpr F32 FS_PILL_DOT = 7.f;            // range dot without a picture
+    constexpr F32 FS_PILL_MIN_PICTURE = 14.f;   // smaller than this, no picture
+    constexpr F32 FS_PILL_FULL_SIZE_DIST = 5.f; // full size up to this far (m)
+    constexpr F32 FS_PILL_SHRINK_SECONDS = 0.3f; // to shrink into the picture, or grow back out of it
+
+    // eased in and out, for the shrink into the picture
+    inline F32 fs_pill_ease(F32 t)
+    {
+        t = llclamp(t, 0.f, 1.f);
+        return t * t * (3.f - 2.f * t);
+    }
+
+    // Profile pictures of avatars with a tag, asked for once per session, a couple a second
+    class FSNameTagPortraits : public LLAvatarPropertiesObserver
+    {
+    public:
+        static FSNameTagPortraits& instance()
+        {   // never deleted: the observer would unregister from a properties processor already gone at exit
+            static FSNameTagPortraits* sInstance = new FSNameTagPortraits();
+            return *sInstance;
+        }
+
+        // The picture to draw, null while not known or loaded. has_picture: the avatar has one (room is
+        // made for it while it loads).
+        LLViewerFetchedTexture* get(const LLUUID& avatar_id, bool& has_picture)
+        {
+            Entry& entry = mEntries[avatar_id];
+            if (!entry.mKnown)
+            {
+                // asked for and no answer (the request failed, or the region had no profile capability yet):
+                // ask again a little later, a few times
+                if (entry.mQueued && entry.mRequested && entry.mTries < MAX_TRIES &&
+                    LLFrameTimer::getElapsedSeconds() - entry.mRequestTime > RETRY_AFTER)
+                {
+                    entry.mQueued = false;
+                }
+                if (!entry.mQueued)
+                {
+                    entry.mQueued = true;
+                    entry.mRequested = false;
+                    mQueue.push_back(avatar_id);
+                }
+                has_picture = false;
+                return nullptr;
+            }
+            has_picture = entry.mImage.notNull();
+            if (!has_picture)
+            {
+                return nullptr;
+            }
+            if (entry.mTexture.isNull())
+            {
+                // At full resolution, kept as long as the session: a UI texture, which the discard bias
+                // doesn't shrink and nothing scales down. As a scene texture (LOD_TEXTURE, no boost) on no
+                // object, the priority pass set its wanted size back to nothing whenever the bias was above
+                // 1.5 (LLViewerTextureList::updateImageDecodePriority), and it often never loaded. As an
+                // icon (BOOST_ICON) it was scaled to the draw size, and shared with the UI's avatar icons,
+                // which set theirs as small as 32 pixels.
+                entry.mTexture = LLViewerTextureManager::getFetchedTexture(entry.mImage, FTT_DEFAULT, true,
+                    LLGLTexture::BOOST_UI, LLViewerTexture::FETCHED_TEXTURE);
+            }
+            if (entry.mTexture->isMissingAsset())
+            {
+                has_picture = false;
+                return nullptr;
+            }
+            return entry.mTexture->getDiscardLevel() >= 0 ? entry.mTexture.get() : nullptr;
+        }
+
+        void idle()
+        {
+            constexpr F32 REQUEST_INTERVAL = 0.5f;
+            if (mQueue.empty() || mRequestTimer.getElapsedTimeF32() < REQUEST_INTERVAL)
+            {
+                return;
+            }
+            mRequestTimer.reset();
+            const LLUUID avatar_id = mQueue.front();
+            mQueue.pop_front();
+            Entry& entry = mEntries[avatar_id];
+            if (entry.mKnown)
+            {
+                return;
+            }
+            entry.mRequested = true;
+            entry.mRequestTime = LLFrameTimer::getElapsedSeconds();
+            ++entry.mTries;
+            LLAvatarPropertiesProcessor::getInstance()->addObserver(avatar_id, this);
+            LLAvatarPropertiesProcessor::getInstance()->sendAvatarPropertiesRequest(avatar_id);
+        }
+
+        void processProperties(void* data, EAvatarProcessorType type) override
+        {
+            LLUUID avatar_id;
+            LLUUID image_id;
+            if (type == APT_PROPERTIES && data)
+            {
+                const LLAvatarData* props = static_cast<const LLAvatarData*>(data);
+                avatar_id = props->avatar_id;
+                image_id = props->image_id;
+            }
+            else if (type == APT_PROPERTIES_LEGACY && data)
+            {
+                const LLAvatarLegacyData* props = static_cast<const LLAvatarLegacyData*>(data);
+                avatar_id = props->avatar_id;
+                image_id = props->image_id;
+            }
+            else
+            {
+                return;
+            }
+            Entry& entry = mEntries[avatar_id];
+            if (!entry.mKnown || entry.mImage != image_id)
+            {
+                entry.mTexture = nullptr;
+            }
+            entry.mImage = image_id;
+            entry.mKnown = true;
+            LLAvatarPropertiesProcessor::getInstance()->removeObserver(avatar_id, this);
+        }
+
+    private:
+        struct Entry
+        {
+            LLUUID  mImage;
+            bool    mKnown = false;
+            bool    mQueued = false;
+            bool    mRequested = false;
+            S32     mTries = 0;
+            F64     mRequestTime = 0.0;
+            LLPointer<LLViewerFetchedTexture> mTexture;
+        };
+        static constexpr S32 MAX_TRIES = 3;
+        static constexpr F64 RETRY_AFTER = 20.0;
+        std::map<LLUUID, Entry> mEntries;
+        std::deque<LLUUID>      mQueue;
+        LLFrameTimer            mRequestTimer;
+    };
+
+    bool fs_pill_style()
+    {
+        static LLCachedControl<bool> pill(gSavedSettings, "FSNameTagPillStyle", true);
+        return pill;
+    }
+
+    bool fs_pill_pictures()
+    {
+        static LLCachedControl<bool> pictures(gSavedSettings, "FSNameTagProfilePictures", true);
+        return pictures;
+    }
+
+    // Beyond this distance (m) a tag with a profile picture shows only the picture; 0 never
+    F32 fs_pill_picture_only_distance()
+    {
+        static LLCachedControl<F32> distance(gSavedSettings, "FSNameTagPictureOnlyDistance", 3.f);
+        return distance;
+    }
+
+    bool fs_pill_ring()
+    {
+        static LLCachedControl<bool> ring(gSavedSettings, "FSNameTagChatRangeRing", true);
+        return ring;
+    }
+
+    // Size of a pill tag this far from the camera: full size close by, then shrinking with the square root of the
+    // distance, half way between a fixed size and the perspective of the world (0.71 at 10 m, 0.5 at 20 m), down
+    // to FSNameTagDistanceMinScale. A straight ramp from 8 to 40 m left most of a crowd at 80 to 100 percent.
+    F32 fs_pill_scale(F32 distance)
+    {
+        static LLCachedControl<bool> scale_with_distance(gSavedSettings, "FSNameTagScaleWithDistance", true);
+        static LLCachedControl<F32> min_scale(gSavedSettings, "FSNameTagDistanceMinScale", 0.5f);
+        if (!scale_with_distance || distance <= FS_PILL_FULL_SIZE_DIST)
+        {
+            return 1.f;
+        }
+        return llclamp(sqrtf(FS_PILL_FULL_SIZE_DIST / distance), llclamp((F32)min_scale, 0.3f, 1.f), 1.f);
+    }
+
+    // hud_render_text with the glyphs scaled: x_vec and y_vec are the tag's pixel vectors, already scaled,
+    // and the offsets are in the tag's own (unscaled) pixels
+    void fs_pill_text(const LLWString& wstr, const LLVector3& pos_agent, const LLVector3& x_vec, const LLVector3& y_vec,
+                      const LLFontGL& font, U8 style, F32 x_offset, F32 y_offset, const LLColor4& color, F32 scale)
+    {
+        if (wstr.empty())
+        {
+            return;
+        }
+        const LLVector3 render_pos = pos_agent + x_vec * x_offset + y_vec * y_offset;
+        const LLRect world_view_rect = gViewerWindow->getWorldViewRectRaw();
+        const glm::ivec4 viewport(world_view_rect.mLeft, world_view_rect.mBottom, world_view_rect.getWidth(), world_view_rect.getHeight());
+        glm::vec3 win_coord = glm::project(glm::vec3(render_pos), get_current_modelview(), get_current_projection(), viewport);
+
+        gGL.matrixMode(LLRender::MM_PROJECTION);
+        gGL.pushMatrix();
+        gGL.matrixMode(LLRender::MM_MODELVIEW);
+        gGL.pushMatrix();
+        LLUI::pushMatrix();
+
+        gl_state_for_2d(world_view_rect.getWidth(), world_view_rect.getHeight());
+        gViewerWindow->setup3DViewport();
+
+        win_coord.x -= world_view_rect.mLeft;
+        win_coord.y -= world_view_rect.mBottom;
+        LLUI::loadIdentity();
+        gGL.loadIdentity();
+        // in raw pixels, then the glyphs scaled about the text's origin (the font applies the UI scale itself)
+        gGL.translatef(floorf(win_coord.x + 0.5f), floorf(win_coord.y + 0.5f), -((win_coord.z * 2.f) - 1.f));
+        gGL.scalef(scale, scale, 1.f);
+        F32 right_x;
+        font.render(wstr, 0, 0, 0, color, LLFontGL::LEFT, LLFontGL::BASELINE, style, LLFontGL::NO_SHADOW,
+                    static_cast<S32>(wstr.length()), 1000, &right_x, /*use_ellipses*/false, /*use_color*/true);
+
+        LLUI::popMatrix();
+        gGL.popMatrix();
+        gGL.matrixMode(LLRender::MM_PROJECTION);
+        gGL.popMatrix();
+        gGL.matrixMode(LLRender::MM_MODELVIEW);
+    }
+
+    // A point of the tag's plane, x and y in screen pixels from its anchor
+    inline void fs_pill_vertex(const LLVector3& origin, const LLVector3& x_vec, const LLVector3& y_vec, F32 x, F32 y)
+    {
+        gGL.vertex3fv((origin + x_vec * x + y_vec * y).mV);
+    }
+
+    // A rounded rectangle, corners of the given radius (half the height makes a pill), untextured
+    void fs_rounded_rect(const LLVector3& origin, const LLVector3& x_vec, const LLVector3& y_vec,
+                         F32 left, F32 bottom, F32 right, F32 top, F32 radius, const LLColor4& color)
+    {
+        constexpr S32 CORNER_SEGMENTS = 8;
+        radius = llmax(0.f, llmin(radius, llmin((right - left) * 0.5f, (top - bottom) * 0.5f)));
+        const F32 cx = (left + right) * 0.5f;
+        const F32 cy = (bottom + top) * 0.5f;
+        const F32 corner_x[4] = { right - radius, left + radius, left + radius, right - radius };
+        const F32 corner_y[4] = { top - radius, top - radius, bottom + radius, bottom + radius };
+        std::vector<LLVector2> outline;
+        outline.reserve(4 * (CORNER_SEGMENTS + 1));
+        for (S32 corner = 0; corner < 4; ++corner)
+        {
+            for (S32 i = 0; i <= CORNER_SEGMENTS; ++i)
+            {
+                const F32 angle = F_PI_BY_TWO * ((F32)corner + (F32)i / (F32)CORNER_SEGMENTS);
+                outline.emplace_back(corner_x[corner] + radius * cosf(angle), corner_y[corner] + radius * sinf(angle));
+            }
+        }
+        gGL.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
+        gGL.color4fv(color.mV);
+        gGL.begin(LLRender::TRIANGLES);
+        for (size_t i = 0; i < outline.size(); ++i)
+        {
+            const LLVector2& a = outline[i];
+            const LLVector2& b = outline[(i + 1) % outline.size()];
+            gGL.texCoord2f(0.5f, 0.5f);
+            fs_pill_vertex(origin, x_vec, y_vec, cx, cy);
+            fs_pill_vertex(origin, x_vec, y_vec, a.mV[VX], a.mV[VY]);
+            fs_pill_vertex(origin, x_vec, y_vec, b.mV[VX], b.mV[VY]);
+        }
+        gGL.end();
+    }
+
+    // A disc; textured (the bound texture, centre cropped to a square) or plain white
+    void fs_disc(const LLVector3& origin, const LLVector3& x_vec, const LLVector3& y_vec,
+                 F32 cx, F32 cy, F32 radius, const LLColor4& color, LLViewerTexture* texture)
+    {
+        constexpr S32 SEGMENTS = 32;
+        F32 su = 0.5f;
+        F32 sv = 0.5f;
+        if (texture)
+        {
+            gGL.getTexUnit(0)->bind(texture);
+            const F32 w = (F32)llmax(texture->getFullWidth(), 1);
+            const F32 h = (F32)llmax(texture->getFullHeight(), 1);
+            if (w > h)
+            {
+                su *= h / w;
+            }
+            else
+            {
+                sv *= w / h;
+            }
+        }
+        else
+        {
+            gGL.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
+        }
+        gGL.color4fv(color.mV);
+        gGL.begin(LLRender::TRIANGLES);
+        for (S32 i = 0; i < SEGMENTS; ++i)
+        {
+            const F32 a0 = F_TWO_PI * (F32)i / (F32)SEGMENTS;
+            const F32 a1 = F_TWO_PI * (F32)(i + 1) / (F32)SEGMENTS;
+            gGL.texCoord2f(0.5f, 0.5f);
+            fs_pill_vertex(origin, x_vec, y_vec, cx, cy);
+            gGL.texCoord2f(0.5f + su * cosf(a0), 0.5f + sv * sinf(a0));
+            fs_pill_vertex(origin, x_vec, y_vec, cx + radius * cosf(a0), cy + radius * sinf(a0));
+            gGL.texCoord2f(0.5f + su * cosf(a1), 0.5f + sv * sinf(a1));
+            fs_pill_vertex(origin, x_vec, y_vec, cx + radius * cosf(a1), cy + radius * sinf(a1));
+        }
+        gGL.end();
+    }
+}
+
+void LLHUDNameTag::setFSPill(const LLUUID& avatar_id, bool has_ring, const LLColor4& ring_color)
+{
+    mFSPill = true;
+    mFSAvatarID = avatar_id;
+    mFSHasRing = has_ring;
+    mFSRingColor = ring_color;
+}
+
+// Chat bubbles keep the stock look: their label sits on top of the text
+bool LLHUDNameTag::fsPillMode() const
+{
+    return mFSPill && mLabelSegments.empty() && fs_pill_style();
+}
+
+void LLHUDNameTag::fsRenderPill(const LLVector3& render_position, const LLVector3& x_pixel_vec_in, const LLVector3& y_pixel_vec_in,
+                                const LLColor4& bg_color, F32 alpha_factor)
+{
+    // mWidth, mHeight and mOffsetY include the distance scale; below, everything is in the tag's own pixels
+    // and the pixel vectors are scaled instead
+    const F32 scale = llmax(mFSScale, 0.01f);
+    const LLVector3 x_pixel_vec = x_pixel_vec_in * scale;
+    const LLVector3 y_pixel_vec = y_pixel_vec_in * scale;
+    const F32 width = mWidth / scale;
+    const F32 height = mHeight / scale;
+    const F32 left = -0.5f * width;
+    const F32 right = 0.5f * width;
+    const F32 top = (F32)mOffsetY / scale;
+    const F32 bottom = top - height;
+    const F32 mid_y = (top + bottom) * 0.5f;
+
+    // Far away, a tag with a picture shrinks into it (mFSShrink): the box is already part way between the whole
+    // tag and the picture on its own, and the picture moves and grows from the tag's round end to the middle
+    const F32 shrink = mFSPortrait ? fs_pill_ease(mFSShrink) : 0.f;
+    F32 disc_cx = left + height * 0.5f;
+    F32 disc_cy = mid_y;
+    F32 disc_r = height * 0.5f;
+    F32 text_top = top;
+    if (shrink > 0.f)
+    {
+        const F32 above = (mVertAlignment == ALIGN_VERT_CENTER) ? 0.5f : 1.f;   // part of the box above its anchor
+        const F32 anchor = top - above * height;
+        const F32 full_top = anchor + above * mFSFullHeight;
+        const F32 full_r = mFSFullHeight * 0.5f;
+        const F32 solo_r = mFSSoloSize * 0.5f;
+        const F32 solo_cy = anchor + above * mFSSoloSize - solo_r;
+        disc_cx = lerp(-0.5f * mFSFullWidth + full_r, 0.f, shrink);
+        disc_cy = lerp(full_top - full_r, solo_cy, shrink);
+        disc_r = lerp(full_r, solo_r, shrink);
+        text_top = full_top;
+    }
+
+    // the background fades as it shrinks, the text faster still
+    if (shrink < 1.f)
+    {
+        LLColor4 bg = bg_color;
+        bg.mV[VALPHA] *= 1.f - shrink;
+        fs_rounded_rect(render_position, x_pixel_vec, y_pixel_vec, left, bottom, right, top, height * 0.5f, bg);
+    }
+    const F32 text_fade = llclamp(1.f - 2.f * shrink, 0.f, 1.f);
+
+    // the picture (or the range dot) on the left, then the text after it
+    F32 text_left = left + height * 0.5f;
+    LLColor4 ring = mFSHasRing && fs_pill_ring() ? mFSRingColor : LLColor4(0.85f, 0.85f, 0.85f, 1.f);
+    ring.mV[VALPHA] *= alpha_factor;
+    if (mFSPortrait)
+    {   // the picture fills the pill's round end, edge to edge
+        bool has_picture = false;
+        LLViewerFetchedTexture* picture = FSNameTagPortraits::instance().get(mFSAvatarID, has_picture);
+        LLColor4 inner = picture ? LLColor4(1.f, 1.f, 1.f, alpha_factor) : LLColor4(0.2f, 0.2f, 0.2f, alpha_factor);
+        fs_disc(render_position, x_pixel_vec, y_pixel_vec, disc_cx, disc_cy, disc_r, inner, picture);
+        text_left = disc_cx + disc_r + FS_PILL_GAP;
+    }
+    else if (mFSHasRing && fs_pill_ring())
+    {
+        const F32 cx = left + height * 0.5f;
+        fs_disc(render_position, x_pixel_vec, y_pixel_vec, cx, mid_y, FS_PILL_DOT * 0.5f, ring, nullptr);
+        text_left = cx + FS_PILL_DOT * 0.5f + FS_PILL_GAP;
+    }
+    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+
+    const bool centered = !mFSPortrait && !(mFSHasRing && fs_pill_ring()) && mTextAlignment == ALIGN_TEXT_CENTER;
+    S32 max_lines = getMaxLines();
+    S32 start_segment = max_lines < 0 ? 0 : llmax((S32)0, (S32)mTextSegments.size() - max_lines);
+    if (text_fade <= 0.f)
+    {
+        start_segment = (S32)mTextSegments.size();
+    }
+    F32 y_offset = text_top - FS_PILL_PAD_TOP;
+    for (auto segment_iter = mTextSegments.begin() + start_segment; segment_iter != mTextSegments.end(); ++segment_iter)
+    {
+        const LLFontGL* fontp = segment_iter->mFont;
+        y_offset -= fontp->getLineHeight();
+        const F32 x_offset = centered ? -0.5f * segment_iter->getWidth(fontp) : text_left;
+        LLColor4 text_color = segment_iter->mColor;
+        text_color.mV[VALPHA] *= alpha_factor * text_fade;
+        fs_pill_text(segment_iter->getText(), render_position, x_pixel_vec, y_pixel_vec, *fontp, segment_iter->mStyle,
+                     x_offset, y_offset, text_color, scale);
+        y_offset -= FS_PILL_LINE_PAD;
+    }
+    gGL.color4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+// </FS:Trish>
 
 bool llhudnametag_further_away::operator()(const LLPointer<LLHUDNameTag>& lhs, const LLPointer<LLHUDNameTag>& rhs) const
 {
@@ -307,6 +725,14 @@ void LLHUDNameTag::renderText()
         }
     }
     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, render_over_water ? GL_ALWAYS : GL_LEQUAL);
+
+    // <FS:Trish> Pill style
+    if (fsPillMode())
+    {
+        fsRenderPill(render_position, x_pixel_vec, y_pixel_vec, bg_color, alpha_factor);
+        return;
+    }
+    // </FS:Trish>
 
     LLRect screen_rect;
     screen_rect.setCenterAndSize(0, static_cast<S32>(lltrunc(-mHeight / 2 + mOffsetY)), static_cast<S32>(lltrunc(mWidth)), static_cast<S32>(lltrunc(mHeight)));
@@ -722,6 +1148,78 @@ void LLHUDNameTag::updateSize()
         return;
     }
 
+    // <FS:Trish> Pill style: less padding, round ends, room for the picture or the range dot
+    if (fsPillMode())
+    {
+        S32 lines = 0;
+        F32 text_height = 0.f;
+        for (auto seg = mTextSegments.begin() + start_segment; seg != mTextSegments.end(); ++seg)
+        {
+            text_height += seg->mFont->getLineHeight();
+            ++lines;
+        }
+        mHeight = text_height + FS_PILL_LINE_PAD * (F32)llmax(lines - 1, 0) + FS_PILL_PAD_TOP + FS_PILL_PAD_BOTTOM;
+
+        bool has_picture = false;
+        if (fs_pill_pictures() && mFSAvatarID.notNull())
+        {
+            FSNameTagPortraits::instance().get(mFSAvatarID, has_picture);
+        }
+        mFSPortrait = has_picture && mHeight >= FS_PILL_MIN_PICTURE;
+        mFSScale = fs_pill_scale(mLastDistance);
+        const F32 end = mHeight * 0.5f;     // a round end's width
+        if (mFSPortrait)
+        {
+            mWidth = mHeight + FS_PILL_GAP + width + end;
+        }
+        else if (mFSHasRing && fs_pill_ring())
+        {
+            mWidth = end + FS_PILL_DOT + FS_PILL_GAP + width + end;
+        }
+        else
+        {
+            mWidth = width + 2.f * end;
+        }
+
+        // far away, a tag with a picture shrinks into the picture: a disc half as high again as a one line tag
+        const F32 picture_only_distance = fs_pill_picture_only_distance();
+        const bool picture_only = mFSPortrait && picture_only_distance > 0.f && mLastDistance > picture_only_distance &&
+                                  start_segment < (S32)mTextSegments.size();
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        const F32 elapsed = (F32)(now - mFSShrinkTime);
+        mFSShrinkTime = now;
+        const F32 target = picture_only ? 1.f : 0.f;
+        if (!mFSPortrait || elapsed > 1.f)
+        {   // no picture, or a tag not updated for a while (just made): no animation
+            mFSShrink = target;
+        }
+        else
+        {
+            const F32 step = elapsed / FS_PILL_SHRINK_SECONDS;
+            mFSShrink = target > mFSShrink ? llmin(target, mFSShrink + step) : llmax(target, mFSShrink - step);
+        }
+        if (mFSPortrait && start_segment < (S32)mTextSegments.size())
+        {
+            mFSFullWidth = mWidth;
+            mFSFullHeight = mHeight;
+            mFSSoloSize = 1.5f * (mTextSegments[start_segment].mFont->getLineHeight() + FS_PILL_PAD_TOP + FS_PILL_PAD_BOTTOM);
+            const F32 shrink = fs_pill_ease(mFSShrink);
+            mWidth = lerp(mFSFullWidth, mFSSoloSize, shrink);
+            mHeight = lerp(mFSFullHeight, mFSSoloSize, shrink);
+        }
+        else
+        {
+            mFSShrink = 0.f;
+        }
+        mWidth *= mFSScale;
+        mHeight *= mFSScale;
+        return;
+    }
+    mFSPortrait = false;
+    mFSShrink = 0.f;
+    mFSScale = 1.f;
+    // </FS:Trish>
+
     width += HORIZONTAL_PADDING;
     height += VERTICAL_PADDING;
 
@@ -738,6 +1236,13 @@ void LLHUDNameTag::updateAll()
     // iterate over all text objects, calculate their restoration forces,
     // and add them to the visible set if they are on screen and close enough
     sVisibleTextObjects.clear();
+
+    // <FS:Trish> Pill style name tags: ask for the next profile picture
+    if (fs_pill_style() && fs_pill_pictures())
+    {
+        FSNameTagPortraits::instance().idle();
+    }
+    // </FS:Trish>
 
     TextObjectIterator text_it;
     for (text_it = sTextObjects.begin(); text_it != sTextObjects.end(); ++text_it)

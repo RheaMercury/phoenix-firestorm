@@ -142,6 +142,12 @@ public:
     static void reshape();
     static void setDisplayText(bool flag) { sDisplayText = flag ; }
 
+    // <FS:Trish> Pill style name tags (FSNameTagPillStyle), set by the avatar at each tag refresh:
+    // whose profile picture to show (FSNameTagProfilePictures) and the colour of the ring around it,
+    // which tells the chat range they are in (none beyond shout range or for yourself)
+    void setFSPill(const LLUUID& avatar_id, bool has_ring, const LLColor4& ring_color);
+    // </FS:Trish>
+
 protected:
     LLHUDNameTag(const U8 type);
 
@@ -184,6 +190,25 @@ private:
     bool            mHidden;
     LLPointer<LLUIImage> mRoundedRectImgp;
     LLPointer<LLUIImage> mRoundedRectTopImgp;
+
+    // <FS:Trish> Pill style, see setFSPill
+    bool fsPillMode() const;
+    void fsRenderPill(const LLVector3& render_position, const LLVector3& x_pixel_vec, const LLVector3& y_pixel_vec,
+                      const LLColor4& bg_color, F32 alpha_factor);
+    bool            mFSPill = false;            // an avatar tag that may be drawn as a pill
+    LLUUID          mFSAvatarID;
+    bool            mFSHasRing = false;
+    LLColor4        mFSRingColor;
+    bool            mFSPortrait = false;        // updateSize made room for the profile picture
+    F32             mFSScale = 1.f;             // updateSize: smaller with distance, mWidth and mHeight include it
+    // updateSize: how far the tag has shrunk into its picture (0 the whole tag, 1 only the picture), which it does
+    // farther than FSNameTagPictureOnlyDistance, and the sizes it goes between, in the tag's own pixels
+    F32             mFSShrink = 0.f;
+    F64             mFSShrinkTime = 0.0;        // when mFSShrink last moved
+    F32             mFSFullWidth = 0.f;
+    F32             mFSFullHeight = 0.f;
+    F32             mFSSoloSize = 0.f;          // the picture's diameter on its own
+    // </FS:Trish>
 
     static bool    sDisplayText ;
     static std::set<LLPointer<LLHUDNameTag> > sTextObjects;

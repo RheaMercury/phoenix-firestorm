@@ -1194,6 +1194,11 @@ public:
     // </FS:Trish>
     // Optional pre-alpha depth snapshot for RLVa sphere post effect.
     LLRenderTarget              mRlvSphereDepth;
+    // <FS:Trish> FSNameTagIgnoreAlpha: the main view's depth before alpha, given to the window for the UI
+    // (name tags, floating text) so in-world alpha doesn't cut into them
+    LLRenderTarget              mFSTagDepth;
+    U32                         mFSTagDepthFrame = 0;
+    // </FS:Trish>
 
     static const U32 MAX_PREVIEW_WIDTH;
     static const U32 MAX_PREVIEW_HEIGHT; // <FS:Beq/> dedicated render target for previews
