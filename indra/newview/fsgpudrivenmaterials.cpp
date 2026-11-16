@@ -435,7 +435,8 @@ bool fsGDDRiggedWanted()
     static LLCachedControl<bool> materials(gSavedSettings, "FSPerfGPUDrivenMaterials", false);
     static LLCachedControl<bool> pbr(gSavedSettings, "FSPerfGPUDrivenPBR", false);
     static LLCachedControl<bool> legacy(gSavedSettings, "FSPerfGPUDrivenLegacy", false);
-    return rigged && (materials || pbr || legacy) && FSSkinPaletteBuffer::wanted() && gGLManager.mFSHasGPUDrivenDraws;
+    static LLCachedControl<bool> alpha(gSavedSettings, "FSPerfGPUDrivenAlpha", false);
+    return rigged && (materials || pbr || legacy || alpha) && FSSkinPaletteBuffer::wanted() && gGLManager.mFSHasGPUDrivenDraws;
 }
 
 bool fsGDDRiggedEnabled()
@@ -1147,9 +1148,11 @@ namespace
                                          << " material records) in " << sStatCalls << " multi-draw calls, " << sStatSwitches
                                          << " program switches; stock path for: "
                                          << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                         << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices, "
+                                         << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices ("
+                                         << sArena.allocatedMB() << " MB allocated), "
                                          << sArena.entries() << " buffers, " << sArena.uploads() << " copies; rigged arena "
-                                         << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices, "
+                                         << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices ("
+                                         << sRiggedArena.allocatedMB() << " MB allocated), "
                                          << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; "
                                          << sStatMismatches << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatDrawn = sStatCalls = sStatSwitches = sStatMaterials = 0;

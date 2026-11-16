@@ -23,6 +23,10 @@
  * $/LicenseInfo$
  */
 
+#ifdef FS_GDD_LEGACY
+#extension GL_ARB_shader_storage_buffer_object : require
+#endif
+
 #ifdef RIGGED_PRECISE_MATH
 invariant gl_Position;
 precise gl_Position;
@@ -32,11 +36,44 @@ precise gl_Position;
 #define NON_INDEXED 2
 #define NON_INDEXED_NO_COLOR 3
 
+#ifdef FS_GDD_LEGACY
+// <FS:Trish> FSPerfGPUDrivenAlpha (fsgpudrivenalpha.cpp): runs of alpha draws drawn with
+// glMultiDrawElementsIndirect out of a vertex arena, as diffuseV.glsl does for FSPerfGPUDrivenLegacy.
+// Every draw command has a record, an instanced attribute its base instance selects, naming its matrices
+// and its textures in the storage buffers below, which hold exactly what the stock path puts in the
+// uniforms of the same names and binds on the texture units for that draw. Skinned (HAS_SKIN): the
+// record's w is where the draw's joint palette starts in the storage buffer objectSkinV.glsl (built with
+// FS_GDD_RIGGED) reads it from; projection_matrix stays the uniform the stock skinned branch reads (set by
+// gGL.syncMatrices before the multi-draw).
+layout(std430) readonly buffer FSGDDLegacyMatrices
+{
+    mat4 fs_gdd_matrix[];   // per model matrix: modelview, modelview projection, normal matrix; texture matrices
+};
+
+layout(std430) readonly buffer FSGDDLegacyTextures
+{
+    uvec2 fs_gdd_tex[];     // per draw: (minimum_alpha bits, texture count), then a bindless handle per texture
+};
+
+in uvec4 fs_gdd_draw;       // x: first of the three model matrices, y: texture matrix, z: first entry in fs_gdd_tex, w: palette (skinned)
+in int texture_index;       // the unit diffuseLookup would pick (indexedTextureV.glsl)
+
+flat out uvec2 fs_gdd_diffuse;
+
+#ifdef HAS_SKIN
+uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's first vec4
+{
+    return fs_gdd_draw.w;
+}
+#endif
+// </FS:Trish>
+#else
 uniform mat3 normal_matrix;
 uniform mat4 texture_matrix0;
-uniform mat4 projection_matrix;
 uniform mat4 modelview_matrix;
 uniform mat4 modelview_projection_matrix;
+#endif
+uniform mat4 projection_matrix;
 
 in vec3 position;
 
@@ -78,6 +115,19 @@ void main()
 {
     vec4 pos;
     vec3 norm;
+
+#ifdef FS_GDD_LEGACY
+    // <FS:Trish> FSPerfGPUDrivenAlpha: the draw's matrices and the texture diffuseLookup would pick
+    mat4 modelview_matrix = fs_gdd_matrix[fs_gdd_draw.x];
+    mat4 modelview_projection_matrix = fs_gdd_matrix[fs_gdd_draw.x + 1u];
+    mat3 normal_matrix = mat3(fs_gdd_matrix[fs_gdd_draw.x + 2u]);
+    mat4 texture_matrix0 = fs_gdd_matrix[fs_gdd_draw.y];
+    uvec2 fs_gdd_head = fs_gdd_tex[fs_gdd_draw.z];
+    // an index past the draw's textures samples a unit left from an earlier draw on the stock path; the last one here
+    uint fs_gdd_index = min(uint(max(texture_index, 0)), fs_gdd_head.y - 1u);
+    fs_gdd_diffuse = fs_gdd_tex[fs_gdd_draw.z + 1u + fs_gdd_index];
+    // </FS:Trish>
+#endif
 
     //transform vertex
 #ifdef HAS_SKIN

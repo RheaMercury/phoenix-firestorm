@@ -1008,9 +1008,9 @@ namespace
                                       << " batches (" << sStatDrawn << " from the arena) in " << sStatCalls
                                       << " multi-draw calls, " << sStatSwitches << " program switches; stock path for: "
                                       << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                      << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices, "
+                                      << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices (" << sArena.allocatedMB() << " MB allocated), "
                                       << sArena.entries() << " buffers, " << sArena.uploads() << " copies; rigged arena "
-                                      << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices, "
+                                      << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices (" << sRiggedArena.allocatedMB() << " MB allocated), "
                                       << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; "
                                       << sStatMismatches << " verify mismatches, " << sStatUnverified
                                       << " passes without depth writes (occlusion check skipped)" << LL_ENDL;

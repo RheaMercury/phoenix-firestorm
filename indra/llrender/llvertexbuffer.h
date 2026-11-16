@@ -467,6 +467,10 @@ private:
 public:
 
     static U64 getBytesAllocated();
+    // <FS:Trish> Vertex memory held outside the pool (the GPU-driven draw arenas, fsgddarena.cpp):
+    // counted in getBytesAllocated, so the texture budget sees it
+    static void fsAddExternalBytes(S64 delta);
+    // </FS:Trish>
     static const U32 sTypeSize[TYPE_MAX];
     static const U32 sGLMode[LLRender::NUM_MODES];
     static U32 sGLRenderBuffer;

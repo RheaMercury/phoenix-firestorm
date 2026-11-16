@@ -26888,6 +26888,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSPerfGPUDrivenAlpha</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. NVIDIA only (bindless textures). In the alpha pass, runs of consecutive draws of one spatial group that share their program and plain alpha blending (legacy alpha, fullbright alpha and legacy material alpha) are drawn as one multi-draw each out of a vertex arena, in the stock order, instead of one draw call each with its own program, texture, uniform and matrix changes (fsgpudrivenalpha.cpp). Rigged ones too with FSPerfRiggedPaletteBuffer and FSPerfGPUDrivenRigged. Nothing looks different. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfAttachmentExtentsCache</key>
     <map>
       <key>Comment</key>
@@ -29710,7 +29721,7 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.3</real>
+      <real>0.05</real>
     </map>
     <key>FSRenderLensFlareMoon</key>
     <map>

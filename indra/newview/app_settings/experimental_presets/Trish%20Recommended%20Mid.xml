@@ -57,15 +57,15 @@
     <key>FSPerfGPUDrivenLegacy</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenLegacyArenaMB</key>
-    <integer>768</integer>
+    <integer>256</integer>
     <key>FSPerfGPUDrivenMaterials</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenMaterialsArenaMB</key>
-    <integer>512</integer>
+    <integer>768</integer>
     <key>FSPerfGPUDrivenPBR</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenPBRArenaMB</key>
-    <integer>768</integer>
+    <integer>1024</integer>
     <key>FSPerfGPUDrivenPBRBindless</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenPBRGroupRuns</key>
@@ -131,7 +131,7 @@
     <key>FSPerfVertexArrayObjects</key>
     <boolean>1</boolean>
     <key>FSRenderAnamorphicStreaks</key>
-    <real>0.1</real>
+    <real>0.05</real>
     <key>FSRenderAvatarShadowCascades</key>
     <integer>1</integer>
     <key>FSRenderAvatarShadowDistance</key>

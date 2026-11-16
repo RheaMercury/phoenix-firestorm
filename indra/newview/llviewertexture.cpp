@@ -130,6 +130,8 @@ F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
 F32 LLViewerTexture::sVRAMTargetMegabytes = 0.f;
 bool LLViewerTexture::sSystemMemoryLow = false;
 bool LLViewerTexture::sFSVRAMTight = false;
+bool LLViewerTexture::sFSBiasAtCap = false;
+bool LLViewerTexture::sFSHoldSharpening = false;
 S32 LLViewerTexture::sVRAMLiveFreeMegabytes = -1;
 // </FS:Trish>
 
@@ -1010,6 +1012,10 @@ void LLViewerTexture::updateClass()
     static LLCachedControl<F32> max_bias_setting(gSavedSettings, "FSTextureMaxDiscardBias", 4.f);
     const F32 max_bias = llclamp((F32)max_bias_setting, 4.f, 6.f);
     sDesiredDiscardBias = llclamp(sDesiredDiscardBias, 1.f, max_bias); // backgrounded (5) included
+    // At the cap, usage sits just under the target: whatever frees up is filled again at once
+    constexpr F32 FS_SHARPEN_HEADROOM_MB = 512.f;
+    sFSBiasAtCap = sDesiredDiscardBias >= max_bias - 0.01f;
+    sFSHoldSharpening = sFSBiasAtCap && sFreeVRAMMegabytes < FS_SHARPEN_HEADROOM_MB;
     // Every 30 s while the bias is up: where it is and how full video memory is
     {
         static LLFrameTimer s_bias_log_timer;
@@ -1018,10 +1024,12 @@ void LLViewerTexture::updateClass()
             s_bias_log_timer.reset();
             LL_INFOS("FSTextureBias") << llformat("Texture discard bias %.2f (cap %.1f), video memory %.0f of %.0f MB used",
                                                   sDesiredDiscardBias, max_bias, sVRAMUsedMegabytes, sVRAMTargetMegabytes) << LL_ENDL;
-            // At the cap and still over: what is holding the memory
-            if (sDesiredDiscardBias >= max_bias - 0.01f && sVRAMUsedMegabytes > sVRAMTargetMegabytes)
+            // At the cap: what is holding the memory. Not only when over the target: held at the cap, usage
+            // sits just under it, and that is when it matters what the bias can't shrink.
+            if (sDesiredDiscardBias >= max_bias - 0.01f)
             {
-                LL_INFOS("FSTextureBias") << "At the cap and over target: " << fs_texture_memory_breakdown() << LL_ENDL;
+                LL_INFOS("FSTextureBias") << (sVRAMUsedMegabytes > sVRAMTargetMegabytes ? "At the cap and over target: " : "At the cap: ")
+                                          << fs_texture_memory_breakdown() << LL_ENDL;
             }
         }
     }
@@ -3041,6 +3049,17 @@ bool LLViewerFetchedTexture::updateFetch()
                 LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vftuf - current <= desired");
                 make_request = false;
             }
+            // <FS:Trish> At the bias cap with little room: a texture shrunk for memory in the last 30 s
+            // keeps what it shows. Sharpening it took the memory something else was then shrunk for, and
+            // the two went back and forth (3 GB a minute loaded to the GPU in a busy crowd). Not for
+            // boosted textures, and a texture showing nothing still loads.
+            else if (sFSHoldSharpening && current_discard >= 0 && mBoostLevel < LLGLTexture::BOOST_HIGH &&
+                     sCurrentTime - mFSDownscaleTime < 30.f)
+            {
+                LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vftuf - held at the bias cap");
+                make_request = false;
+            }
+            // </FS:Trish>
         }
     }
 
@@ -4209,6 +4228,7 @@ bool LLViewerLODTexture::scaleDown()
         mDownScalePending = true;
         gTextureList.mDownScaleQueue.push(this);
     }
+    mFSDownscaleTime = sCurrentTime; // <FS:Trish/> sFSHoldSharpening
 
     return true;
 }

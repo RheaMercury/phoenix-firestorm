@@ -27,6 +27,18 @@
 
 /*[EXTRA_CODE_HERE]*/
 
+#ifdef FS_GDD_LEGACY
+#extension GL_ARB_bindless_texture : require
+// <FS:Trish> FSPerfGPUDrivenAlpha (alphaV.glsl): the texture the stock diffuseLookup would pick, as a
+// bindless handle. minimum_alpha stays the uniform, which the pass sets as it does on the stock program.
+flat in uvec2 fs_gdd_diffuse;
+vec4 diffuseLookup(vec2 texcoord)
+{
+    return texture(sampler2D(fs_gdd_diffuse), texcoord);
+}
+// </FS:Trish>
+#endif
+
 #define INDEXED 1
 #define NON_INDEXED 2
 #define NON_INDEXED_NO_COLOR 3

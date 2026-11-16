@@ -55,6 +55,7 @@
 
 #include "llenvironment.h"
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
+#include "fsgpudrivenalpha.h" // <FS:Trish/> FSPerfGPUDrivenAlpha
 #include <optional> // <FS:Trish/>
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
@@ -199,6 +200,18 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
         &gDeferredPBRAlphaProgram;
 
     prepare_alpha_shader(pbr_shader, true, water_sign);
+
+    // <FS:Trish> FSPerfGPUDrivenAlpha: its copies of the programs above, prepared the same way
+    {
+        static std::vector<LLGLSLShader*> fs_gdd_programs;
+        fs_gdd_programs.clear();
+        fsGDDAlphaPrograms(fs_gdd_programs);
+        for (LLGLSLShader* shader : fs_gdd_programs)
+        {
+            prepare_alpha_shader(shader, true, water_sign);
+        }
+    }
+    // </FS:Trish>
 
     // explicitly unbind here so render loop doesn't make assumptions about the last shader
     // already being setup for rendering
@@ -854,6 +867,14 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
     };
     // </FS:Trish>
 
+    // <FS:Trish> FSPerfGPUDrivenAlpha: runs of consecutive draws of a group as multi-draws, in their place
+    // (fsgpudrivenalpha.cpp). Not for HUDs, impostors and reflection probes, the depth only passes, the WBOIT
+    // phases and the two-pass hair passes; their programs are bound as the stock ones are (fs_bind_program).
+    const bool fs_gdd = !depth_only && wboit_phase == WBOIT_OFF && mHairPass == HAIR_OFF && !gCubeSnapshot &&
+        fsGDDAlphaBeginPass(rigged, simple_shader, fullbright_shader, mAlphaSFactor, mAlphaDFactor, MINIMUM_ALPHA);
+    const fs_gdd_alpha_bind_t fs_gdd_bind = fs_bind_program;
+    // </FS:Trish>
+
     LLCullResult::sg_iterator begin;
     LLCullResult::sg_iterator end;
 
@@ -943,6 +964,21 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
             std::optional<LLGLDisable> double_sided_cull;
             // </FS:Trish>
 
+            // <FS:Trish> FSPerfGPUDrivenAlpha: which of the group's draws go into multi-draws, uploaded. Not
+            // particles: their buffers are rebuilt every frame, the arena would copy them every frame.
+            bool fs_gdd_group = false;
+            if (fs_gdd && !is_particle_or_hud_particle)
+            {
+                bool palettes_moved = false;
+                fs_gdd_group = fsGDDAlphaBeginGroup(draw_info, palettes_moved);
+                if (palettes_moved)
+                {   // the palette range uploadMatrixPalette would keep for the next rigged draw is in storage that is gone
+                    lastAvatar = nullptr;
+                    lastAvatarShader = nullptr;
+                }
+            }
+            // </FS:Trish>
+
             for (LLSpatialGroup::drawmap_elem_t::iterator k = draw_info.begin(); k != draw_info.end(); ++k)
             {
                 LLDrawInfo& params = **k;
@@ -985,6 +1021,29 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                     {
                         continue;
                     }
+                }
+                // </FS:Trish>
+
+                // <FS:Trish> FSPerfGPUDrivenAlpha: a draw of a run joins it. What the code below does for it
+                // besides drawing: culling back on (it is never double sided), the lighting state it tracks, and
+                // its glow, drawn with the group's as before. Any other draw first draws the pending run.
+                if (fs_gdd_group)
+                {
+                    const S32 fs_command = fsGDDAlphaCommand((size_t)(k - draw_info.begin()));
+                    if (fs_command >= 0)
+                    {
+                        double_sided_cull.reset();
+                        initialized_lighting = true;
+                        light_enabled = !params.mFullbright;
+                        fsGDDAlphaQueue(fs_command, fs_gdd_bind);
+                        if (getType() != LLDrawPool::POOL_ALPHA_PRE_WATER &&
+                            params.mVertexBuffer->hasDataType(LLVertexBuffer::TYPE_EMISSIVE) && needs_glow(params))
+                        {
+                            (params.mAvatar != nullptr ? rigged_emissives : emissives).push_back(&params);
+                        }
+                        continue;
+                    }
+                    fsGDDAlphaFlush(fs_gdd_bind);
                 }
                 // </FS:Trish>
 
@@ -1221,6 +1280,13 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 }
             }
 
+            // <FS:Trish> FSPerfGPUDrivenAlpha: the group's last run, before the glow pass
+            if (fs_gdd_group)
+            {
+                fsGDDAlphaFlush(fs_gdd_bind);
+            }
+            // </FS:Trish>
+
             double_sided_cull.reset(); // <FS:Trish/> culling back on for the glow pass
 
             // render emissive faces into alpha channel for bloom effects
@@ -1288,6 +1354,13 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
             }
         }
     }
+
+    // <FS:Trish> FSPerfGPUDrivenAlpha
+    if (fs_gdd)
+    {
+        fsGDDAlphaEndPass();
+    }
+    // </FS:Trish>
 
     // <FS:Trish> The pass ends with the program the stock loop would leave bound
     if (fs_glow_return)

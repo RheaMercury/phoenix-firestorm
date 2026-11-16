@@ -16684,7 +16684,7 @@ void LLPipeline::renderBloom()
 
     // Anamorphic streaks: blur the second level sideways before the up pass adds the smaller levels
     // into it, so only its own bright parts streak
-    static LLCachedControl<F32> streaks(gSavedSettings, "FSRenderAnamorphicStreaks", 0.3f);
+    static LLCachedControl<F32> streaks(gSavedSettings, "FSRenderAnamorphicStreaks", 0.05f);
     static LLStaticHashedString s_streak_step("streak_step");
     static LLStaticHashedString s_streak_gain("streak_gain");
     const F32 streak_strength = llclamp((F32)streaks, 0.f, 4.f);

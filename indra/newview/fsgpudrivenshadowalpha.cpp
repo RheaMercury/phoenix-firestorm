@@ -1013,7 +1013,7 @@ namespace
                                     << sStatBatches << " batches (" << sStatDrawn << " from the arena) in " << sStatCalls
                                     << " multi-draw calls; stock path for: "
                                     << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                    << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices, "
+                                    << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices (" << sArena.allocatedMB() << " MB allocated), "
                                     << sArena.entries() << " buffers, " << sArena.uploads() << " copies; "
                                     << sStatMismatches << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatDrawn = sStatCalls = 0;

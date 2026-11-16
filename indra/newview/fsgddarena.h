@@ -148,6 +148,10 @@ public:
 
     U32 vertexMB() const;
     U32 indexMB() const;
+    // <FS:Trish> the video memory the arena's buffers hold, used or not; what the copies in it take
+    U32 allocatedMB() const;
+    U64 usedBytes() const;
+    // </FS:Trish>
     U32 vertexStride() const    { return mStride; }
     U32 entries() const         { return (U32)mEntries.size(); }
     U32 uploads() const         { return mUploads; }
@@ -159,12 +163,21 @@ private:
     void limits(U32 frame, U32& max_verts, U32& max_indices);
     bool allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset, U32& index_offset);
     void evict(U32 frame, U32 unused_frames);
-    bool growBuffer(GLuint& buffer, U32 old_bytes, U32 new_bytes);
+    bool growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U32 new_bytes);
+    void setBufferBytes(U64& buffer_bytes, U64 bytes); // <FS:Trish/>
     void fail(U32 reason, U32* out);
 
     std::string mName;
     std::vector<U32> mTypes;
     std::vector<GLuint> mVBs;       // one per type
+    // <FS:Trish> the size of each buffer, of the index buffer, and of all of them (counted as vertex memory)
+    std::vector<U64> mVBBytes;
+    U64 mIBBytes = 0;
+    U64 mGLBytes = 0;
+    F64 mLastShrink = -1.0e9;       // when it was last dropped to shrink (seconds, LLFrameTimer)
+    U32 mRefillVerts = 0;           // after a drop, the size it grows back to in one step (allocate)
+    U32 mRefillIndices = 0;
+    // </FS:Trish>
     U32 mTypeMask = 0;              // the types a buffer must have
     U32 mStride = 0;                // sum of the types' sizes
     std::string mBudgetSetting;

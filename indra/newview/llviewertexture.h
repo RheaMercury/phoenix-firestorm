@@ -256,6 +256,12 @@ public:
     // Memory is short now (soft zone, over target, low system memory or backgrounded), as
     // opposed to the bias only being held up after it was
     static bool sFSVRAMTight;
+    // The bias is at its cap (FSTextureMaxDiscardBias): textures take any memory that frees up, so the
+    // GPU driven draw arenas keep theirs (FSGDDArena::beginFrame)
+    static bool sFSBiasAtCap;
+    // At the cap with little room left: a texture shrunk for memory doesn't sharpen again for a while
+    // (LLViewerFetchedTexture::updateFetch), or it was shrunk and loaded back over and over
+    static bool sFSHoldSharpening;
     // </FS:Trish>
     static S32 sSnapshotDiscardBoost; // <FS:Trish/> Discard levels sharper than the screen needs, while a larger snapshot waits for textures
     static U32 sBiasTexturesUpdated;
@@ -476,6 +482,7 @@ public:
 
     bool mCreatePending = false;    // if true, this is in gTextureList.mCreateTextureList
     mutable bool mDownScalePending = false; // if true, this is in gTextureList.mDownScaleQueue
+    F32 mFSDownscaleTime = -1000.f; // <FS:Trish/> sCurrentTime when it was last queued to shrink (sFSHoldSharpening)
 
     // <FS:Techwolf Lupindo> texture comment decoder
     std::map<std::string,std::string> mComment;

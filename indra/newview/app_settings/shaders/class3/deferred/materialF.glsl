@@ -40,7 +40,8 @@
 
 #ifdef FS_GDD_MATERIAL
 // FSPerfGPUDrivenMaterials (class1 materialV.glsl): the batch's material arrives as flat inputs holding what
-// the stock path puts in these uniforms, its textures as bindless handles. Only for the G-buffer modes.
+// the stock path puts in these uniforms, its textures as bindless handles. The G-buffer modes, and with
+// FSPerfGPUDrivenAlpha (fsgpudrivenalpha.cpp) the blend mode of the alpha pass, which reads no minimum_alpha.
 flat in vec4 fs_gdd_specular_color;
 flat in vec3 fs_gdd_params;
 flat in uvec4 fs_gdd_tex01;

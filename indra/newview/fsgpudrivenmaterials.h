@@ -43,8 +43,8 @@ void fsGDDMaterialsUnloadShaders();
 // Frees the arenas and the per draw buffers.
 void fsGDDMaterialsReleaseGL();
 
-// FSPerfGPUDrivenRigged and what it builds on are on (one of FSPerfGPUDrivenMaterials, FSPerfGPUDrivenPBR and
-// FSPerfGPUDrivenLegacy, FSPerfRiggedPaletteBuffer, the driver's multi-draw support): LLViewerShaderMgr::
+// FSPerfGPUDrivenRigged and what it builds on are on (one of FSPerfGPUDrivenMaterials, FSPerfGPUDrivenPBR,
+// FSPerfGPUDrivenLegacy and FSPerfGPUDrivenAlpha, FSPerfRiggedPaletteBuffer, the driver's multi-draw support): LLViewerShaderMgr::
 // loadBasicShaders builds the skinning object the rigged programs link (LLShaderMgr::FS_GDD_SKIN_OBJECT).
 bool fsGDDRiggedWanted();
 // The rigged multi-draw programs may be built now (shader load): fsGDDRiggedWanted, the shaders read the palette

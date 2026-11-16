@@ -29,6 +29,7 @@
 #include "llfasttimer.h"
 #include "llsys.h"
 #include "llvertexbuffer.h"
+#include <atomic> // <FS:Trish/>
 #include <mutex> // <FS:Trish/>
 #include "llthread.h" // <FS:Trish/> on_main_thread
 // #include "llrender.h"
@@ -423,7 +424,16 @@ public:
         U8* mData;
         GLuint mGLName;
         Time mAge;
+        U32 mFrame; // <FS:Trish/> LLImageGL::sFrameCount when it was freed
     };
+
+    // <FS:Trish> A buffer freed this frame may still be read by draws queued earlier in the frame.
+    // Handed out again at once, its new owner overwrites it (glBufferSubData) while those draws
+    // are pending. GL requires the driver to keep them ordered, but some don't (UI corruption on
+    // NVIDIA Linux drivers before 620): a freed buffer is reused only after as many frames as
+    // deleted buffers wait (delete_buffers).
+    static constexpr U32 REUSE_DELAY_FRAMES = 3;
+    // </FS:Trish>
 
     ~LLDefaultVBOPool() override
     {
@@ -474,7 +484,10 @@ public:
         auto& pool = type == GL_ELEMENT_ARRAY_BUFFER ? mIBOPool : mVBOPool;
 
         Pool::iterator iter = pool.find(size);
-        if (iter == pool.end())
+        // <FS:Trish> the oldest entry is at the back: if it is too recent, so are the others
+        //if (iter == pool.end())
+        if (iter == pool.end() || LLImageGL::sFrameCount - iter->second.back().mFrame < REUSE_DELAY_FRAMES)
+        // </FS:Trish>
         { // cache miss, allocate a new buffer
             LL_PROFILE_ZONE_NAMED_CATEGORY_VERTEX("vbo pool miss");
             LL_PROFILE_GPU_ZONE("vbo alloc");
@@ -544,16 +557,20 @@ public:
 
         Pool::iterator iter = pool.find(size);
 
+        // <FS:Trish> also the frame it was freed in
         if (iter == pool.end())
         {
             std::list<Entry> newlist;
-            newlist.push_front({ data, name, std::chrono::steady_clock::now() });
+            //newlist.push_front({ data, name, std::chrono::steady_clock::now() });
+            newlist.push_front({ data, name, std::chrono::steady_clock::now(), LLImageGL::sFrameCount });
             pool[size] = newlist;
         }
         else
         {
-            iter->second.push_front({ data, name, std::chrono::steady_clock::now() });
+            //iter->second.push_front({ data, name, std::chrono::steady_clock::now() });
+            iter->second.push_front({ data, name, std::chrono::steady_clock::now(), LLImageGL::sFrameCount });
         }
+        // </FS:Trish>
 
     }
 
@@ -741,9 +758,27 @@ void LLVertexBufferData::draw()
 //============================================================================
 
 //static
+// <FS:Trish> fsAddExternalBytes
+namespace
+{
+    std::atomic<S64> sFSExternalBytes{ 0 };
+}
+
+//static
+void LLVertexBuffer::fsAddExternalBytes(S64 delta)
+{
+    sFSExternalBytes.fetch_add(delta, std::memory_order_relaxed);
+}
+// </FS:Trish>
+
+//static
 U64 LLVertexBuffer::getBytesAllocated()
 {
-    return sVBOPool ? sVBOPool->getVramBytesUsed() : 0;
+    //return sVBOPool ? sVBOPool->getVramBytesUsed() : 0;
+    // <FS:Trish> plus the arenas
+    const S64 external = llmax(sFSExternalBytes.load(std::memory_order_relaxed), (S64)0);
+    return (sVBOPool ? sVBOPool->getVramBytesUsed() : 0) + (U64)external;
+    // </FS:Trish>
 }
 
 //============================================================================

@@ -127,6 +127,7 @@ set(viewer_SOURCE_FILES
     fsfavoritegroups.cpp
     fsfoginterior.cpp
     fsgddarena.cpp
+    fsgpudrivenalpha.cpp
     fsgpudrivendraws.cpp
     fsgpudrivenlegacy.cpp
     fsgpudrivenmaterials.cpp
@@ -1031,6 +1032,7 @@ set(viewer_HEADER_FILES
     fsfavoritegroups.h
     fsfoginterior.h
     fsgddarena.h
+    fsgpudrivenalpha.h
     fsgpudrivendraws.h
     fsgpudrivenlegacy.h
     fsgpudrivenmaterials.h

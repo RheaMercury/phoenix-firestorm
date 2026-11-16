@@ -60,6 +60,7 @@
 #include "fsgddarena.h"
 #include "fsgpudrivenlegacy.h"
 #include "fsgpudrivenmaterials.h"
+#include "fsgpudrivenalpha.h"
 #include "fsgpudrivenpbr.h"
 #include "fsgpudrivenshadowalpha.h"
 
@@ -162,6 +163,7 @@ void fsGDDReleaseGL()
 {
     fsGDDLegacyReleaseGL();
     fsGDDMaterialsReleaseGL();
+    fsGDDAlphaReleaseGL();
     fsGDDPBRReleaseGL();
     fsGDDShadowAlphaReleaseGL();
     release_shadow_gl();
@@ -172,6 +174,7 @@ void fsGDDUnloadShaders()
     unload_shadow_shaders();
     fsGDDLegacyUnloadShaders(); // releases the legacy GL objects too
     fsGDDMaterialsUnloadShaders();  // and the material pass's
+    fsGDDAlphaUnloadShaders();      // and the alpha pass's
     fsGDDPBRUnloadShaders();    // releases the PBR GL objects too
     fsGDDShadowAlphaUnloadShaders();
 }
@@ -218,6 +221,8 @@ bool fsGDDLoadShaders(S32 shader_level, bool use_shadow)
     fsGDDLegacyLoadShaders();
     // and the legacy material passes (FSPerfGPUDrivenMaterials)
     fsGDDMaterialsLoadShaders();
+    // and the forward alpha pass (FSPerfGPUDrivenAlpha), also with bindless textures
+    fsGDDAlphaLoadShaders();
     // and the alpha tested shadow casters (FSPerfGPUDrivenShadowAlpha), also with bindless textures
     fsGDDShadowAlphaLoadShaders(shader_level, use_shadow);
 
@@ -613,7 +618,7 @@ namespace
             LL_INFOS("FSShadowBatches") << "GPU-driven shadow casters: " << sStatBatches << " batches, "
                                         << sStatCommands << " draw commands in " << sStatCalls << " multi-draw calls, "
                                         << sStatLeft << " batches left to the stock path; arena " << sArena.vertexMB()
-                                        << " MB positions, " << sArena.indexMB() << " MB indices, "
+                                        << " MB positions, " << sArena.indexMB() << " MB indices (" << sArena.allocatedMB() << " MB allocated), "
                                         << sArena.uploads() << " buffer copies, " << sArena.fallbacks()
                                         << " buffers not in the arena" << LL_ENDL;
             sStatBatches = 0;

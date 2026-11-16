@@ -410,6 +410,7 @@ namespace
         { "FSPerfGPUDrivenPBR", CS, VN },
         { "FSPerfRiggedPaletteBuffer", CS, VN },
         { "FSPerfGPUDrivenRigged", CS, VN },
+        { "FSPerfGPUDrivenAlpha", CS, VN },
         { "FSPerfGPUDrivenPBRBindless", CS, VN },
         { "FSPerfGPUDrivenPBRArenaMB", CL, VN },
         { "FSPerfGPUDrivenLegacy", CS, VN },
