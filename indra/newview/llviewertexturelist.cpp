@@ -68,6 +68,7 @@
 #include "llvovolume.h" // <FS:Trish/> animated texture resolution
 #include "fstextureupload.h" // <FS:Trish/> FSPerfTextureUploadPBO
 #include "fsparalleltexture.h" // <FS:Trish/> FSPerfParallelTexturePriority
+#include <atomic> // <FS:Trish/> upload encode settings
 
 ////////////////////////////////////////////////////////////////////////////
 
@@ -2145,6 +2146,37 @@ bool LLViewerTextureList::createUploadFile(const std::string& filename,
     return true;
 }
 
+// <FS:Trish> The upload encode settings, readable from any thread (see fsInitUploadEncodeSettings)
+namespace
+{
+    std::atomic<bool> sFSUploadLossless{ false };       // LosslessJ2CUpload
+    std::atomic<bool> sFSUploadAdvanced{ false };       // Jpeg2000AdvancedCompression
+    std::atomic<S32>  sFSUploadBlockSize{ 64 };         // Jpeg2000BlocksSize
+    std::atomic<S32>  sFSUploadPrecinctSize{ 256 };     // Jpeg2000PrecinctsSize
+
+    void fs_read_upload_encode_settings()
+    {
+        sFSUploadLossless = gSavedSettings.getBOOL("LosslessJ2CUpload");
+        sFSUploadAdvanced = gSavedSettings.getBOOL("Jpeg2000AdvancedCompression");
+        sFSUploadBlockSize = gSavedSettings.getS32("Jpeg2000BlocksSize");
+        sFSUploadPrecinctSize = gSavedSettings.getS32("Jpeg2000PrecinctsSize");
+    }
+}
+
+//static
+void LLViewerTextureList::fsInitUploadEncodeSettings()
+{
+    fs_read_upload_encode_settings();
+    for (const char* name : { "LosslessJ2CUpload", "Jpeg2000AdvancedCompression", "Jpeg2000BlocksSize", "Jpeg2000PrecinctsSize" })
+    {
+        if (LLControlVariable* control = gSavedSettings.getControl(name))
+        {
+            control->getSignal()->connect([](LLControlVariable*, const LLSD&, const LLSD&) { fs_read_upload_encode_settings(); });
+        }
+    }
+}
+// </FS:Trish>
+
 // note: modifies the argument raw_image!!!!
 LLPointer<LLImageJ2C> LLViewerTextureList::convertToUploadFile(LLPointer<LLImageRaw> raw_image, const S32 max_image_dimentions, bool force_square, bool force_lossless)
 {
@@ -2165,21 +2197,26 @@ LLPointer<LLImageJ2C> LLViewerTextureList::convertToUploadFile(LLPointer<LLImage
     LLPointer<LLImageJ2C> compressedImage = new LLImageJ2C();
 
     if (force_lossless ||
-        (gSavedSettings.getBOOL("LosslessJ2CUpload") &&
+        (sFSUploadLossless.load() && // <FS:Trish/> was gSavedSettings, not on worker threads
             (raw_image->getWidth() * raw_image->getHeight() <= LL_IMAGE_REZ_LOSSLESS_CUTOFF * LL_IMAGE_REZ_LOSSLESS_CUTOFF)))
     {
         compressedImage->setReversible(true);
     }
 
 
-    if (gSavedSettings.getBOOL("Jpeg2000AdvancedCompression"))
+    // <FS:Trish> Copies of the settings, see fsInitUploadEncodeSettings
+    //if (gSavedSettings.getBOOL("Jpeg2000AdvancedCompression"))
+    if (sFSUploadAdvanced.load())
     {
         // This test option will create jpeg2000 images with precincts for each level, RPCL ordering
         // and PLT markers. The block size is also optionally modifiable.
         // Note: the images hence created are compatible with older versions of the viewer.
         // Read the blocks and precincts size settings
-        S32 block_size = gSavedSettings.getS32("Jpeg2000BlocksSize");
-        S32 precinct_size = gSavedSettings.getS32("Jpeg2000PrecinctsSize");
+        //S32 block_size = gSavedSettings.getS32("Jpeg2000BlocksSize");
+        //S32 precinct_size = gSavedSettings.getS32("Jpeg2000PrecinctsSize");
+        S32 block_size = sFSUploadBlockSize.load();
+        S32 precinct_size = sFSUploadPrecinctSize.load();
+        // </FS:Trish>
         LL_INFOS() << "Advanced JPEG2000 Compression: precinct = " << precinct_size << ", block = " << block_size << LL_ENDL;
         compressedImage->initEncode(*raw_image, block_size, precinct_size, 0);
     }

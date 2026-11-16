@@ -52,6 +52,8 @@
 #include "llresourcedata.h"
 #include "llstatusbar.h"
 #include "lltinygltfhelper.h"
+#include <map> // <FS:Trish/> bulk upload off the main thread
+#include "workqueue.h" // <FS:Trish/> bulk upload off the main thread
 #include "lltoast.h"
 #include "llviewercontrol.h"    // gSavedSettings
 #include "llviewertexturelist.h"
@@ -547,6 +549,126 @@ void upload_single_file(
     return;
 }
 
+// <FS:Trish> Bulk upload of GLTF materials off the main thread. Parsing a GLTF file decodes all its
+// images (seconds for a large one), and the cost estimate parsed every file, then again whenever the
+// bulk upload floater recounted, and the upload once more, all on the main thread, before preparing and
+// compressing every material's maps there too.
+//  - upload_bulk scans the GLTF files on a worker first: per material, the size of each map it uploads.
+//    The cost is counted from that, on the main thread, as often as the floater asks.
+//  - do_bulk_upload parses each GLTF file and prepares its materials (maps, compression) on a worker; each
+//    material is posted to the main thread as it is ready, which makes its textures and uploads it.
+namespace
+{
+    struct FSGLTFScan
+    {
+        std::vector<std::vector<std::pair<S32, S32>>> mMaterialMaps;  // per material, the sizes of its maps
+    };
+    std::map<std::string, FSGLTFScan> sFSGLTFScans;   // main thread only
+
+    // The size a map is uploaded from, as LLTinyGLTFHelper::getTexture takes it; 0 when it has none
+    std::pair<S32, S32> fs_gltf_map_size(const tinygltf::Model& model, S32 texture_index)
+    {
+        const tinygltf::Image* image = LLTinyGLTFHelper::getImageFromTextureIndex(model, texture_index);
+        if (image && image->bits == 8 && !image->image.empty() && image->component <= 4)
+        {
+            return { image->width, image->height };
+        }
+        return { 0, 0 };
+    }
+
+    // Any thread. The maps as getMaterialFromModel makes them, which the cost was counted from.
+    FSGLTFScan fs_scan_gltf(const std::string& filename)
+    {
+        FSGLTFScan scan;
+        tinygltf::Model model;
+        if (!LLTinyGLTFHelper::loadModel(filename, model))
+        {
+            return scan;
+        }
+        for (const tinygltf::Material& material : model.materials)
+        {
+            const S32 mr_index = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
+            std::pair<S32, S32> mr = fs_gltf_map_size(model, mr_index);
+            if (mr.first == 0 && material.occlusionTexture.index != mr_index)
+            {   // a metallic roughness map is made the size of the occlusion map
+                mr = fs_gltf_map_size(model, material.occlusionTexture.index);
+            }
+            std::vector<std::pair<S32, S32>> maps;
+            for (const std::pair<S32, S32>& size : { fs_gltf_map_size(model, material.pbrMetallicRoughness.baseColorTexture.index),
+                                                     fs_gltf_map_size(model, material.normalTexture.index),
+                                                     mr,
+                                                     fs_gltf_map_size(model, material.emissiveTexture.index) })
+            {
+                if (size.first > 0 && size.second > 0)
+                {
+                    maps.push_back(size);
+                }
+            }
+            scan.mMaterialMaps.push_back(std::move(maps));
+        }
+        return scan;
+    }
+
+    bool fs_is_gltf(const std::string& filename)
+    {
+        const std::string ext = gDirUtilp->getExtension(filename);
+        return ext == "gltf" || ext == "glb";
+    }
+
+    // As before, all on the main thread
+    void fs_upload_gltf_now(const std::string& filename, const LLUUID& dest)
+    {
+        tinygltf::Model model;
+        if (LLTinyGLTFHelper::loadModel(filename, model))
+        {
+            S32 materials_in_file = static_cast<S32>(model.materials.size());
+
+            for (S32 i = 0; i < materials_in_file; i++)
+            {
+                // Todo:
+                // 1. Decouple bulk upload from material editor
+                // 2. Take into account possiblity of identical textures
+                LLMaterialEditor::uploadMaterialFromModel(filename, model, i, dest);
+            }
+        }
+    }
+
+    void fs_upload_gltf(const std::string& filename, const LLUUID& dest)
+    {
+        LL::WorkQueue::ptr_t general_queue = LL::WorkQueue::getInstance("General");
+        const bool parallel_encode = LLMaterialEditor::fsParallelEncode();
+        const bool posted = general_queue && general_queue->post([filename, dest, parallel_encode]()
+        {
+            // The model stays alive until its last material is uploaded; the worker and the main
+            // thread only read it
+            std::shared_ptr<tinygltf::Model> model = std::make_shared<tinygltf::Model>();
+            if (!LLTinyGLTFHelper::loadModel(filename, *model))
+            {
+                return;
+            }
+            const S32 count = static_cast<S32>(model->materials.size());
+            for (S32 i = 0; i < count; ++i)
+            {
+                auto prepared = std::make_shared<LLMaterialEditor::FSPreparedMaterial>();
+                LLMaterialEditor::fsPrepareMaterial(*model, filename, i, true, parallel_encode, *prepared);
+                LL::WorkQueue::ptr_t main_queue = LL::WorkQueue::getInstance("mainloop");
+                if (!main_queue || !main_queue->post([filename, dest, model, i, prepared]()
+                    {
+                        LLMaterialEditor::fsUploadPreparedMaterial(filename, *model, i, dest, *prepared);
+                    }))
+                {
+                    return; // shutting down
+                }
+            }
+        });
+        if (!posted)
+        {
+            fs_upload_gltf_now(filename, dest);
+        }
+    }
+}
+// </FS:Trish>
+
 void do_bulk_upload(std::vector<std::string> filenames, bool allow_2k, const LLUUID& dest)
 {
     for (std::vector<std::string>::const_iterator in_iter = filenames.begin(); in_iter != filenames.end(); ++in_iter)
@@ -704,19 +826,11 @@ void do_bulk_upload(std::vector<std::string> filenames, bool allow_2k, const LLU
         // gltf does not use normal upload procedure
         if (ext == "gltf" || ext == "glb")
         {
-            tinygltf::Model model;
-            if (LLTinyGLTFHelper::loadModel(filename, model))
-            {
-                S32 materials_in_file = static_cast<S32>(model.materials.size());
-
-                for (S32 i = 0; i < materials_in_file; i++)
-                {
-                    // Todo:
-                    // 1. Decouple bulk upload from material editor
-                    // 2. Take into account possiblity of identical textures
-                    LLMaterialEditor::uploadMaterialFromModel(filename, model, i, dest);
-                }
-            }
+            // <FS:Trish> Prepared on a worker, uploaded on the main thread material by material
+            //tinygltf::Model model;
+            //...
+            fs_upload_gltf(filename, dest);
+            // </FS:Trish>
         }
     }
 }
@@ -807,51 +921,110 @@ bool get_bulk_upload_expected_cost(
             }
         }
 
+        // <FS:Trish> From the sizes upload_bulk scanned on a worker, instead of parsing the file and making
+        // textures of all its maps here each time. A file not scanned ahead is scanned here.
         if (ext == "gltf" || ext == "glb")
         {
-            tinygltf::Model model;
-
-            if (LLTinyGLTFHelper::loadModel(filename, model))
+            auto scan = sFSGLTFScans.find(filename);
+            if (scan == sFSGLTFScans.end())
             {
-                S32 materials_in_file = static_cast<S32>(model.materials.size());
-
-                for (S32 i = 0; i < materials_in_file; i++)
+                scan = sFSGLTFScans.emplace(filename, fs_scan_gltf(filename)).first;
+            }
+            for (const std::vector<std::pair<S32, S32>>& maps : scan->second.mMaterialMaps)
+            {
+                for (const std::pair<S32, S32>& size : maps)
                 {
-                    LLPointer<LLFetchedGLTFMaterial> material = new LLFetchedGLTFMaterial();
-                    std::string material_name;
-                    bool decode_successful = LLTinyGLTFHelper::getMaterialFromModel(filename, model, i, material.get(), material_name);
-
-                    if (decode_successful)
-                    {
-                        // Todo: make it account for possibility of same texture in different
-                        // materials and even in scope of same material
-                        if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR].notNull() && material->mBaseColorTexture)
-                        {
-                            total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mBaseColorTexture);
-                        }
-                        if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_METALLIC_ROUGHNESS].notNull() && material->mMetallicRoughnessTexture)
-                        {
-                            total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mMetallicRoughnessTexture);
-                        }
-                        if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_NORMAL].notNull() && material->mNormalTexture)
-                        {
-                            total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mNormalTexture);
-                        }
-                        if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_EMISSIVE].notNull() && material->mEmissiveTexture)
-                        {
-                            total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mEmissiveTexture);
-                        }
-                        file_count++;
-                    }
+                    total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(size.first, size.second);
                 }
+                file_count++;
             }
         }
+        // </FS:Trish>
+        //if (ext == "gltf" || ext == "glb") // <FS:Trish> the stock count, replaced above
+        //{
+        //    tinygltf::Model model;
+//
+        //    if (LLTinyGLTFHelper::loadModel(filename, model))
+        //    {
+        //        S32 materials_in_file = static_cast<S32>(model.materials.size());
+//
+        //        for (S32 i = 0; i < materials_in_file; i++)
+        //        {
+        //            LLPointer<LLFetchedGLTFMaterial> material = new LLFetchedGLTFMaterial();
+        //            std::string material_name;
+        //            bool decode_successful = LLTinyGLTFHelper::getMaterialFromModel(filename, model, i, material.get(), material_name);
+//
+        //            if (decode_successful)
+        //            {
+        //                // Todo: make it account for possibility of same texture in different
+        //                // materials and even in scope of same material
+        //                if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR].notNull() && material->mBaseColorTexture)
+        //                {
+        //                    total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mBaseColorTexture);
+        //                }
+        //                if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_METALLIC_ROUGHNESS].notNull() && material->mMetallicRoughnessTexture)
+        //                {
+        //                    total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mMetallicRoughnessTexture);
+        //                }
+        //                if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_NORMAL].notNull() && material->mNormalTexture)
+        //                {
+        //                    total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mNormalTexture);
+        //                }
+        //                if (material->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_EMISSIVE].notNull() && material->mEmissiveTexture)
+        //                {
+        //                    total_cost += LLAgentBenefitsMgr::current().getTextureUploadCost(material->mEmissiveTexture);
+        //                }
+        //                file_count++;
+        //            }
+        //        }
+        //    }
+        //}
+        // </FS:Trish>
     }
 
     return file_count > 0;
 }
 
+// <FS:Trish> The GLTF files are scanned on a worker first, see fs_scan_gltf
+static void fs_upload_bulk_scanned(const std::vector<std::string>& filtered_filenames, bool allow_2k, const LLUUID& dest);
+
 void upload_bulk(const std::vector<std::string>& filtered_filenames, bool allow_2k, const LLUUID& dest)
+{
+    std::vector<std::string> gltf_files;
+    std::copy_if(filtered_filenames.begin(), filtered_filenames.end(), std::back_inserter(gltf_files), fs_is_gltf);
+    if (!gltf_files.empty())
+    {
+        LL::WorkQueue::ptr_t main_queue = LL::WorkQueue::getInstance("mainloop");
+        LL::WorkQueue::ptr_t general_queue = LL::WorkQueue::getInstance("General");
+        if (main_queue && general_queue && main_queue->postTo(
+            general_queue,
+            [gltf_files]() // on the worker
+            {
+                std::vector<FSGLTFScan> scans;
+                for (const std::string& filename : gltf_files)
+                {
+                    scans.push_back(fs_scan_gltf(filename));
+                }
+                return scans;
+            },
+            [gltf_files, filtered_filenames, allow_2k, dest](std::vector<FSGLTFScan> scans) // back on the main thread
+            {
+                sFSGLTFScans.clear();
+                for (size_t i = 0; i < gltf_files.size() && i < scans.size(); ++i)
+                {
+                    sFSGLTFScans[gltf_files[i]] = std::move(scans[i]);
+                }
+                fs_upload_bulk_scanned(filtered_filenames, allow_2k, dest);
+            }))
+        {
+            return;
+        }
+    }
+    fs_upload_bulk_scanned(filtered_filenames, allow_2k, dest);
+}
+
+static void fs_upload_bulk_scanned(const std::vector<std::string>& filtered_filenames, bool allow_2k, const LLUUID& dest)
+// </FS:Trish>
 {
     S32 expected_upload_cost;
     S32 expected_upload_count;

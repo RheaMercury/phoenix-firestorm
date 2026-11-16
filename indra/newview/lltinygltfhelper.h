@@ -62,5 +62,23 @@ namespace LLTinyGLTFHelper
         LLPointer<LLViewerFetchedTexture>& normal_tex,
         LLPointer<LLViewerFetchedTexture>& mr_tex,
         LLPointer<LLViewerFetchedTexture>& emissive_tex);
+
+    // <FS:Trish> initFetchedTextures in two: the image work (alpha stripping, occlusion packed into the
+    // metallic roughness map), on any thread, then the texture creation, main thread only
+    void fsPrepareTextures(const tinygltf::Material& material,
+        LLPointer<LLImageRaw>& normal_img,
+        LLPointer<LLImageRaw>& mr_img,
+        LLPointer<LLImageRaw>& emissive_img,
+        LLPointer<LLImageRaw>& occlusion_img);
+    void fsCreateFetchedTextures(
+        LLPointer<LLImageRaw>& base_color_img,
+        LLPointer<LLImageRaw>& normal_img,
+        LLPointer<LLImageRaw>& mr_img,
+        LLPointer<LLImageRaw>& emissive_img,
+        LLPointer<LLViewerFetchedTexture>& base_color_tex,
+        LLPointer<LLViewerFetchedTexture>& normal_tex,
+        LLPointer<LLViewerFetchedTexture>& mr_tex,
+        LLPointer<LLViewerFetchedTexture>& emissive_tex);
+    // </FS:Trish>
 }
 

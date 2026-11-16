@@ -108,6 +108,11 @@ public:
                                                      const S32 max_image_dimentions = LLViewerFetchedTexture::MAX_IMAGE_SIZE_DEFAULT,
                                                      bool force_square = false,
                                                      bool force_lossless = false);
+    // <FS:Trish> convertToUploadFile runs on worker threads (parallel material map encodes, the mesh
+    // upload thread), where reading gSavedSettings races the main thread on the values' reference counts.
+    // Its settings are copied here instead: once on the main thread at startup, then on every change.
+    static void fsInitUploadEncodeSettings();
+    // </FS:Trish>
     static void processImageNotInDatabase( LLMessageSystem *msg, void **user_data );
     // <FS:Ansariel> OpenSim compatibility
     static void receiveImageHeader(LLMessageSystem *msg, void **user_data);

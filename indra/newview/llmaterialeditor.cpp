@@ -2006,13 +2006,14 @@ static void pack_textures(
     LLPointer<LLImageJ2C>& base_color_j2c,
     LLPointer<LLImageJ2C>& normal_j2c,
     LLPointer<LLImageJ2C>& mr_j2c,
-    LLPointer<LLImageJ2C>& emissive_j2c)
+    LLPointer<LLImageJ2C>& emissive_j2c,
+    bool parallel_encode) // <FS:Trish/> read on the main thread, this runs on a worker for bulk uploads
 {
     // NOTE : remove log spam and lossless vs lossy comparisons when the logs are no longer useful
 
-    // <FS:Trish> FSPerfParallelTextureEncode: the maps are independent, encode them at the same time. The
-    // main thread waits here either way, so nothing else touches the settings the encode reads.
-    static LLCachedControl<bool> parallel_encode(gSavedSettings, "FSPerfParallelTextureEncode", true);
+    // <FS:Trish> FSPerfParallelTextureEncode: the maps are independent, encode them at the same time.
+    // The caller waits here either way. convertToUploadFile reads no settings on these threads (see
+    // LLViewerTextureList::fsInitUploadEncodeSettings).
     if (parallel_encode)
     {
         auto encode_async = [](LLPointer<LLImageRaw>& img)
@@ -2627,34 +2628,102 @@ void LLMaterialEditor::loadMaterial(const tinygltf::Model &model_in, const std::
     {
         return;
     }
+    // <FS:Trish> In two parts, the first one also runs on a worker for bulk uploads. Here the J2C are
+    // made after the textures, as before, so the floater sees the unscaled ones.
+    FSPreparedMaterial prepared;
+    fsPrepareMaterial(model_in, filename, index, false, fsParallelEncode(), prepared);
+    fsApplyPreparedMaterial(model_in, filename, index, prepared, open_floater);
+}
+
+//static
+bool LLMaterialEditor::fsParallelEncode()
+{
+    static LLCachedControl<bool> parallel_encode(gSavedSettings, "FSPerfParallelTextureEncode", true);
+    return parallel_encode;
+}
+
+//static
+void LLMaterialEditor::fsPrepareMaterial(const tinygltf::Model& model_in, const std::string& filename, S32 index,
+                                         bool encode, bool parallel_encode, FSPreparedMaterial& prepared)
+{
+    if (index < 0 || model_in.materials.size() <= index)
+    {
+        return;
+    }
     std::string folder = gDirUtilp->getDirName(filename);
 
-    tinygltf::Material material_in = model_in.materials[index];
-
-    tinygltf::Model  model_out;
-    model_out.asset.version = "2.0";
-    model_out.materials.resize(1);
+    const tinygltf::Material& material_in = model_in.materials[index];
 
     // get base color texture
-    LLPointer<LLImageRaw> base_color_img = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.pbrMetallicRoughness.baseColorTexture.index, mBaseColorName);
+    prepared.mBaseColorImg = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.pbrMetallicRoughness.baseColorTexture.index, prepared.mBaseColorName);
     // get normal map
-    LLPointer<LLImageRaw> normal_img = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.normalTexture.index, mNormalName);
+    prepared.mNormalImg = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.normalTexture.index, prepared.mNormalName);
     // get metallic-roughness texture
-    LLPointer<LLImageRaw> mr_img = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.pbrMetallicRoughness.metallicRoughnessTexture.index, mMetallicRoughnessName);
+    prepared.mMetallicRoughnessImg = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.pbrMetallicRoughness.metallicRoughnessTexture.index, prepared.mMetallicRoughnessName);
     // get emissive texture
-    LLPointer<LLImageRaw> emissive_img = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.emissiveTexture.index, mEmissiveName);
+    prepared.mEmissiveImg = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.emissiveTexture.index, prepared.mEmissiveName);
     // get occlusion map if needed
-    LLPointer<LLImageRaw> occlusion_img;
     if (material_in.occlusionTexture.index != material_in.pbrMetallicRoughness.metallicRoughnessTexture.index)
     {
         std::string tmp;
-        occlusion_img = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.occlusionTexture.index, tmp);
+        prepared.mOcclusionImg = LLTinyGLTFHelper::getTexture(folder, model_in, material_in.occlusionTexture.index, tmp);
     }
 
-    LLTinyGLTFHelper::initFetchedTextures(material_in, base_color_img, normal_img, mr_img, emissive_img, occlusion_img,
-        mBaseColorFetched, mNormalFetched, mMetallicRoughnessFetched, mEmissiveFetched);
-    pack_textures(base_color_img, normal_img, mr_img, emissive_img, occlusion_img,
-        mBaseColorJ2C, mNormalJ2C, mMetallicRoughnessJ2C, mEmissiveJ2C);
+    LLTinyGLTFHelper::fsPrepareTextures(material_in, prepared.mNormalImg, prepared.mMetallicRoughnessImg,
+        prepared.mEmissiveImg, prepared.mOcclusionImg);
+
+    if (encode)
+    {   // scales the images to what is uploaded, the textures made from them after are that size too
+        pack_textures(prepared.mBaseColorImg, prepared.mNormalImg, prepared.mMetallicRoughnessImg, prepared.mEmissiveImg,
+            prepared.mOcclusionImg, prepared.mBaseColorJ2C, prepared.mNormalJ2C, prepared.mMetallicRoughnessJ2C,
+            prepared.mEmissiveJ2C, parallel_encode);
+        prepared.mEncoded = true;
+    }
+}
+
+//static
+void LLMaterialEditor::fsUploadPreparedMaterial(const std::string& filename, const tinygltf::Model& model_in, S32 index,
+                                                const LLUUID& dest, FSPreparedMaterial& prepared)
+{
+    // as uploadMaterialFromModel
+    if (index < 0 || model_in.materials.size() <= index || !LLMaterialEditor::capabilitiesAvailable())
+    {
+        return;
+    }
+    LLMaterialEditor* me = (LLMaterialEditor*)LLFloaterReg::getInstance("material_editor", LLSD().with("filename", filename).with("index", LLSD::Integer(index)));
+    me->mUploadFolder = dest;
+    me->fsApplyPreparedMaterial(model_in, filename, index, prepared, false);
+    me->saveIfNeeded();
+}
+
+void LLMaterialEditor::fsApplyPreparedMaterial(const tinygltf::Model& model_in, const std::string& filename, S32 index,
+                                               FSPreparedMaterial& prepared, bool open_floater)
+{
+    if (index < 0 || model_in.materials.size() <= index)
+    {
+        return;
+    }
+
+    mBaseColorName = prepared.mBaseColorName;
+    mNormalName = prepared.mNormalName;
+    mMetallicRoughnessName = prepared.mMetallicRoughnessName;
+    mEmissiveName = prepared.mEmissiveName;
+
+    LLTinyGLTFHelper::fsCreateFetchedTextures(prepared.mBaseColorImg, prepared.mNormalImg, prepared.mMetallicRoughnessImg,
+        prepared.mEmissiveImg, mBaseColorFetched, mNormalFetched, mMetallicRoughnessFetched, mEmissiveFetched);
+    if (prepared.mEncoded)
+    {
+        mBaseColorJ2C = prepared.mBaseColorJ2C;
+        mNormalJ2C = prepared.mNormalJ2C;
+        mMetallicRoughnessJ2C = prepared.mMetallicRoughnessJ2C;
+        mEmissiveJ2C = prepared.mEmissiveJ2C;
+    }
+    else
+    {
+        pack_textures(prepared.mBaseColorImg, prepared.mNormalImg, prepared.mMetallicRoughnessImg, prepared.mEmissiveImg,
+            prepared.mOcclusionImg, mBaseColorJ2C, mNormalJ2C, mMetallicRoughnessJ2C, mEmissiveJ2C, fsParallelEncode());
+    }
+    // </FS:Trish>
 
     if (open_floater)
     {

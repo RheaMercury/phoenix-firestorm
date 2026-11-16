@@ -61,6 +61,8 @@ static void copy_red_channel(const LLPointer<LLImageRaw>& src_img, LLPointer<LLI
     }
 }
 
+// <FS:Trish> Split in two: the image work, which needs no GL and runs on any thread (bulk upload prepares
+// materials on a worker), and the texture creation, main thread only
 void LLTinyGLTFHelper::initFetchedTextures(tinygltf::Material& material,
     LLPointer<LLImageRaw>& base_color_img,
     LLPointer<LLImageRaw>& normal_img,
@@ -72,15 +74,48 @@ void LLTinyGLTFHelper::initFetchedTextures(tinygltf::Material& material,
     LLPointer<LLViewerFetchedTexture>& mr_tex,
     LLPointer<LLViewerFetchedTexture>& emissive_tex)
 {
+    fsPrepareTextures(material, normal_img, mr_img, emissive_img, occlusion_img);
+    fsCreateFetchedTextures(base_color_img, normal_img, mr_img, emissive_img,
+        base_color_tex, normal_tex, mr_tex, emissive_tex);
+}
+
+void LLTinyGLTFHelper::fsCreateFetchedTextures(
+    LLPointer<LLImageRaw>& base_color_img,
+    LLPointer<LLImageRaw>& normal_img,
+    LLPointer<LLImageRaw>& mr_img,
+    LLPointer<LLImageRaw>& emissive_img,
+    LLPointer<LLViewerFetchedTexture>& base_color_tex,
+    LLPointer<LLViewerFetchedTexture>& normal_tex,
+    LLPointer<LLViewerFetchedTexture>& mr_tex,
+    LLPointer<LLViewerFetchedTexture>& emissive_tex)
+{
     if (base_color_img)
     {
         base_color_tex = LLViewerTextureManager::getFetchedTexture(base_color_img, FTType::FTT_LOCAL_FILE, true);
     }
+    if (normal_img)
+    {
+        normal_tex = LLViewerTextureManager::getFetchedTexture(normal_img, FTType::FTT_LOCAL_FILE, true);
+    }
+    if (mr_img)
+    {
+        mr_tex = LLViewerTextureManager::getFetchedTexture(mr_img, FTType::FTT_LOCAL_FILE, true);
+    }
+    if (emissive_img)
+    {
+        emissive_tex = LLViewerTextureManager::getFetchedTexture(emissive_img, FTType::FTT_LOCAL_FILE, true);
+    }
+}
 
+void LLTinyGLTFHelper::fsPrepareTextures(const tinygltf::Material& material,
+    LLPointer<LLImageRaw>& normal_img,
+    LLPointer<LLImageRaw>& mr_img,
+    LLPointer<LLImageRaw>& emissive_img,
+    LLPointer<LLImageRaw>& occlusion_img)
+{
     if (normal_img)
     {
         strip_alpha_channel(normal_img);
-        normal_tex = LLViewerTextureManager::getFetchedTexture(normal_img, FTType::FTT_LOCAL_FILE, true);
     }
 
     if (mr_img)
@@ -123,17 +158,12 @@ void LLTinyGLTFHelper::initFetchedTextures(tinygltf::Material& material,
         copy_red_channel(occlusion_img, mr_img);
     }
 
-    if (mr_img)
-    {
-        mr_tex = LLViewerTextureManager::getFetchedTexture(mr_img, FTType::FTT_LOCAL_FILE, true);
-    }
-
     if (emissive_img)
     {
         strip_alpha_channel(emissive_img);
-        emissive_tex = LLViewerTextureManager::getFetchedTexture(emissive_img, FTType::FTT_LOCAL_FILE, true);
     }
 }
+// </FS:Trish>
 
 LLColor4 LLTinyGLTFHelper::getColor(const std::vector<double>& in)
 {

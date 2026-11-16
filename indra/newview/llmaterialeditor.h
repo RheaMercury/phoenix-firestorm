@@ -111,6 +111,25 @@ class LLMaterialEditor : public LLPreview, public LLVOInventoryListener
                                         const LLUUID& dest_folder_id = LLUUID::null);
     static void loadMaterialFromFile(const std::string& filename, S32 index = -1, const LLUUID& dest_folder = LLUUID::null);
 
+    // <FS:Trish> Bulk upload off the main thread. The image work of loadMaterial (the maps taken out of
+    // the model, alpha stripped, occlusion packed, compressed for upload) is prepared on a worker
+    // (fsPrepareMaterial, any thread); the textures, the editor state and the upload follow on the
+    // main thread (fsUploadPreparedMaterial).
+    struct FSPreparedMaterial
+    {
+        LLPointer<LLImageRaw>   mBaseColorImg, mNormalImg, mMetallicRoughnessImg, mEmissiveImg, mOcclusionImg;
+        std::string             mBaseColorName, mNormalName, mMetallicRoughnessName, mEmissiveName;
+        LLPointer<LLImageJ2C>   mBaseColorJ2C, mNormalJ2C, mMetallicRoughnessJ2C, mEmissiveJ2C;
+        bool                    mEncoded = false;   // the J2C are made; otherwise the main thread makes them
+    };
+    // parallel_encode: FSPerfParallelTextureEncode, read on the main thread (fsParallelEncode)
+    static void fsPrepareMaterial(const tinygltf::Model& model, const std::string& filename, S32 index,
+                                  bool encode, bool parallel_encode, FSPreparedMaterial& prepared);
+    static void fsUploadPreparedMaterial(const std::string& filename, const tinygltf::Model& model, S32 index,
+                                         const LLUUID& dest_folder, FSPreparedMaterial& prepared);
+    static bool fsParallelEncode();
+    // </FS:Trish>
+
     void onSelectionChanged(); // live overrides selection changes
 
     static void updateLive();
@@ -246,6 +265,10 @@ private:
     bool setFromSelection();
 
     void loadMaterial(const tinygltf::Model &model, const std::string & filename, S32 index, bool open_floater = true);
+    // <FS:Trish> loadMaterial after its image work, see FSPreparedMaterial
+    void fsApplyPreparedMaterial(const tinygltf::Model& model, const std::string& filename, S32 index,
+                                 FSPreparedMaterial& prepared, bool open_floater);
+    // </FS:Trish>
 
     friend class LLMaterialFilePicker;
 

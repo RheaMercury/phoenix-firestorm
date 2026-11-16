@@ -2960,6 +2960,7 @@ bool LLAppViewer::initThreads()
         };
         set_encode_threads();
         gSavedSettings.getControl("FSPerfParallelTextureEncode")->getSignal()->connect([set_encode_threads](LLControlVariable*, const LLSD&, const LLSD&) { set_encode_threads(); });
+        LLViewerTextureList::fsInitUploadEncodeSettings(); // the encode runs on worker threads too
     }
     // </FS:Trish>
 
