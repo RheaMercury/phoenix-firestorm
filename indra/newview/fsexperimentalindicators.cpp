@@ -443,6 +443,15 @@ namespace
         { "FSRenderGPUTimings", CM, VN },
         { "FSRenderGPUTimingsInterval", CL, VN },
         { "FSRenderThreadCheck", CM, VN },
+        { "FSPerfGPUDrivenPBRStats", CL, VN },
+        { "FSPerfGPUDrivenLegacyStats", CL, VN },
+        { "FSPerfGPUDrivenMaterialsStats", CL, VN },
+        { "FSPerfShadowBatchStats", CL, VN },
+        { "FSPerfGPUDrivenPBRVerify", CH, VN },
+        { "FSPerfGPUDrivenLegacyVerify", CH, VN },
+        { "FSPerfGPUDrivenMaterialsVerify", CH, VN },
+        { "FSRenderVRSLogInterval", CL, VN },
+        { "FSDebugReflectionProbeCulls", CL, VN },
     };
 
     const LLColor4& costColor(Cost cost)
