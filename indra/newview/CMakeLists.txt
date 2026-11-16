@@ -112,6 +112,7 @@ set(viewer_SOURCE_FILES
     fsblocklistmenu.cpp
     fschathistory.cpp
     fschatoptionsmenu.cpp
+    fsclusteredlights.cpp
     fscommon.cpp
     fsconsoleutils.cpp
     fscontactsfriendsmenu.cpp
@@ -219,6 +220,7 @@ set(viewer_SOURCE_FILES
     fsskinpalettebuffer.cpp
     fsssrbuffer.cpp
     fsssrhiz.cpp
+    fsspotlightbatch.cpp
     fsvirtualtrackpad.cpp
     fsvrs.cpp
     fsworldmapmessage.cpp
@@ -1013,6 +1015,7 @@ set(viewer_HEADER_FILES
     fschathistory.h
     fschatoptionsmenu.h
     fschatparticipants.h
+    fsclusteredlights.h
     fsdispatchclassifiedclickthrough.h
     fscommon.h
     fsconsoleutils.h
@@ -1126,6 +1129,7 @@ set(viewer_HEADER_FILES
     fsskinpalettebuffer.h
     fsssrbuffer.h
     fsssrhiz.h
+    fsspotlightbatch.h
     fsvirtualtrackpad.h
     fsvrs.h
     fsworldmapmessage.h

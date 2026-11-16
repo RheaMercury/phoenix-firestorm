@@ -115,6 +115,8 @@
 #include "llfloaterflickr.h" // <FS:Beq/> for snapshotFrame
 #include "fsfloaterprimfeed.h" // <FS:Beq/> for snapshotFrame
 #include "fspointlightbatch.h" // <FS:Trish/> batched local lights
+#include "fsclusteredlights.h" // <FS:Trish/> clustered local lights
+#include "fsspotlightbatch.h" // <FS:Trish/> batched unshadowed spotlights
 #include "llsnapshotlivepreview.h" // <FS:Beq/> for snapshotFrame
 // #include "llpanelface.h"  // <FS:Zi> switchable edit texture/materials panel - include not needed
 #include "llpathfindingpathtool.h"
@@ -944,6 +946,8 @@ void LLPipeline::cleanup()
 
     mCubeVB = NULL;
     gFSPointLightBatch.release(); // <FS:Trish/>
+    gFSClusteredLights.release(); // <FS:Trish/>
+    gFSSpotLightBatch.release(); // <FS:Trish/>
 
     mReflectionMapManager.cleanup();
     mHeroProbeManager.cleanup();
@@ -11798,6 +11802,55 @@ static void fs_bind_indirect(LLGLSLShader& soften, LLRenderTarget* indirect)
 }
 // </FS:Trish>
 
+// <FS:Trish> FSRenderGPUTimings: how the main view's local lights were drawn, per frame, logged every
+// 10 s with the GPU timings. A light whose box the camera is outside draws that box and shades only the
+// pixels it covers; one the camera is inside (avatar facelights in a crowd, mostly) costs a full screen
+// pass: 16 point lights share one, every spotlight gets its own.
+namespace
+{
+    struct FSLightStats
+    {
+        U64 mFrames = 0;
+        U64 mBoxPoint = 0;      // camera outside the box: box volume (batched or one by one)
+        U64 mBoxSpot = 0;
+        U64 mInsidePoint = 0;   // camera inside the box: full screen
+        U64 mInsidePasses = 0;  // full screen passes for those point lights
+        U64 mInsideSpot = 0;    // one full screen pass each
+        // FSPerfBatchedSpotLights: of the box and inside spotlights above, those drawn batched
+        U64 mBatchedSpot = 0;
+        U64 mBatchedSpotGroups = 0; // texture and inside/outside groups
+        U64 mBatchedSpotDraws = 0;  // instanced draws
+        F64 mLast = 0.0;
+    };
+    FSLightStats sFSLightStats;
+
+    void fs_log_light_stats()
+    {
+        FSLightStats& st = sFSLightStats;
+        ++st.mFrames;
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        if (st.mLast == 0.0)
+        {
+            st.mLast = now;
+        }
+        if (now - st.mLast < 10.0)
+        {
+            return;
+        }
+        const F64 f = (F64)llmax(st.mFrames, (U64)1);
+        LL_INFOS("FSLights") << llformat("Local lights per frame over %llu frames: box point %.1f, box spot %.1f; "
+                                         "camera inside: point %.1f in %.1f full screen passes, spot %.1f (a full screen pass each); "
+                                         "of the spots, batched %.1f in %.1f groups, %.1f instanced draws",
+                                         (unsigned long long)st.mFrames, st.mBoxPoint / f, st.mBoxSpot / f,
+                                         st.mInsidePoint / f, st.mInsidePasses / f, st.mInsideSpot / f,
+                                         st.mBatchedSpot / f, st.mBatchedSpotGroups / f, st.mBatchedSpotDraws / f)
+                             << LL_ENDL;
+        st = FSLightStats();
+        st.mLast = now;
+    }
+}
+// </FS:Trish>
+
 void LLPipeline::renderDeferredLighting()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
@@ -12103,6 +12156,11 @@ void LLPipeline::renderDeferredLighting()
 
             std::list<LLVector4> light_colors;
 
+            // <FS:Trish> FSRenderGPUTimings: count the main view's lights only, not probe captures'
+            static LLCachedControl<bool> fs_gpu_timings(gSavedSettings, "FSRenderGPUTimings", false);
+            const U64 fs_count = (fs_gpu_timings && !gCubeSnapshot) ? 1 : 0;
+            // </FS:Trish>
+
             LLVertexBuffer::unbind();
 
             {
@@ -12112,6 +12170,11 @@ void LLPipeline::renderDeferredLighting()
                 bindDeferredShader(gDeferredLightProgram);
                 gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0); // <FS:Trish/> once, not per light
                 const bool fs_batch_lights = gFSPointLightBatch.begin(); // <FS:Trish/> FSPerfBatchedLocalLights
+                // <FS:Trish> FSRenderClusteredLights: the main view's point lights are handed over and
+                // shaded together after the loop; probe captures keep the stock passes
+                const bool fs_clustered = !gCubeSnapshot &&
+                    gFSClusteredLights.begin(mat, get_current_projection(), screen_target->getWidth(), screen_target->getHeight());
+                // </FS:Trish>
 
                 if (mCubeVB.isNull())
                 {
@@ -12189,8 +12252,17 @@ void LLPipeline::renderDeferredLighting()
                         {
                             drawablep->getVOVolume()->updateSpotLightPriority();
                             spot_lights.push_back(drawablep);
+                            sFSLightStats.mBoxSpot += fs_count; // <FS:Trish/>
                             continue;
                         }
+                        sFSLightStats.mBoxPoint += fs_count; // <FS:Trish/>
+
+                        // <FS:Trish> Clustered: shaded with the others after the loop
+                        if (fs_clustered && gFSClusteredLights.add(c, s, col, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF)))
+                        {
+                            continue;
+                        }
+                        // </FS:Trish>
 
                         // <FS:Trish> Batched: queue the light, drawn instanced after the loop
                         if (fs_batch_lights)
@@ -12216,8 +12288,17 @@ void LLPipeline::renderDeferredLighting()
                         {
                             drawablep->getVOVolume()->updateSpotLightPriority();
                             fullscreen_spot_lights.push_back(drawablep);
+                            sFSLightStats.mInsideSpot += fs_count; // <FS:Trish/>
                             continue;
                         }
+                        sFSLightStats.mInsidePoint += fs_count; // <FS:Trish/>
+
+                        // <FS:Trish> Clustered: shaded with the others after the loop
+                        if (fs_clustered && gFSClusteredLights.add(c, s, col, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF)))
+                        {
+                            continue;
+                        }
+                        // </FS:Trish>
 
                         glm::vec3 tc(center);
                         tc = mul_mat4_vec3(mat, tc);
@@ -12238,7 +12319,53 @@ void LLPipeline::renderDeferredLighting()
                     gFSPointLightBatch.flush(camera);
                 }
                 // </FS:Trish>
+
+                // <FS:Trish> FSRenderClusteredLights: every handed over point light in one full screen pass
+                if (fs_clustered)
+                {
+                    gFSClusteredLights.flush(mScreenTriangleVB);
+                }
+                // </FS:Trish>
             }
+
+            // <FS:Trish> FSPerfBatchedSpotLights: the spotlights without a shadow slot are queued here and
+            // drawn instanced after the stock loops, which keep the shadowed ones. Every light is first
+            // ranked for next frame's shadow slots in the stock order (box lights, then the camera-inside
+            // ones), exactly as setupSpotLight would have ranked it, and the stock loops skip that step.
+            // Reflection probe captures keep the stock path throughout.
+            const bool fs_batch_spots = !gCubeSnapshot && gFSSpotLightBatch.begin();
+            if (fs_batch_spots)
+            {
+                for (const LLPointer<LLDrawable>& drawablep : spot_lights)
+                {
+                    fsRankSpotShadowCandidate(drawablep.get());
+                }
+                for (const LLPointer<LLDrawable>& drawablep : fullscreen_spot_lights)
+                {
+                    fsRankSpotShadowCandidate(drawablep.get());
+                }
+
+                auto fs_queue_spots = [&](LLDrawable::drawable_list_t& lights, bool inside)
+                {
+                    for (LLDrawable::drawable_list_t::iterator iter = lights.begin(); iter != lights.end();)
+                    {
+                        if (fsHasSpotShadowSlot(iter->get()))
+                        {
+                            ++iter;
+                            continue;
+                        }
+                        sVisibleLightCount++;
+                        LLVOVolume* volume = (*iter)->getVOVolume();
+                        // send light color to shader in linear space, as the stock loops do
+                        gFSSpotLightBatch.add(iter->get(), inside, volume->getLightLinearColor() * light_scale,
+                                              volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF));
+                        iter = lights.erase(iter);
+                    }
+                };
+                fs_queue_spots(spot_lights, false);
+                fs_queue_spots(fullscreen_spot_lights, true);
+            }
+            // </FS:Trish>
 
             if (!spot_lights.empty())
             {
@@ -12266,7 +12393,8 @@ void LLPipeline::renderDeferredLighting()
 
                     sVisibleLightCount++;
 
-                    setupSpotLight(gDeferredSpotLightProgram, drawablep);
+                    //setupSpotLight(gDeferredSpotLightProgram, drawablep);
+                    setupSpotLight(gDeferredSpotLightProgram, drawablep, !fs_batch_spots); // <FS:Trish/> ranked above when batching
 
                     // send light color to shader in linear space
                     LLColor3 col = volume->getLightLinearColor() * light_scale;
@@ -12312,6 +12440,7 @@ void LLPipeline::renderDeferredLighting()
                     if (count == max_count || fullscreen_lights.empty())
                     {
                         U32 idx = count - 1;
+                        sFSLightStats.mInsidePasses += fs_count; // <FS:Trish/>
                         bindDeferredShader(gDeferredMultiLightProgram[idx]);
                         gDeferredMultiLightProgram[idx].uniform1i(LLShaderMgr::MULTI_LIGHT_COUNT, count);
                         gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT, count, (GLfloat*)light);
@@ -12346,7 +12475,8 @@ void LLPipeline::renderDeferredLighting()
                     glm::vec3 tc(center);
                     tc = mul_mat4_vec3(mat, tc);
 
-                    setupSpotLight(gDeferredMultiSpotLightProgram, drawablep);
+                    //setupSpotLight(gDeferredMultiSpotLightProgram, drawablep);
+                    setupSpotLight(gDeferredMultiSpotLightProgram, drawablep, !fs_batch_spots); // <FS:Trish/> ranked above when batching
 
                     // send light color to shader in linear space
                     LLColor3 col = volume->getLightLinearColor() * light_scale;
@@ -12364,6 +12494,23 @@ void LLPipeline::renderDeferredLighting()
                 fsEndExtraSpotShadows(); // <FS:Trish/>
                 unbindDeferredShader(gDeferredMultiSpotLightProgram);
             }
+
+            // <FS:Trish> Draw the queued unshadowed spotlights: one upload, a few instanced draws per texture
+            if (fs_batch_spots)
+            {
+                gFSSpotLightBatch.flush(camera);
+                sFSLightStats.mBatchedSpot += fs_count * gFSSpotLightBatch.frameLights();
+                sFSLightStats.mBatchedSpotGroups += fs_count * gFSSpotLightBatch.frameGroups();
+                sFSLightStats.mBatchedSpotDraws += fs_count * gFSSpotLightBatch.frameDraws();
+            }
+            // </FS:Trish>
+
+            // <FS:Trish> FSRenderGPUTimings: one main view frame counted
+            if (fs_count)
+            {
+                fs_log_light_stats();
+            }
+            // </FS:Trish>
         }
 
         gGL.setColorMask(true, true);
@@ -12602,7 +12749,10 @@ void LLPipeline::doWaterExclusionMask()
     glClearColor(0, 0, 0, 0);
 }
 
-void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep)
+// <FS:Trish> FSSpotLightBatch::add repeats the projection maths below for the batched lights; keep the two in step
+//void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep)
+void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep, bool fs_rank)
+// </FS:Trish>
 {
     //construct frustum
     LLVOVolume* volume = drawablep->getVOVolume();
@@ -12705,51 +12855,26 @@ void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep)
         shader.uniform1f(LLShaderMgr::PROJECTOR_SHADOW_FADE, 1.f);
     }
 
-    // make sure we're not already targeting the same spot light with both shadow maps
-    llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
-
-    if (!gCubeSnapshot)
+    // <FS:Trish> The ranking is in fsRankSpotShadowCandidate, shared with the batched spotlights
+    // (FSPerfBatchedSpotLights), which rank every light before the stock loops run
+    //// make sure we're not already targeting the same spot light with both shadow maps
+    //llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
+    //
+    //if (!gCubeSnapshot)
+    //{
+    //    LLDrawable* potential = drawablep;
+    //    //determine if this light is higher priority than one of the existing spot shadows
+    //    F32 m_pri = volume->getSpotLightPriority();
+    //    ...
+    //}
+    //
+    //// make sure we didn't end up targeting the same spot light with both shadow maps
+    //llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
+    if (fs_rank)
     {
-        LLDrawable* potential = drawablep;
-        //determine if this light is higher priority than one of the existing spot shadows
-        F32 m_pri = volume->getSpotLightPriority();
-        // <FS:Trish> Worn lights rank below in-world ones, or a light rig near the camera takes every
-        // shadow slot from the scene. From the i-doll fork, by Amalthea Skydancer.
-        bool m_worn = volume->getRootEdit()->isAttachment();
-        // </FS:Trish>
-
-        //for (U32 i = 0; i < 2; i++)
-        for (U32 i = 0; i < fs_spot_count; i++) // <FS:Trish/>
-        {
-            F32 pri = 0.f;
-            bool worn = true; // <FS:Trish/> an empty slot loses to any light
-
-            if (mTargetShadowSpotLight[i].notNull())
-            {
-                // <FS:Trish>
-                //pri = mTargetShadowSpotLight[i]->getVOVolume()->getSpotLightPriority();
-                LLVOVolume* target = mTargetShadowSpotLight[i]->getVOVolume();
-                pri = target->getSpotLightPriority();
-                worn = target->getRootEdit()->isAttachment();
-                // </FS:Trish>
-            }
-
-            // <FS:Trish>
-            //if (m_pri > pri)
-            if ((!m_worn && worn) || (m_worn == worn && m_pri > pri))
-            // </FS:Trish>
-            {
-                LLDrawable* temp = mTargetShadowSpotLight[i];
-                mTargetShadowSpotLight[i] = potential;
-                potential = temp;
-                m_pri = pri;
-                m_worn = worn; // <FS:Trish/>
-            }
-        }
+        fsRankSpotShadowCandidate(drawablep);
     }
-
-    // make sure we didn't end up targeting the same spot light with both shadow maps
-    llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
+    // </FS:Trish>
 
     LLViewerTexture* img = volume->getLightTexture();
 
@@ -12775,6 +12900,69 @@ void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep)
     }
 
 }
+
+// <FS:Trish> setupSpotLight's shadow slot ranking, moved out unchanged: a light drawn by
+// FSSpotLightBatch skips setupSpotLight but must still compete for next frame's shadow slots
+// (mTargetShadowSpotLight), or a batched light could never become a shadowed one.
+void LLPipeline::fsRankSpotShadowCandidate(LLDrawable* drawablep)
+{
+    // make sure we're not already targeting the same spot light with both shadow maps
+    llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
+
+    if (!gCubeSnapshot)
+    {
+        LLVOVolume* volume = drawablep->getVOVolume();
+        const U32 fs_spot_count = fsSpotShadowCount();
+
+        LLDrawable* potential = drawablep;
+        //determine if this light is higher priority than one of the existing spot shadows
+        F32 m_pri = volume->getSpotLightPriority();
+        // Worn lights rank below in-world ones, or a light rig near the camera takes every
+        // shadow slot from the scene. From the i-doll fork, by Amalthea Skydancer.
+        bool m_worn = volume->getRootEdit()->isAttachment();
+
+        for (U32 i = 0; i < fs_spot_count; i++)
+        {
+            F32 pri = 0.f;
+            bool worn = true; // an empty slot loses to any light
+
+            if (mTargetShadowSpotLight[i].notNull())
+            {
+                LLVOVolume* target = mTargetShadowSpotLight[i]->getVOVolume();
+                pri = target->getSpotLightPriority();
+                worn = target->getRootEdit()->isAttachment();
+            }
+
+            if ((!m_worn && worn) || (m_worn == worn && m_pri > pri))
+            {
+                LLDrawable* temp = mTargetShadowSpotLight[i];
+                mTargetShadowSpotLight[i] = potential;
+                potential = temp;
+                m_pri = pri;
+                m_worn = worn;
+            }
+        }
+    }
+
+    // make sure we didn't end up targeting the same spot light with both shadow maps
+    llassert(mTargetShadowSpotLight[0] != mTargetShadowSpotLight[1] || mTargetShadowSpotLight[0].isNull());
+}
+
+// Whether the light holds a shadow slot this frame. Only such lights can get a shadow index
+// other than -1 in setupSpotLight, so every other light is drawn unshadowed.
+bool LLPipeline::fsHasSpotShadowSlot(const LLDrawable* drawablep) const
+{
+    const U32 count = fsSpotShadowCount();
+    for (U32 i = 0; i < count; i++)
+    {
+        if (mShadowSpotLight[i].get() == drawablep)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+// </FS:Trish>
 
 void LLPipeline::unbindDeferredShader(LLGLSLShader &shader)
 {

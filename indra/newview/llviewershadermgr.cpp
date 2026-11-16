@@ -50,6 +50,8 @@
 #include "lljoint.h"
 #include "llskinningutil.h"
 #include "fspointlightbatch.h" // <FS:Trish/>
+#include "fsclusteredlights.h" // <FS:Trish/>
+#include "fsspotlightbatch.h" // <FS:Trish/>
 #include "fsskinpalettebuffer.h" // <FS:Trish/>
 #include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
 #include "fsssrbuffer.h" // <FS:Trish/>
@@ -166,6 +168,7 @@ LLGLSLShader            gDeferredAvatarAlphaProgram;
 LLGLSLShader            gDeferredLightProgram;
 LLGLSLShader            gDeferredMultiLightProgram[16];
 LLGLSLShader            gFSBatchedPointLightProgram; // <FS:Trish/> instanced point lights
+LLGLSLShader            gFSBatchedSpotLightProgram; // <FS:Trish/> instanced unshadowed spotlights
 LLGLSLShader            gDeferredSpotLightProgram;
 LLGLSLShader            gDeferredMultiSpotLightProgram;
 LLGLSLShader            gDeferredSunProgram;
@@ -1730,6 +1733,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredTerrainProgram.unload();
         gDeferredLightProgram.unload();
         gFSBatchedPointLightProgram.unload(); // <FS:Trish/>
+        gFSClusteredLightProgram.unload(); // <FS:Trish/>
+        gFSBatchedSpotLightProgram.unload(); // <FS:Trish/>
         for (U32 i = 0; i < LL_DEFERRED_MULTI_LIGHT_COUNT; ++i)
         {
             gDeferredMultiLightProgram[i].unload();
@@ -2414,6 +2419,38 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
     }
 
+    // <FS:Trish> Clustered point lights (FSRenderClusteredLights): the multi light program's maths
+    // over each pixel's cluster of lights. Optional: if it fails to build, the stock passes stay.
+    if (success)
+    {
+        gFSClusteredLightProgram.mName = "FS Clustered Light Shader";
+        gFSClusteredLightProgram.mFeatures.isDeferred = true;
+        gFSClusteredLightProgram.mFeatures.hasFullGBuffer = true;
+        gFSClusteredLightProgram.mFeatures.hasShadows = true;
+        gFSClusteredLightProgram.mFeatures.hasSrgb = true;
+
+        gFSClusteredLightProgram.clearPermutations();
+        gFSClusteredLightProgram.mShaderFiles.clear();
+        gFSClusteredLightProgram.mShaderFiles.push_back(make_pair("deferred/multiPointLightV.glsl", GL_VERTEX_SHADER));
+        gFSClusteredLightProgram.mShaderFiles.push_back(make_pair("deferred/fsClusteredLightF.glsl", GL_FRAGMENT_SHADER));
+        gFSClusteredLightProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+        add_common_permutations(&gFSClusteredLightProgram);
+
+        // Built outside the parallel compile batch, like the batched point lights: a failure
+        // there would load the whole deferred phase again
+        const bool fs_batching = mFSBatching;
+        mFSBatching = false;
+        const bool fs_built = gFSClusteredLightProgram.createShader();
+        mFSBatching = fs_batching;
+        if (!fs_built)
+        {
+            LL_WARNS("Shader") << "Clustered light shader failed, using the stock point light passes" << LL_ENDL;
+            gFSClusteredLightProgram.unload();
+        }
+    }
+    // </FS:Trish>
+
     if (success)
     {
         gDeferredSpotLightProgram.mName = "Deferred SpotLight Shader";
@@ -2456,6 +2493,44 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         success = gDeferredMultiSpotLightProgram.createShader();
         llassert(success);
     }
+
+    // <FS:Trish> Instanced unshadowed spotlights, built only while FSPerfBatchedSpotLights is on.
+    // Shadowed projectors stay with the two programs above, so this one takes none of their
+    // shadow permutations. A failed build is not fatal: the pipeline keeps the stock path.
+    static LLCachedControl<bool> fs_batched_spots(gSavedSettings, "FSPerfBatchedSpotLights", false);
+    if (success && fs_batched_spots)
+    {
+        gFSBatchedSpotLightProgram.mName = "FS Batched SpotLight Shader";
+        gFSBatchedSpotLightProgram.mFeatures.hasSrgb = true;
+        gFSBatchedSpotLightProgram.mFeatures.isDeferred = true;
+        gFSBatchedSpotLightProgram.mFeatures.hasFullGBuffer = true;
+        gFSBatchedSpotLightProgram.mFeatures.hasShadows = true;
+
+        gFSBatchedSpotLightProgram.clearPermutations();
+        gFSBatchedSpotLightProgram.mShaderFiles.clear();
+        gFSBatchedSpotLightProgram.mShaderFiles.push_back(make_pair("deferred/fsBatchedSpotLightV.glsl", GL_VERTEX_SHADER));
+        gFSBatchedSpotLightProgram.mShaderFiles.push_back(make_pair("deferred/fsBatchedSpotLightF.glsl", GL_FRAGMENT_SHADER));
+        gFSBatchedSpotLightProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+        add_common_permutations(&gFSBatchedSpotLightProgram);
+
+        // Outside the parallel compile batch, as the batched point lights: setupProgram needs
+        // the linked program, and a failure there would load the whole phase again
+        const bool fs_batching = mFSBatching;
+        mFSBatching = false;
+        const bool fs_built = gFSBatchedSpotLightProgram.createShader();
+        mFSBatching = fs_batching;
+        if (fs_built)
+        {
+            FSSpotLightBatch::setupProgram(gFSBatchedSpotLightProgram);
+        }
+        else
+        {
+            LL_WARNS("Shader") << "Batched spotlight shader failed, using per-light drawing" << LL_ENDL;
+            gFSBatchedSpotLightProgram.unload();
+        }
+    }
+    // </FS:Trish>
 
     if (success)
     {

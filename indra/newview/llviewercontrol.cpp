@@ -1540,6 +1540,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSRenderSkinSSS", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderFoliage", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSPerfBatchedLocalLights", handleSetShaderChanged); // <FS:Trish/>
+    setting_setup_signal_listener(gSavedSettings, "FSPerfBatchedSpotLights", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderUpscaler", handleSetShaderChanged); // <FS:Trish/> builds the NIS program
     setting_setup_signal_listener(gSavedSettings, "FSPerfShadowSinglePass", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenDraws", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw programs

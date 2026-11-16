@@ -432,7 +432,12 @@ public:
     bool mFSPassUniformsSet = false;    // bindReflectionProbes: skip the uniforms, bind the textures
     // </FS:Trish>
     void bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
-    void setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep);
+    // <FS:Trish> fs_rank false: the light was ranked for the shadow slots already (FSPerfBatchedSpotLights)
+    //void setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep);
+    void setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep, bool fs_rank = true);
+    void fsRankSpotShadowCandidate(LLDrawable* drawablep);     // setupSpotLight's shadow slot ranking
+    bool fsHasSpotShadowSlot(const LLDrawable* drawablep) const; // in mShadowSpotLight[0, fsSpotShadowCount())
+    // </FS:Trish>
 
     void unbindDeferredShader(LLGLSLShader& shader);
 

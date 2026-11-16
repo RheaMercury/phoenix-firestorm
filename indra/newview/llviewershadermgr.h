@@ -233,6 +233,7 @@ extern LLGLSLShader         gDeferredTreeShadowProgram;
 extern LLGLSLShader         gDeferredLightProgram;
 extern LLGLSLShader         gDeferredMultiLightProgram[LL_DEFERRED_MULTI_LIGHT_COUNT];
 extern LLGLSLShader         gFSBatchedPointLightProgram; // <FS:Trish/> instanced point lights
+extern LLGLSLShader         gFSBatchedSpotLightProgram; // <FS:Trish/> instanced unshadowed spotlights
 extern LLGLSLShader         gDeferredSpotLightProgram;
 extern LLGLSLShader         gDeferredMultiSpotLightProgram;
 extern LLGLSLShader         gDeferredSunProgram;

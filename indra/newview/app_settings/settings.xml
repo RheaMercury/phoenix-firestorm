@@ -27889,6 +27889,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSPerfBatchedSpotLights</key>
+    <map>
+      <key>Comment</key>
+      <string>Draw deferred spotlights (projectors) that do not hold a shadow slot as instanced light volumes: their parameters go up in one uniform buffer per frame and they draw in one instanced call per projector texture (more past about 100 lights), instead of a projection setup, about fifteen uniform sets and a draw per light. Projectors the camera is inside of are drawn over their light box with a reversed depth test instead of a full screen pass each. Shadow-casting projectors and reflection probe captures keep the stock path. Same lighting maths as the stock path. Changing it rebuilds shaders; off, the batched shader is not built.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderClusteredLights</key>
+    <map>
+      <key>Comment</key>
+      <string>Shade the main view's local point lights (not spotlights or projectors) in one full screen pass: each frame they are sorted into clusters (64 pixel screen tiles by 16 depth slices) and every pixel is lit by the lights of its own cluster only, with the stock point light maths. Instead of one light volume per light and full screen passes for the lights the camera is inside of. Light selection (RenderLocalLightCount, attached lights, the size, colour and frustum tests) is unchanged. Reflection probe captures keep the stock passes. Off, the stock passes run.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderClusteredLightsDebug</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderClusteredLights on, add a heat map of how many lights each pixel's cluster lists: blue for one, through green to red for 32 or more. Debugging aid; it brightens the lit parts of the picture.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfProbeUpdatePriority</key>
     <map>
       <key>Comment</key>
