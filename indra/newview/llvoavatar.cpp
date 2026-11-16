@@ -7411,23 +7411,49 @@ void LLVOAvatar::processAnimationStateChanges()
     // start up all new anims
     if (getOverallAppearance() == AOA_NORMAL)
     {
-        for (anim_it = mSignaledAnimations.begin(); anim_it != mSignaledAnimations.end();)
+        // <FS:Trish> Start them in the order the sim started them (its sequence ids), not in the order of
+        // their UUIDs. Of two animations of the same priority on a joint, the one started last wins
+        // (LLJointStateBlender), and the motion controller keeps that order however long each takes to
+        // load (LLMotion::mStartSequence). Started by UUID, a sitting avatar whose AO stand was still
+        // listed next to the sit could stand on, as it came into view or its list changed, until
+        // Resync Animations.
+        //for (anim_it = mSignaledAnimations.begin(); anim_it != mSignaledAnimations.end();)
+        //{
+        //    AnimIterator found_anim = mPlayingAnimations.find(anim_it->first);
+        //
+        //    // signaled but not playing, or different sequence id, start motion
+        //    if (found_anim == mPlayingAnimations.end() || found_anim->second != anim_it->second)
+        //    {
+        //        if (processSingleAnimationStateChange(anim_it->first, true))
+        //        {
+        //            mPlayingAnimations[anim_it->first] = anim_it->second;
+        //            ++anim_it;
+        //            continue;
+        //        }
+        //    }
+        //
+        //    ++anim_it;
+        //}
+        std::vector<std::pair<S32, LLUUID>> to_start;
+        for (const auto& [signaled_id, sequence] : mSignaledAnimations)
         {
-            AnimIterator found_anim = mPlayingAnimations.find(anim_it->first);
+            AnimIterator found_anim = mPlayingAnimations.find(signaled_id);
 
             // signaled but not playing, or different sequence id, start motion
-            if (found_anim == mPlayingAnimations.end() || found_anim->second != anim_it->second)
+            if (found_anim == mPlayingAnimations.end() || found_anim->second != sequence)
             {
-                if (processSingleAnimationStateChange(anim_it->first, true))
-                {
-                    mPlayingAnimations[anim_it->first] = anim_it->second;
-                    ++anim_it;
-                    continue;
-                }
+                to_start.emplace_back(sequence, signaled_id);
             }
-
-            ++anim_it;
         }
+        std::sort(to_start.begin(), to_start.end());
+        for (const auto& [sequence, start_id] : to_start)
+        {
+            if (processSingleAnimationStateChange(start_id, true))
+            {
+                mPlayingAnimations[start_id] = sequence;
+            }
+        }
+        // </FS:Trish>
     }
 
     // clear source information for animations which have been stopped

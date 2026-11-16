@@ -11269,13 +11269,29 @@ class FSToolsResyncAnimations : public view_listener_t
                 LLVOAvatar* avatarp = (LLVOAvatar*)object;
                 if (avatarp)
                 {
-                    for (LLVOAvatar::AnimIterator anim_it = avatarp->mPlayingAnimations.begin();
-                         anim_it != avatarp->mPlayingAnimations.end();
-                         anim_it++)
+                    // <FS:Trish> in the order the sim started them, so the latest of equal priority wins again
+                    //for (LLVOAvatar::AnimIterator anim_it = avatarp->mPlayingAnimations.begin();
+                    //     anim_it != avatarp->mPlayingAnimations.end();
+                    //     anim_it++)
+                    //{
+                    //    avatarp->stopMotion(anim_it->first, true);
+                    //    avatarp->startMotion(anim_it->first);
+                    //}
+                    std::vector<std::pair<S32, LLUUID>> playing;
+                    for (const auto& [anim_id, sequence] : avatarp->mPlayingAnimations)
                     {
-                        avatarp->stopMotion(anim_it->first, true);
-                        avatarp->startMotion(anim_it->first);
+                        playing.emplace_back(sequence, anim_id);
                     }
+                    std::sort(playing.begin(), playing.end());
+                    for (const auto& [sequence, anim_id] : playing)
+                    {
+                        avatarp->stopMotion(anim_id, true);
+                    }
+                    for (const auto& [sequence, anim_id] : playing)
+                    {
+                        avatarp->startMotion(anim_id);
+                    }
+                    // </FS:Trish>
                 }
             }
         }
