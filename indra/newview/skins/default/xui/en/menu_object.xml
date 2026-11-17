@@ -83,6 +83,15 @@
          function="Floater.Show"
          parameter="inspect" />
       </menu_item_call>
+      <!-- <FS:Trish> Linkset costs, prim by prim -->
+      <menu_item_call
+         label="Inspect Costs"
+         name="Object_Inspect_Costs">
+        <menu_item_call.on_click
+         function="Floater.Show"
+         parameter="fs_linkset_cost" />
+      </menu_item_call>
+      <!-- </FS:Trish> -->
 	   <menu_item_call
 	      enabled="true"
 	      label="Script Info"

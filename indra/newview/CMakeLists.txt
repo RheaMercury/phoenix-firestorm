@@ -141,6 +141,7 @@ set(viewer_SOURCE_FILES
     fsfloaterbigpreview.cpp
     fsfloaterblocklist.cpp
     fsfloaterbuildcheckpoints.cpp
+    fsfloaterbuildcost.cpp
     fsfloatercamerabookmarks.cpp
     fsfloatercontacts.cpp
     fsfloatercontactsetconfiguration.cpp
@@ -1056,6 +1057,7 @@ set(viewer_HEADER_FILES
     fsfloaterbigpreview.h
     fsfloaterblocklist.h
     fsfloaterbuildcheckpoints.h
+    fsfloaterbuildcost.h
     fsfloatercamerabookmarks.h
     fsfloatercontacts.h
     fsfloatercontactsetconfiguration.h

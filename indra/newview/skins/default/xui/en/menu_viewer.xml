@@ -1890,6 +1890,28 @@
              parameter="fs_recent_assets" />
         </menu_item_check>
         <!-- </FS:Trish> -->
+        <!-- <FS:Trish> Linkset costs, prim by prim, and what's heavy to draw nearby -->
+        <menu_item_check
+           label="Linkset Costs"
+           name="Linkset Costs">
+          <menu_item_check.on_check
+             function="Floater.Visible"
+             parameter="fs_linkset_cost" />
+          <menu_item_check.on_click
+             function="Floater.Toggle"
+             parameter="fs_linkset_cost" />
+        </menu_item_check>
+        <menu_item_check
+           label="What's Heavy Here"
+           name="Whats Heavy Here">
+          <menu_item_check.on_check
+             function="Floater.Visible"
+             parameter="fs_heavy_nearby" />
+          <menu_item_check.on_click
+             function="Floater.Toggle"
+             parameter="fs_heavy_nearby" />
+        </menu_item_check>
+        <!-- </FS:Trish> -->
         <menu
          create_jump_keys="true"
          label="Select Elements"

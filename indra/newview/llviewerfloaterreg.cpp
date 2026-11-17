@@ -199,6 +199,7 @@
 #include "fsfloaterassetblacklist.h"
 #include "fsfloateravatarrendersettings.h"
 #include "fsfloaterbigpreview.h"
+#include "fsfloaterbuildcost.h" // <FS:Trish/>
 #include "fsfloatercontacts.h"
 #include "fsfloatercontactsetconfiguration.h"
 #include "fsfloaterdiscord.h"
@@ -656,7 +657,9 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("fs_group_titles", "floater_fs_group_titles.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterGroupTitles>);
     LLFloaterReg::add("fs_export", "floater_fs_export.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterObjectExport>);
     LLFloaterReg::add("fs_find_uses", "floater_fs_find_uses.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterFindUses>); // <FS:Trish/>
+    LLFloaterReg::add("fs_heavy_nearby", "floater_fs_heavy_nearby.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterHeavyNearby>); // <FS:Trish/>
     LLFloaterReg::add("fs_import", "floater_fs_import.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterImport>);
+    LLFloaterReg::add("fs_linkset_cost", "floater_fs_linkset_cost.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterLinksetCost>); // <FS:Trish/>
     LLFloaterReg::add("fs_measure", "floater_fs_measure.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterMeasure>); // <FS:Trish/> Measuring tool
     LLFloaterReg::add("fs_posestand", "floater_fs_posestand.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPoseStand>);
     LLFloaterReg::add("fs_partial_inventory", "floater_fs_partial_inventory.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPartialInventory>);

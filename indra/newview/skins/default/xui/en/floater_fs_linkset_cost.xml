@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_linkset_cost"
+ title="Linkset Costs"
+ help_topic="fs_linkset_cost"
+ can_resize="true"
+ height="340"
+ width="640"
+ min_width="480"
+ min_height="200"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="pending">…</string>
+    <string name="not_available">-</string>
+    <string name="unnamed_prim">(link [LINK])</string>
+    <string name="totals">Linkset: land impact [LI], download [DOWNLOAD], physics [PHYSICS], server [SERVER]. [TRIS] triangles, [VERTS] vertices, [TEXTURES] unique textures.</string>
+    <string name="status_none">Select an object to see what each of its prims costs.</string>
+    <string name="status_gone">The linkset is no longer in view.</string>
+    <string name="status">[COUNT] prims. Double-click a prim, or use Select prim, to edit it alone.</string>
+    <string name="status_pending">[COUNT] prims. Figures shown as … are still being asked of the server.</string>
+    <scroll_list
+     name="prims"
+     layout="topleft"
+     follows="all"
+     left="8"
+     right="-8"
+     top="6"
+     bottom="-98"
+     draw_heading="true"
+     multi_select="false"
+     can_sort="true"
+     tool_tip="Land impact and physics are the server's figures for each prim. Download is worked out by the viewer. Triangles and vertices are those of the level of detail drawn now.">
+        <scroll_list.columns name="link" label="Link" width="40" />
+        <scroll_list.columns name="name" label="Name" relative_width="0.3" />
+        <scroll_list.columns name="li" label="Land impact" width="76" tool_tip="The prim's share of the linkset's land impact (the server's resource cost)" />
+        <scroll_list.columns name="download" label="Download" width="68" tool_tip="Streaming (download) weight" />
+        <scroll_list.columns name="physics" label="Physics" width="60" tool_tip="Physics weight" />
+        <scroll_list.columns name="triangles" label="Triangles" width="66" tool_tip="Triangles at the level of detail drawn now" />
+        <scroll_list.columns name="vertices" label="Vertices" width="62" tool_tip="Vertices at the level of detail drawn now" />
+        <scroll_list.columns name="textures" label="Textures" width="58" tool_tip="Unique textures on the prim's faces" />
+    </scroll_list>
+    <text
+     name="totals"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-74"
+     height="18"
+     word_wrap="false"
+     use_ellipses="true"
+     tool_tip="The server weight is only known for the whole linkset." />
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-50"
+     height="18"
+     word_wrap="false"
+     use_ellipses="true" />
+    <button
+     name="select_prim"
+     label="Select prim"
+     tool_tip="Select only this prim in the build tool, as Edit Linked Parts does"
+     layout="topleft"
+     follows="left|bottom"
+     left="8"
+     bottom="-26"
+     height="22"
+     width="90" />
+    <button
+     name="refresh"
+     label="Refresh"
+     tool_tip="Read the figures again and ask the server for the linkset's server weight"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="70" />
+</floater>

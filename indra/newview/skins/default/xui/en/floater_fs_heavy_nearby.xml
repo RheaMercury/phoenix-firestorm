@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_heavy_nearby"
+ title="What's Heavy Here"
+ help_topic="fs_heavy_nearby"
+ can_resize="true"
+ height="460"
+ width="660"
+ min_width="520"
+ min_height="300"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="scanning">Scanning...</string>
+    <string name="scanning_progress">Scanning... [PERCENT]%</string>
+    <string name="status">[OBJECTS] objects and [AVATARS] avatars within [RANGE] m. Double-click one to look at it, right-click to edit it.</string>
+    <string name="status_region">[OBJECTS] objects and [AVATARS] avatars in this region within [RANGE] m. Double-click one to look at it, right-click to edit it.</string>
+    <string name="object_gone">That object is no longer in view.</string>
+    <string name="unnamed_object">Object [ID]</string>
+    <string name="unknown_size">?</string>
+    <string name="texture_rank">Texture [RANK]</string>
+    <string name="kind_avatar">Avatar</string>
+    <string name="kind_object">Object</string>
+    <button
+     name="refresh"
+     label="Scan"
+     tool_tip="Measure the objects and avatars around you again"
+     layout="topleft"
+     follows="left|top"
+     left="8"
+     top="6"
+     height="22"
+     width="70" />
+    <spinner
+     name="range"
+     label="Range (m)"
+     label_width="62"
+     decimal_digits="0"
+     increment="8"
+     min_val="1"
+     max_val="4096"
+     initial_value="128"
+     tool_tip="Objects and avatars farther than this are left out. The draw distance when the window opens."
+     layout="topleft"
+     follows="left|top"
+     left_pad="12"
+     top="6"
+     height="22"
+     width="130" />
+    <check_box
+     name="region_only"
+     label="This region only"
+     initial_value="true"
+     layout="topleft"
+     follows="left|top"
+     left_pad="12"
+     top="6"
+     height="22"
+     width="130" />
+    <check_box
+     name="beacon"
+     label="Beacon on selected"
+     initial_value="true"
+     tool_tip="Show a beacon with its name on the object or avatar selected in the list"
+     layout="topleft"
+     follows="left|top"
+     left_pad="12"
+     top="6"
+     height="22"
+     width="140" />
+    <scroll_list
+     name="entries"
+     layout="topleft"
+     follows="all"
+     left="8"
+     right="-8"
+     top="34"
+     bottom="-188"
+     draw_heading="true"
+     multi_select="false"
+     can_sort="true"
+     tool_tip="What each linkset or avatar (with its attachments) costs this viewer to draw. Texture memory is the sum of the unique textures it uses. Objects not drawn yet have little or nothing loaded. Double-click to look at it.">
+        <scroll_list.columns name="name" label="Name" relative_width="0.3" />
+        <scroll_list.columns name="kind" label="Kind" width="52" />
+        <scroll_list.columns name="distance" label="Dist. m" width="52" />
+        <scroll_list.columns name="full_mb" label="Full MB" width="60" tool_tip="Texture memory at full resolution (estimated from each texture's size, uncompressed, with mipmaps)" />
+        <scroll_list.columns name="loaded_mb" label="Loaded MB" width="70" tool_tip="Texture memory the viewer holds for them now" />
+        <scroll_list.columns name="triangles" label="Triangles" width="70" tool_tip="Triangles at the level of detail drawn now" />
+        <scroll_list.columns name="textures" label="Textures" width="58" tool_tip="Unique textures" />
+        <scroll_list.columns name="prims" label="Prims" width="46" />
+        <scroll_list.columns name="complexity" label="Complexity" width="70" tool_tip="Avatar complexity (ARC), avatars only" />
+    </scroll_list>
+    <text
+     name="textures_label"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-168"
+     height="16"
+     word_wrap="false"
+     use_ellipses="true">The biggest textures of the selected entry:</text>
+    <scroll_list
+     name="textures"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-30"
+     height="132"
+     draw_heading="true"
+     multi_select="false"
+     can_sort="false">
+        <scroll_list.columns name="texture" label="Texture" relative_width="0.4" tool_tip="The entry's textures, biggest first" />
+        <scroll_list.columns name="resolution" label="Resolution" width="90" />
+        <scroll_list.columns name="full_mb" label="Full MB" width="70" />
+        <scroll_list.columns name="loaded_mb" label="Loaded MB" width="76" />
+    </scroll_list>
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-8"
+     height="18"
+     word_wrap="false"
+     use_ellipses="true" />
+</floater>

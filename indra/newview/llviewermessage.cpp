@@ -147,6 +147,7 @@
 #include "fsareasearch.h"
 #include "fsassetblacklist.h"
 #include "fscommon.h"
+#include "fsfloaterbuildcost.h" // <FS:Trish/>
 #include "fsfloaterplacedetails.h"
 #include "fsradar.h"
 #include "fskeywords.h" // <FS:PP> FIRE-10178: Keyword Alerts in group IM do not work unless the group is in the foreground
@@ -4885,6 +4886,7 @@ void process_object_properties(LLMessageSystem *msg, void**user_data)
     }
 
     PermissionsTracker::instance().objectPropertiesCallback(msg);
+    FSFloaterHeavyNearby::processObjectProperties(msg); // <FS:Trish/> What's Heavy Here's object names
 }
 // </FS:Techwolf Lupindo> area search
 
