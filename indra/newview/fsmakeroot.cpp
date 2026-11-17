@@ -37,6 +37,9 @@
 #include "llworld.h"
 #include "message.h"
 
+#include <algorithm>
+#include <map>
+
 // How long to wait for the region to confirm each step
 static const F32 STEP_TIMEOUT = 10.f;
 
@@ -60,7 +63,7 @@ LLViewerObject* FSMakeRoot::getCandidate(std::string* reason) const
         return nullptr;
     };
 
-    if (mState != STATE_IDLE)
+    if (mState != STATE_IDLE || FSDeleteLinkPart::instance().isBusy())
     {
         return fail("busy");
     }
@@ -287,4 +290,214 @@ void FSMakeRoot::finish(bool success, const std::string& reason)
     }
     mPrimIDs.clear();
     mNewRootID.setNull();
+}
+
+//
+// FSDeleteLinkPart
+//
+
+FSDeleteLinkPart::FSDeleteLinkPart()
+{
+}
+
+FSDeleteLinkPart::~FSDeleteLinkPart()
+{
+    gIdleCallbacks.deleteFunction(onIdle, this);
+}
+
+std::vector<LLViewerObject*> FSDeleteLinkPart::getCandidates(std::string* reason) const
+{
+    std::vector<LLViewerObject*> parts;
+    auto fail = [reason, &parts](const char* why)
+    {
+        if (reason)
+        {
+            *reason = why;
+        }
+        parts.clear();
+        return parts;
+    };
+
+    if (mWaiting || FSMakeRoot::instance().isBusy())
+    {
+        return fail("busy");
+    }
+    if (!gSavedSettings.getBOOL("EditLinkedParts"))
+    {
+        return fail("Select the parts with Edit linked on.");
+    }
+    LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
+    if (selection->getObjectCount() == 0)
+    {
+        return fail("Select the linked parts to delete.");
+    }
+
+    auto editable = [](const LLViewerObject* prim)
+    {
+        return prim && !prim->isDead() && prim->permModify() && !prim->isPermanentEnforced();
+    };
+    for (LLObjectSelection::iterator iter = selection->begin(); iter != selection->end(); ++iter)
+    {
+        LLViewerObject* part = (*iter)->getObject();
+        LLViewerObject* root = part ? part->getRootEdit() : nullptr;
+        if (!part || !root || part->isDead() || part->isAvatar())
+        {
+            return fail("A selected part is gone.");
+        }
+        if (part == root)
+        {
+            return fail("The root can't be deleted on its own: make another part the root first (Root), or delete the whole object.");
+        }
+        if (root->isAttachment() || root->isAvatar())
+        {
+            return fail("Parts of attachments can't be deleted here.");
+        }
+        // unlinking needs modify rights on the linkset
+        if (!editable(root) || !editable(part))
+        {
+            return fail("You need modify rights on the part and its linkset.");
+        }
+        parts.push_back(part);
+    }
+    return parts;
+}
+
+void FSDeleteLinkPart::deleteParts()
+{
+    std::string reason;
+    const std::vector<LLViewerObject*> parts = getCandidates(&reason);
+    if (parts.empty())
+    {
+        LLSD args;
+        args["REASON"] = reason;
+        LLNotificationsUtil::add("FSDeleteLinkPartFailed", args);
+        return;
+    }
+
+    LLSD args;
+    args["COUNT"] = (S32)parts.size();
+    LLSD payload;
+    for (LLViewerObject* part : parts)
+    {
+        payload["parts"].append(part->getID());
+    }
+    LLNotificationsUtil::add("FSDeleteLinkPartConfirm", args, payload, [](const LLSD& notification, const LLSD& response)
+    {
+        if (LLNotificationsUtil::getSelectedOption(notification, response) == 0)
+        {
+            std::vector<LLUUID> ids;
+            const LLSD& parts = notification["payload"]["parts"];
+            for (size_t i = 0; i < parts.size(); ++i)
+            {
+                ids.push_back(parts[i].asUUID());
+            }
+            FSDeleteLinkPart::instance().start(ids);
+        }
+    });
+}
+
+void FSDeleteLinkPart::start(const std::vector<LLUUID>& part_ids)
+{
+    // The selection may have changed while the dialog was up: delete only what is still selected
+    std::string reason;
+    const std::vector<LLViewerObject*> parts = getCandidates(&reason);
+    if (parts.empty() || parts.size() != part_ids.size())
+    {
+        LLSD args;
+        args["REASON"] = reason.empty() ? std::string("The selection changed.") : reason;
+        LLNotificationsUtil::add("FSDeleteLinkPartFailed", args);
+        return;
+    }
+    for (LLViewerObject* part : parts)
+    {
+        if (std::find(part_ids.begin(), part_ids.end(), part->getID()) == part_ids.end())
+        {
+            LLSD args;
+            args["REASON"] = "The selection changed.";
+            LLNotificationsUtil::add("FSDeleteLinkPartFailed", args);
+            return;
+        }
+    }
+
+    // Unlinking just the parts leaves the rest of each linkset as it is
+    std::map<LLViewerRegion*, std::vector<U32>> local_ids;
+    mPartIDs.clear();
+    for (LLViewerObject* part : parts)
+    {
+        if (LLViewerRegion* region = part->getRegion())
+        {
+            local_ids[region].push_back(part->getLocalID());
+            mPartIDs.push_back(part->getID());
+        }
+    }
+    if (mPartIDs.empty())
+    {
+        return;
+    }
+
+    LLSelectMgr::getInstance()->deselectAll();
+    for (const auto& [region, ids] : local_ids)
+    {
+        fs_send_link_message("ObjectDelink", ids, region->getHost());
+    }
+
+    mWaiting = true;
+    mTimer.reset();
+    gIdleCallbacks.addFunction(onIdle, this);
+}
+
+//static
+void FSDeleteLinkPart::onIdle(void* data)
+{
+    static_cast<FSDeleteLinkPart*>(data)->update();
+}
+
+void FSDeleteLinkPart::update()
+{
+    std::vector<LLViewerObject*> parts;
+    bool all_unlinked = true;
+    for (const LLUUID& id : mPartIDs)
+    {
+        LLViewerObject* part = gObjectList.findObject(id);
+        if (!part || part->isDead())
+        {
+            continue; // gone already: nothing left to delete
+        }
+        parts.push_back(part);
+        all_unlinked &= part->getParent() == nullptr;
+    }
+    if (parts.empty())
+    {
+        finish();
+        return;
+    }
+    if (!all_unlinked)
+    {
+        if (mTimer.getElapsedTimeF32() > STEP_TIMEOUT)
+        {
+            finish("The region didn't unlink the parts in time, so nothing was deleted. Parts it did unlink are now objects of their own.");
+        }
+        return;
+    }
+
+    // Each part is an object of its own now: delete them the usual way, with the usual
+    // confirmations for locked or no copy objects
+    LLSelectMgr* select_mgr = LLSelectMgr::getInstance();
+    select_mgr->deselectAll();
+    select_mgr->selectObjectAndFamily(parts);
+    select_mgr->selectDelete();
+    finish();
+}
+
+void FSDeleteLinkPart::finish(const std::string& failure)
+{
+    gIdleCallbacks.deleteFunction(onIdle, this);
+    mWaiting = false;
+    if (!failure.empty())
+    {
+        LLSD args;
+        args["REASON"] = failure;
+        LLNotificationsUtil::add("FSDeleteLinkPartFailed", args);
+    }
+    mPartIDs.clear();
 }

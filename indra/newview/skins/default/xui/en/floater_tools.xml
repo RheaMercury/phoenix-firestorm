@@ -341,7 +341,7 @@
      left_pad="2"
      layout="topleft"
      name="link_btn"
-     width="50"
+     width="40"
      font="DejaVu"
      font.size="LSmall"
      pad_bottom="1">
@@ -355,7 +355,7 @@
      layout="topleft"
      left_pad="2"
      name="unlink_btn"
-     width="44"
+     width="40"
      font="DejaVu"
      font.size="LSmall"
      pad_bottom="1">
@@ -371,12 +371,27 @@
      left_pad="2"
      name="make_root_btn"
      tool_tip="Make the selected linked part the root of its linkset (select it with Edit linked). The linkset is unlinked and linked again with this part first. Link numbers change."
-     width="44"
+     width="34"
      font="DejaVu"
      font.size="LSmall"
      pad_bottom="1">
 	  <button.commit_callback
 	     function="BuildTool.MakeRoot"/>
+    </button>
+    <button
+     follows="left|top"
+     height="20"
+     label="Delete"
+     layout="topleft"
+     left_pad="2"
+     name="delete_part_btn"
+     tool_tip="Delete the selected linked parts (select them with Edit linked) and keep the rest of the linkset. The parts are unlinked, then deleted to your trash. Link numbers change."
+     width="40"
+     font="DejaVu"
+     font.size="LSmall"
+     pad_bottom="1">
+	  <button.commit_callback
+	     function="BuildTool.DeleteLinkPart"/>
     </button>
     <!-- </FS:Trish> -->
     <combo_box
@@ -387,7 +402,7 @@
      name="combobox grid mode"
      tool_tip="Choose the type of grid ruler for positioning the object"
      top_delta="0"
-     width="108"
+     width="96"
      drop_down_button.font="DejaVu"
      drop_down_button.font.size="LSmall">
       <combo_box.item

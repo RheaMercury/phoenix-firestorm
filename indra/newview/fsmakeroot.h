@@ -63,4 +63,31 @@ private:
     LLFrameTimer        mTimer;
 };
 
+// Deletes selected linked parts, leaving the rest of their linksets in place. The simulator only
+// deletes whole objects, so the parts are unlinked first, then deleted as objects of their own the
+// usual way (to the trash, with the usual confirmations for locked or no copy objects).
+class FSDeleteLinkPart : public LLSingleton<FSDeleteLinkPart>
+{
+    LLSINGLETON(FSDeleteLinkPart);
+    ~FSDeleteLinkPart();
+
+public:
+    // The selected linked parts (Edit linked on), if they can be deleted from their linksets now
+    std::vector<LLViewerObject*> getCandidates(std::string* reason = nullptr) const;
+    bool canDelete() const { return !getCandidates().empty(); }
+    // Asks for confirmation, then unlinks and deletes the selected parts
+    void deleteParts();
+    bool isBusy() const { return mWaiting; }
+
+private:
+    void start(const std::vector<LLUUID>& part_ids);
+    static void onIdle(void* data);
+    void update();
+    void finish(const std::string& failure = std::string());
+
+    bool                mWaiting = false;   // for the region to unlink the parts
+    std::vector<LLUUID> mPartIDs;
+    LLFrameTimer        mTimer;
+};
+
 #endif // FS_MAKEROOT_H

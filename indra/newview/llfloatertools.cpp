@@ -525,6 +525,7 @@ LLFloaterTools::LLFloaterTools(const LLSD& key)
     mCommitCallbackRegistrar.add("BuildTool.LinkObjects",       boost::bind(&LLSelectMgr::linkObjects, LLSelectMgr::getInstance()));
     mCommitCallbackRegistrar.add("BuildTool.UnlinkObjects",     boost::bind(&LLSelectMgr::unlinkObjects, LLSelectMgr::getInstance()));
     mCommitCallbackRegistrar.add("BuildTool.MakeRoot",          [](LLUICtrl*, const LLSD&) { FSMakeRoot::instance().makeRoot(); }); // <FS:Trish/>
+    mCommitCallbackRegistrar.add("BuildTool.DeleteLinkPart",    [](LLUICtrl*, const LLSD&) { FSDeleteLinkPart::instance().deleteParts(); }); // <FS:Trish/>
 
     // <FS>
     mCommitCallbackRegistrar.add("BuildTool.CopyKeys",          boost::bind(&LLFloaterTools::onClickBtnCopyKeys,this));
@@ -964,6 +965,11 @@ void LLFloaterTools::updatePopup(LLCoordGL center, MASK mask)
     {
         make_root->setVisible(edit_visible);
         make_root->setEnabled(edit_visible && FSMakeRoot::instance().canMakeRoot());
+    }
+    if (LLView* delete_part = findChildView("delete_part_btn"))
+    {
+        delete_part->setVisible(edit_visible);
+        delete_part->setEnabled(edit_visible && FSDeleteLinkPart::instance().canDelete());
     }
     // </FS:Trish>
 

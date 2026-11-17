@@ -15771,6 +15771,26 @@ Couldn't make the part the root: [REASON]
    type="notifytip">
 The selected part is now the root of its [COUNT]-part linkset.
   </notification>
+  <notification
+   icon="alertmodal.tga"
+   name="FSDeleteLinkPartConfirm"
+   type="alertmodal">
+Delete the [COUNT] selected linked part(s), and keep the rest of the linkset?
+
+Each part is unlinked, then deleted to your trash. Link numbers of the parts after it change, so scripts that use link numbers may need adjusting. If you cancel a further delete confirmation, the parts stay as objects of their own.
+    <tag>confirm</tag>
+    <usetemplate
+     name="okcancelbuttons"
+     notext="Cancel"
+     yestext="Delete"/>
+  </notification>
+  <notification
+   icon="alertmodal.tga"
+   name="FSDeleteLinkPartFailed"
+   type="alertmodal">
+Couldn't delete the linked parts: [REASON]
+    <tag>fail</tag>
+  </notification>
   <!-- </FS:Trish> -->
   <!-- <FS:Trish> Experimental settings presets -->
   <notification
