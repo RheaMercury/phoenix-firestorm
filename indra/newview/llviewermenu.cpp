@@ -171,6 +171,7 @@
 #include "fsfloateravataralign.h" // <FS:Chanayane> Compass floater
 #include "fsassetblacklist.h"
 #include "fsparcelderender.h" // <FS:Trish/> Parcel derender
+#include "fsfloaterbuildcheckpoints.h" // <FS:Trish/> Build checkpoints
 // <FS:Trish> Hide UI fully
 #include "llchannelmanager.h"
 #include "llhudnametag.h"
@@ -13393,6 +13394,7 @@ void initialize_menus()
     commit.add("Tools.ScriptInfo",boost::bind(&handle_script_info));
     commit.add("Tools.ScriptProfilerAdd", boost::bind(&FSFloaterScriptProfiler::addSelection)); // <FS:Trish/>
     commit.add("View.CopyCameraLink", boost::bind(&FSCameraLinks::copyCurrentViewLink)); // <FS:Trish/>
+    commit.add("Tools.SaveBuildCheckpoint", [](LLUICtrl*, const LLSD&) { FSFloaterBuildCheckpoints::saveSelection(); }); // <FS:Trish/>
     commit.add("Tools.BuyOrTake", boost::bind(&handle_buy_or_take));
     // <FS:Trish> Take (Copy) into the folder selected in the inventory window
     //commit.add("Tools.TakeCopy", boost::bind(&handle_take_copy));

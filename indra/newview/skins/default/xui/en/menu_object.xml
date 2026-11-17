@@ -124,6 +124,16 @@
          <menu_item_check.on_click function="Tools.EditLinkedParts" parameter="EditLinkedParts" />
          <menu_item_check.on_enable function="Tools.EnableToolNotPie" />
          </menu_item_check>
+      <!-- <FS:Trish> Build checkpoints -->
+      <menu_item_call
+         label="Save Build Checkpoint"
+         name="Save Build Checkpoint">
+         <menu_item_call.on_click
+            function="Tools.SaveBuildCheckpoint" />
+         <menu_item_call.on_enable
+            function="SomethingSelectedNoHUD" />
+         </menu_item_call>
+      <!-- </FS:Trish> -->
    <menu_item_separator layout="topleft" />
         <menu_item_call
                 label="Compile (Mono)"

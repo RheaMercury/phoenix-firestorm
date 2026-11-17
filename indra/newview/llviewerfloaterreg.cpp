@@ -205,6 +205,7 @@
 #include "fsfloaterexport.h"
 #include "fsfloaterfinduses.h" // <FS:Trish/>
 #include "fsfloaterblocklist.h"
+#include "fsfloaterbuildcheckpoints.h" // <FS:Trish/>
 #include "fsfloatergroup.h"
 #include "fsfloatergrouptitles.h"
 #include "fsfloaterimport.h"
@@ -646,6 +647,7 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("fs_avatar_render_settings", "floater_fs_avatar_render_settings.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterAvatarRenderSettings>);
     LLFloaterReg::add("fs_big_preview", "floater_fs_big_preview.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterBigPreview>);
     LLFloaterReg::add("fs_blocklist", "floater_fs_blocklist.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterBlocklist>);
+    LLFloaterReg::add("fs_build_checkpoints", "floater_fs_build_checkpoints.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterBuildCheckpoints>); // <FS:Trish/>
     LLFloaterReg::add("fs_add_contact", "floater_fs_contact_add.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterAddToContactSet>);
     LLFloaterReg::add("fs_contact_set_config", "floater_fs_contact_set_configuration.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterContactSetConfiguration>);
     LLFloaterReg::add("fs_discord", "floater_fs_discord.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterDiscord>);

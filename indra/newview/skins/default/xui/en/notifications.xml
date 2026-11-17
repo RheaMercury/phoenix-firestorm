@@ -16095,4 +16095,59 @@ Set the camera bookmark "[NAME]" to the current camera view? Its old view is rep
      yestext="Replace"/>
   </notification>
   <!-- </FS:Trish> -->
+  <!-- <FS:Trish> Build checkpoints -->
+  <notification
+   icon="alertmodal.tga"
+   label="Build Checkpoint"
+   name="FSBuildCheckpointName"
+   type="alertmodal">
+    <unique/>
+Name of the build checkpoint:
+    <tag>confirm</tag>
+    <form name="form">
+      <input name="message" type="text" default="true">
+[NAME]
+      </input>
+      <button
+       default="true"
+       index="0"
+       name="OK"
+       text="OK"/>
+      <button
+       index="1"
+       name="Cancel"
+       text="Cancel"/>
+    </form>
+  </notification>
+  <notification
+   icon="alertmodal.tga"
+   name="FSBuildCheckpointDelete"
+   type="alertmodal">
+Delete the build checkpoint "[NAME]"?
+    <tag>confirm</tag>
+    <usetemplate
+     name="okcancelbuttons"
+     notext="Cancel"
+     yestext="Delete"/>
+  </notification>
+  <notification
+   icon="alertmodal.tga"
+   name="FSBuildCheckpointRestore"
+   type="alertmodal">
+Put the [COUNT] objects of the build checkpoint "[NAME]" back where they were when it was saved?
+    <tag>confirm</tag>
+    <usetemplate
+     ignoretext="Confirm before restoring a build checkpoint"
+     name="okcancelignore"
+     notext="Cancel"
+     yestext="Restore"/>
+  </notification>
+  <notification
+   icon="notifytip.tga"
+   name="FSBuildCheckpointNothingSelected"
+   type="notifytip">
+Select the objects to save in a build checkpoint first. Attachments and HUDs can't be saved.
+    <tag>fail</tag>
+  </notification>
+  <!-- </FS:Trish> -->
 </notifications>

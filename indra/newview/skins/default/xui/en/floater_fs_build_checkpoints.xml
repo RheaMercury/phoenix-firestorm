@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_build_checkpoints"
+ title="Build Checkpoints"
+ help_topic="fs_build_checkpoints"
+ can_resize="true"
+ height="320"
+ width="520"
+ min_width="460"
+ min_height="180"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="date_format">[year,datetime,local]-[mthnum,datetime,local]-[day,datetime,local] [hour,datetime,local]:[min,datetime,local]</string>
+    <string name="default_name">[NAME] [TIME]</string>
+    <string name="default_object_name">Objects</string>
+    <string name="saved">Saved "[NAME]" with [COUNT] objects.</string>
+    <string name="restored">Restored [RESTORED] objects. Missing: [MISSING]. Not modifiable: [NO_MOD]. In another region: [OTHER_REGION].</string>
+    <string name="selected">Selected [SELECTED] of [COUNT] objects. Missing: [MISSING].</string>
+    <string name="nothing_present">None of the objects of "[NAME]" are in view.</string>
+    <scroll_list
+     name="checkpoints"
+     layout="topleft"
+     follows="all"
+     left="8"
+     right="-8"
+     top="6"
+     bottom="-74"
+     draw_heading="true"
+     multi_select="false"
+     can_sort="false"
+     tool_tip="Double-click to restore the checkpoint">
+        <scroll_list.columns name="name" label="Name" relative_width="0.38" />
+        <scroll_list.columns name="count" label="Objects" relative_width="0.12" />
+        <scroll_list.columns name="region" label="Region" relative_width="0.25" />
+        <scroll_list.columns name="date" label="Saved" relative_width="0.25" />
+    </scroll_list>
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-52"
+     height="16"
+     use_ellipses="true"
+     value="" />
+    <button
+     name="save"
+     label="Save selection"
+     tool_tip="Save the position, rotation and size of every prim of the selected objects under a name"
+     layout="topleft"
+     follows="left|bottom"
+     left="8"
+     bottom="-26"
+     height="22"
+     width="100" />
+    <button
+     name="restore"
+     label="Restore"
+     tool_tip="Put the checkpoint's objects that are still here and that you may modify back where they were. Ctrl+Z undoes it."
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="70" />
+    <button
+     name="select"
+     label="Select objects"
+     tool_tip="Select the checkpoint's objects that are still here"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="100" />
+    <button
+     name="rename"
+     label="Rename"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="66" />
+    <button
+     name="delete"
+     label="Delete"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="60" />
+</floater>
