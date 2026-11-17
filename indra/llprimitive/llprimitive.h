@@ -515,6 +515,12 @@ public:
     // (e.g. decoding a message for an object that hasn't been created yet).
     static S32 parseTEMessage(LLMessageSystem* mesgsys, char const* block_name, const S32 block_num, LLTEContents& tec, U8 face_count);
     S32 applyParsedTEMessage(LLTEContents& tec);
+    // <FS:Trish> FSPerfThreadedObjectUpdates: the parse half of unpackTEMessage(LLDataPacker&), with no
+    // object needed, so it can run on a worker thread. Parses all LLTEContents::MAX_TES faces; the first
+    // getNumTEs() of them are what unpackTEMessage would have parsed. Returns 0 for an empty block (nothing
+    // to apply), TEM_INVALID like unpackTEMessage, or 1 when tec holds the parsed faces.
+    static S32 fsParseTEMessage(LLDataPacker& dp, LLTEContents& tec);
+    // </FS:Trish>
 
 #ifdef CHECK_FOR_FINITE
     inline void setPosition(const LLVector3& pos);

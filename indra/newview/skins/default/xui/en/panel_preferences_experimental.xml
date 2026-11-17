@@ -7008,7 +7008,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2039"
+                 height="2091"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -8030,7 +8030,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfVertexArrayObjects,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod" />
+                         parameter="FSPerfVertexArrayObjects,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod,FSPerfThreadedObjectUpdates,FSPerfThreadedGeometry" />
                     </button>
                     <check_box
                      control_name="FSPerfVertexArrayObjects"
@@ -8140,6 +8140,28 @@
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
                      top="1997"
                      width="100" />
+                    <check_box
+                     control_name="FSPerfThreadedObjectUpdates"
+                     follows="left|top"
+                     height="20"
+                     label="Decode cached objects on worker threads"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfthreadedobjectupdates"
+                     tool_tip="EXPERIMENTAL. While objects around you are created from the object cache (arriving somewhere, logging in, turning around), the ones coming up next are decoded on worker threads: their shape parameters and their texture faces. The main thread then only applies them, at the same moment and in the same order as before, and decodes anything the workers haven't reached yet itself. Updates sent straight from the region (movement, changes, removals) are handled as before. The result is identical; the gain is small."
+                     top="2027"
+                     width="475" />
+                    <check_box
+                     control_name="FSPerfThreadedGeometry"
+                     follows="left|top"
+                     height="20"
+                     label="Build prim shapes for a new level of detail on worker threads"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfthreadedgeometry"
+                     tool_tip="EXPERIMENTAL. When a prim switches to a level of detail whose shape hasn&apos;t been built yet (arriving somewhere, moving the camera through a build), the shape is built on a worker thread instead of the main thread, and the prim keeps its current detail for one more frame meanwhile. Sculpts, meshes, flexible prims, HUDs and what you are editing are handled as before. Off: the standard path."
+                     top="2053"
+                     width="475" />
                 </panel>
             </scroll_container>
         </panel>

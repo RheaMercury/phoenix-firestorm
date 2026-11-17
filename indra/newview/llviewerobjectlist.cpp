@@ -92,6 +92,7 @@
 #include "fsassetblacklist.h"
 #include "fsparcelderender.h" // <FS:Trish/> Parcel derender
 #include "fsparallelavatar.h" // <FS:Trish/> FSPerfParallelAvatarUpdate
+#include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval
 #include "fsfloaterimport.h"
 #include "fscommon.h"
@@ -462,6 +463,11 @@ LLViewerObject* LLViewerObjectList::processObjectUpdateFromCache(LLVOCacheEntry*
     {
         return NULL; //nothing cached.
     }
+
+    // <FS:Trish> FSPerfThreadedObjectUpdates: makes this entry's worker decode, if there is one, what
+    // LLVOVolume::processUpdateMessage takes instead of parsing those blocks again
+    FSObjectUpdateDecoder::ApplyScope fs_decoded(entry, static_cast<LLDataPackerBinaryBuffer*>(cached_dpp));
+    // </FS:Trish>
 
     LLViewerObject *objectp;
     U32             local_id;

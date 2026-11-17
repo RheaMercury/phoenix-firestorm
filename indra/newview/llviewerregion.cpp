@@ -90,6 +90,7 @@
 #include "llviewermenu.h"
 #include "llviewernetwork.h"
 #include "llviewerparcelmgr.h"  //Aurora Sim
+#include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
 
 #ifdef LL_WINDOWS
     #pragma warning(disable:4355)
@@ -1646,10 +1647,18 @@ void LLViewerRegion::createVisibleObjects(F32 max_time)
     S32 throttle = sNewObjectCreationThrottle;
     bool has_new_obj = false;
     LLTimer update_timer;
+    FSObjectUpdateDecoder::Batch fs_decode_batch; // <FS:Trish/> FSPerfThreadedObjectUpdates
     for(LLVOCacheEntry::vocache_entry_priority_list_t::iterator iter = mImpl->mWaitingList.begin();
         iter != mImpl->mWaitingList.end(); ++iter)
     {
         LLVOCacheEntry* vo_entry = *iter;
+        // <FS:Trish> FSPerfThreadedObjectUpdates: the entries after this one are decoded on worker threads
+        // while it is created
+        if (fs_decode_batch.active())
+        {
+            fs_decode_batch.lookAhead(iter, mImpl->mWaitingList.end());
+        }
+        // </FS:Trish>
 
         if(vo_entry->getState() < LLVOCacheEntry::WAITING)
         {

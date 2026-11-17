@@ -99,6 +99,8 @@
 // [/RLVa:KB]
 #include "llviewernetwork.h"
 #include "fsparallelgeometry.h" // <FS:Trish/> parallel geometry fill
+#include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
+#include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
 
 const F32 FORCE_SIMPLE_RENDER_AREA = 512.f;
 const F32 FORCE_CULL_AREA = 8.f;
@@ -730,7 +732,14 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
         if (update_type != OUT_TERSE_IMPROVED)
         {
             LLVolumeParams volume_params;
-            bool res = LLVolumeMessage::unpackVolumeParams(&volume_params, *dp);
+            // <FS:Trish> FSPerfThreadedObjectUpdates: already decoded on a worker thread when it could be
+            //bool res = LLVolumeMessage::unpackVolumeParams(&volume_params, *dp);
+            bool res = false;
+            if (!FSObjectUpdateDecoder::takeVolumeParams(dp, volume_params, res))
+            {
+                res = LLVolumeMessage::unpackVolumeParams(&volume_params, *dp);
+            }
+            // </FS:Trish>
             if (!res)
             {
                 //<FS:Beq> Improved bad object handling courtesy of Drake.
@@ -769,7 +778,14 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem *mesgsys,
             {
                 markForUpdate();
             }
-            S32 res2 = unpackTEMessage(*dp);
+            // <FS:Trish> FSPerfThreadedObjectUpdates: already parsed on a worker thread when it could be
+            //S32 res2 = unpackTEMessage(*dp);
+            S32 res2 = 0;
+            if (!FSObjectUpdateDecoder::applyTE(this, dp, res2))
+            {
+                res2 = unpackTEMessage(*dp);
+            }
+            // </FS:Trish>
             if (TEM_INVALID == res2)
             {
                 // There's something bogus in the data that we're unpacking.
@@ -2099,6 +2115,13 @@ bool LLVOVolume::calcLOD()
 
     if (cur_detail != mLOD)
     {
+        // <FS:Trish> FSPerfThreadedGeometry: keep the current LOD for this frame while a worker builds the
+        // new LOD's shape; the switch goes ahead on the next call whatever state the build is in
+        if (!FSVolumePrebuild::lodReady(this, cur_detail))
+        {
+            return false;
+        }
+        // </FS:Trish>
         mAppAngle = ll_round((F32) atan2( mDrawable->getRadius(), mDrawable->mDistanceWRTCamera) * RAD_TO_DEG, 0.01f);
         mLOD = cur_detail;
 

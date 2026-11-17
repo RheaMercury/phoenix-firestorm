@@ -439,6 +439,8 @@ namespace
         { "FSPerfHoverPickThrottle", CS, VN },
         { "FSPerfVertexArrayObjects", CS, VN },
         { "FSPerfRebuildNearestFirst", CS, VN },
+        { "FSPerfThreadedObjectUpdates", CS, VN },
+        { "FSPerfThreadedGeometry", CS, VN },
         { "RenderReflectionProbeSharedShadows", CS, VN },
         { "RenderReflectionProbeRefreshFrameInterval", CS, VN },
         { "RenderReflectionProbeMinRefresh", CS, VN },

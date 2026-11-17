@@ -58,6 +58,14 @@ public:
     LLVolume* refLOD(const S32 detail);
     bool derefLOD(LLVolume *volumep);
     void fsReleaseVolumes(); // <FS:Trish/> FSPerfBackgroundVolumeFree, before the group is deleted
+    // <FS:Trish> FSPerfThreadedGeometry
+    // Whether this LOD's shape exists already (refLOD would not build it). Main thread.
+    bool fsHasLOD(S32 lod) const { return lod >= 0 && lod < NUM_LODS && mVolumeLODs[lod].notNull(); }
+    // When set, refLOD asks it for a shape built ahead of need (on a worker) before building one itself;
+    // it returns null when it has none. Called on the main thread only, like refLOD.
+    typedef LLPointer<LLVolume> (*fs_prebuilt_fn_t)(const LLVolumeParams& params, S32 lod);
+    static fs_prebuilt_fn_t sFSPrebuiltLOD;
+    // </FS:Trish>
     S32 getNumRefs() const { return mRefs; }
 
     const LLVolumeParams* getVolumeParams() const { return &mVolumeParams; };
@@ -66,6 +74,12 @@ public:
     friend std::ostream& operator<<(std::ostream& s, const LLVolumeLODGroup& volgroup);
 
 protected:
+    // <FS:Trish> its entry in LLVolumeMgr::mVolumeLODGroups, erased without a lookup (unrefVolume)
+    friend class LLVolumeMgr;
+    std::map<const LLVolumeParams*, LLVolumeLODGroup*, LLVolumeParams::compare>::iterator mFSMapIter;
+    bool mFSInMap = false;
+    // </FS:Trish>
+
     LLVolumeParams mVolumeParams;
 
     S32 mRefs;

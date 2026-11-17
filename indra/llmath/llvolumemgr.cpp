@@ -40,6 +40,7 @@ F32 LLVolumeLODGroup::mDetailThresholds[NUM_LODS] = {BASE_THRESHOLD,
 
 //static
 F32 LLVolumeLODGroup::mDetailScales[NUM_LODS] = {1.f, 1.5f, 2.5f, 4.f};
+LLVolumeLODGroup::fs_prebuilt_fn_t LLVolumeLODGroup::sFSPrebuiltLOD = nullptr; // <FS:Trish/> FSPerfThreadedGeometry
 
 
 //============================================================================
@@ -145,28 +146,43 @@ void LLVolumeMgr::unrefVolume(LLVolume *volumep)
     {
         mDataMutex->lock();
     }
-    volume_lod_group_map_t::iterator iter = mVolumeLODGroups.find(params);
-    if( iter == mVolumeLODGroups.end() )
+    // <FS:Trish> The volume knows its group, and the group its map entry. Looking the parameters up
+    // compared whole volume parameters a dozen times or more per volume: leaving a region released
+    // thousands of prims in one frame (265 ms in Cleanup Region Objects, most of it here).
+    LLVolumeLODGroup* volgroupp = volumep->fsLODGroup();
+    if (!volgroupp || !volgroupp->mFSInMap)
     {
-        LL_ERRS() << "Warning! Tried to cleanup unknown volume type! " << *params << LL_ENDL;
-        if (mDataMutex)
+        volume_lod_group_map_t::iterator iter = mVolumeLODGroups.find(params);
+        if( iter == mVolumeLODGroups.end() )
         {
-            mDataMutex->unlock();
+            LL_ERRS() << "Warning! Tried to cleanup unknown volume type! " << *params << LL_ENDL;
+            if (mDataMutex)
+            {
+                mDataMutex->unlock();
+            }
+            return;
         }
-        return;
+        volgroupp = iter->second;
     }
-    else
     {
-        LLVolumeLODGroup* volgroupp = iter->second;
-
         volgroupp->derefLOD(volumep);
         if (volgroupp->getNumRefs() == 0)
         {
-            mVolumeLODGroups.erase(params);
-            volgroupp->fsReleaseVolumes(); // <FS:Trish/> FSPerfBackgroundVolumeFree
+            //mVolumeLODGroups.erase(params);
+            if (volgroupp->mFSInMap)
+            {
+                mVolumeLODGroups.erase(volgroupp->mFSMapIter);
+                volgroupp->mFSInMap = false;
+            }
+            else
+            {
+                mVolumeLODGroups.erase(params);
+            }
+            volgroupp->fsReleaseVolumes(); // FSPerfBackgroundVolumeFree
             delete volgroupp;
         }
     }
+    // </FS:Trish>
     if (mDataMutex)
     {
         mDataMutex->unlock();
@@ -177,7 +193,12 @@ void LLVolumeMgr::unrefVolume(LLVolume *volumep)
 // protected
 void LLVolumeMgr::insertGroup(LLVolumeLODGroup* volgroup)
 {
-    mVolumeLODGroups[volgroup->getVolumeParams()] = volgroup;
+    // <FS:Trish> keep the entry in the group (unrefVolume)
+    //mVolumeLODGroups[volgroup->getVolumeParams()] = volgroup;
+    auto result = mVolumeLODGroups.insert_or_assign(volgroup->getVolumeParams(), volgroup);
+    volgroup->mFSMapIter = result.first;
+    volgroup->mFSInMap = true;
+    // </FS:Trish>
 }
 
 // protected
@@ -263,6 +284,12 @@ LLVolumeLODGroup::~LLVolumeLODGroup()
     for (S32 i = 0; i < NUM_LODS; i++)
     {
         llassert_always(mLODRefs[i] == 0);
+        // <FS:Trish> a volume someone still holds must not point at a deleted group
+        if (mVolumeLODs[i].notNull())
+        {
+            mVolumeLODs[i]->mFSLODGroup = nullptr;
+        }
+        // </FS:Trish>
     }
 }
 
@@ -297,7 +324,18 @@ LLVolume* LLVolumeLODGroup::refLOD(const S32 lod)
     mRefs++;
     if (mVolumeLODs[lod].isNull())
     {
-        mVolumeLODs[lod] = new LLVolume(mVolumeParams, mDetailScales[lod]);
+        // <FS:Trish> FSPerfThreadedGeometry: take the shape a worker built for this LOD, if any
+        //mVolumeLODs[lod] = new LLVolume(mVolumeParams, mDetailScales[lod]);
+        if (sFSPrebuiltLOD)
+        {
+            mVolumeLODs[lod] = sFSPrebuiltLOD(mVolumeParams, lod);
+        }
+        if (mVolumeLODs[lod].isNull())
+        {
+            mVolumeLODs[lod] = new LLVolume(mVolumeParams, mDetailScales[lod]);
+        }
+        // </FS:Trish>
+        mVolumeLODs[lod]->mFSLODGroup = this; // <FS:Trish/> LLVolumeMgr::unrefVolume
     }
     mLODRefs[lod]++;
     return mVolumeLODs[lod];
@@ -308,6 +346,10 @@ void LLVolumeLODGroup::fsReleaseVolumes()
 {
     for (S32 i = 0; i < NUM_LODS; i++)
     {
+        if (mVolumeLODs[i].notNull())
+        {
+            mVolumeLODs[i]->mFSLODGroup = nullptr; // the group is about to go: whoever still holds it
+        }
         LLVolume::fsRelease(mVolumeLODs[i]);
     }
 }

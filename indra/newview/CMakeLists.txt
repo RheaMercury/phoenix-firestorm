@@ -183,6 +183,7 @@ set(viewer_SOURCE_FILES
     fsnearbychatcontrol.cpp
     fsnearbychathub.cpp
     fsnearbychatvoicemonitor.cpp
+    fsobjectupdatedecoder.cpp
     fspanelblocklist.cpp
     fspanelcontactsets.cpp
     fsbuildhistory.cpp
@@ -224,6 +225,7 @@ set(viewer_SOURCE_FILES
     fsssrhiz.cpp
     fsspotlightbatch.cpp
     fsvirtualtrackpad.cpp
+    fsvolumeprebuild.cpp
     fsvrs.cpp
     fsworldmapmessage.cpp
     lggbeamcolormapfloater.cpp
@@ -1093,6 +1095,7 @@ set(viewer_HEADER_FILES
     fsnearbychatcontrol.h
     fsnearbychathub.h
     fsnearbychatvoicemonitor.h
+    fsobjectupdatedecoder.h
     fspanelblocklist.h
     fspanelcontactsets.h
     fsbuildhistory.h
@@ -1135,6 +1138,7 @@ set(viewer_HEADER_FILES
     fsssrhiz.h
     fsspotlightbatch.h
     fsvirtualtrackpad.h
+    fsvolumeprebuild.h
     fsvrs.h
     fsworldmapmessage.h
     lggbeamcolormapfloater.h

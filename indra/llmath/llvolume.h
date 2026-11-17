@@ -41,6 +41,7 @@ template <class T, typename T_PTR> class LLOctreeNode;
 
 class LLVolumeFace;
 class LLVolume;
+class LLVolumeLODGroup; // <FS:Trish/>
 class LLVolumeTriangle;
 class LLVolumeOctree;
 
@@ -1095,6 +1096,14 @@ public:
     // faces, octrees and mesh freed) on a worker thread instead of here. Main thread.
     static bool sFSBackgroundFree;
     static void fsRelease(LLPointer<LLVolume>& p);
+
+    // The LOD group that made this volume (LLVolumeLODGroup::refLOD), so LLVolumeMgr::unrefVolume
+    // finds it without looking its parameters up in the map. Null for unique volumes and once the
+    // group is gone.
+    LLVolumeLODGroup* fsLODGroup() const { return mFSLODGroup; }
+private:
+    LLVolumeLODGroup* mFSLODGroup = nullptr;
+public:
     // </FS:Trish>
 
     friend std::ostream& operator<<(std::ostream &s, const LLVolume &volume);

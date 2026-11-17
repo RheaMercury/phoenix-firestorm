@@ -199,6 +199,7 @@
 #include "lltexturecache.h"
 #include "lltexturefetch.h"
 #include "fsdecodedtexturecache.h" // <FS:Trish/>
+#include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
 #include "fsstallwatch.h" // <FS:Trish/>
 #include "fsasyncfilewriter.h" // <FS:Trish/>
 #include "llimageworker.h"
@@ -2598,6 +2599,7 @@ bool LLAppViewer::cleanup()
     //  gDXHardware.cleanup();
     //#endif // LL_WINDOWS
 
+    FSVolumePrebuild::cleanup(); // <FS:Trish/> FSPerfThreadedGeometry, before the volume manager goes
     LLVolumeMgr* volume_manager = LLPrimitive::getVolumeManager();
     if (!volume_manager->cleanup())
     {
@@ -6997,6 +6999,7 @@ void LLAppViewer::idle()
         if (!(logoutRequestSent() && hasSavedFinalSnapshot()))
         {
             LLPerfStats::tunedAvatars=0; // <FS:Beq> reset the number of avatars that have been tweaked.
+            FSVolumePrebuild::onFrame(); // <FS:Trish/> FSPerfThreadedGeometry, drop shapes nobody took
             gObjectList.update(gAgent);
             LL::GLTFSceneManager::instance().update();
         }

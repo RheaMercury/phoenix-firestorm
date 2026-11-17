@@ -1625,6 +1625,79 @@ S32 LLPrimitive::unpackTEMessage(LLDataPacker &dp)
     return retval;
 }
 
+// <FS:Trish> FSPerfThreadedObjectUpdates: same reads and checks as unpackTEMessage(LLDataPacker&) above,
+// so the data packer ends up at the same place, but for every face. unpack_TEField consumes the same bytes
+// whatever the face count, and the faces below the object's count get the same values either way.
+// static
+S32 LLPrimitive::fsParseTEMessage(LLDataPacker& dp, LLTEContents& tec)
+{
+    constexpr U32 MAX_TES = LLTEContents::MAX_TES;
+    constexpr U32 MAX_TE_BUFFER = LLTEContents::MAX_TE_BUFFER;
+    material_id_type material_data[MAX_TES];
+
+    memset((void*)tec.packed_buffer, 0, MAX_TE_BUFFER);
+    tec.face_count = 0;
+    tec.size = 0;
+
+    S32 size;
+    if (!dp.unpackBinaryData(tec.packed_buffer, MAX_TE_BUFFER, size, "TextureEntry"))
+    {
+        LL_WARNS() << "Bad texture entry block!  Abort!" << LL_ENDL;
+        return TEM_INVALID;
+    }
+
+    if (size == 0)
+    {
+        return 0;
+    }
+    else if (size >= (S32)MAX_TE_BUFFER)
+    {
+        LL_WARNS("TEXTUREENTRY") << "Excessive Texture Entry size; rejecting update." << LL_ENDL;
+        return TEM_INVALID;
+    }
+
+    // The last field is not zero terminated, see unpackTEMessage
+    tec.packed_buffer[size] = 0x00;
+    ++size;
+    tec.size = size;
+    tec.face_count = MAX_TES;
+
+    U8 *cur_ptr = tec.packed_buffer;
+    U8 *buffer_end = tec.packed_buffer + size;
+
+    if (!(  unpack_TEField<LLUUID>(tec.image_data, MAX_TES, cur_ptr, buffer_end, MVT_LLUUID) &&
+            unpack_TEField<LLColor4U>(tec.colors, MAX_TES, cur_ptr, buffer_end, MVT_U8) &&
+            unpack_TEField<F32>(tec.scale_s, MAX_TES, cur_ptr, buffer_end, MVT_F32) &&
+            unpack_TEField<F32>(tec.scale_t, MAX_TES, cur_ptr, buffer_end, MVT_F32) &&
+            unpack_TEField<S16>(tec.offset_s, MAX_TES, cur_ptr, buffer_end, MVT_S16) &&
+            unpack_TEField<S16>(tec.offset_t, MAX_TES, cur_ptr, buffer_end, MVT_S16) &&
+            unpack_TEField<S16>(tec.image_rot, MAX_TES, cur_ptr, buffer_end, MVT_S16) &&
+            unpack_TEField<U8>(tec.bump, MAX_TES, cur_ptr, buffer_end, MVT_U8) &&
+            unpack_TEField<U8>(tec.media_flags, MAX_TES, cur_ptr, buffer_end, MVT_U8) &&
+            unpack_TEField<U8>(tec.glow, MAX_TES, cur_ptr, buffer_end, MVT_U8)))
+    {
+        LL_WARNS("TEXTUREENTRY") << "Failure parsing Texture Entry Message due to malformed TE Field! Dropping changes on the floor. " << LL_ENDL;
+        return TEM_INVALID;
+    }
+
+    if (cur_ptr >= buffer_end - 1)
+    {
+        memset((void*)material_data, 0, sizeof(material_data));
+    }
+    else if (!unpack_TEField<material_id_type>(material_data, MAX_TES, cur_ptr, buffer_end, MVT_LLUUID))
+    {
+        return TEM_INVALID;
+    }
+
+    for (U32 i = 0; i < MAX_TES; i++)
+    {
+        tec.material_ids[i].set(&(material_data[i]));
+    }
+
+    return 1;
+}
+// </FS:Trish>
+
 U8  LLPrimitive::getExpectedNumTEs() const
 {
     U8 expected_face_count = 0;
