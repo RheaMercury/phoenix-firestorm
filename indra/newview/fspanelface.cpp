@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fspanelface.h"
+#include "fsrecentappliedassets.h" // <FS:Trish/>
 
 #include <unordered_set>    // Used to find all faces with same texture
 
@@ -1061,6 +1062,7 @@ bool FSPanelFace::postBuild()
     // Blinn-Phong Diffuse texture swatch
     mTextureCtrl->setDefaultImageAssetID(DEFAULT_OBJECT_TEXTURE);
     mTextureCtrl->setOnSelectCallback(boost::bind(&FSPanelFace::onSelectTexture, this));
+    mTextureCtrl->setFSRecordsRecent(true); // <FS:Trish/> Recent textures and materials
     mTextureCtrl->setCommitCallback(boost::bind(&FSPanelFace::onCommitTexture, this));
     mTextureCtrl->setOnCancelCallback(boost::bind(&FSPanelFace::onCancelTexture, this));
     mTextureCtrl->setDragCallback(boost::bind(&FSPanelFace::onDragTexture, this, _1, _2));
@@ -1108,6 +1110,7 @@ bool FSPanelFace::postBuild()
     mMaterialCtrlPBR->setCommitCallback(boost::bind(&FSPanelFace::onCommitPbr, this));
     mMaterialCtrlPBR->setOnCancelCallback(boost::bind(&FSPanelFace::onCancelPbr, this));
     mMaterialCtrlPBR->setOnSelectCallback(boost::bind(&FSPanelFace::onSelectPbr, this));
+    mMaterialCtrlPBR->setFSRecordsRecent(true); // <FS:Trish/> Recent textures and materials
     mMaterialCtrlPBR->setDragCallback(boost::bind(&FSPanelFace::onDragPbr, this, _2));
     mMaterialCtrlPBR->setOnTextureSelectedCallback(boost::bind(&FSPanelFace::onPbrSelectionChanged, this, _1));
     mMaterialCtrlPBR->setOnCloseCallback(boost::bind(&FSPanelFace::onCloseTexturePicker, this));
@@ -3904,6 +3907,14 @@ void FSPanelFace::onSelectPbr()
 {
     LLSelectMgr::getInstance()->saveSelectedObjectTextures();
     onCommitPbr();
+
+    // <FS:Trish> Recent textures and materials. Recorded here, on the picker's OK, and not in
+    // onCommitPbr, which also runs for every live preview while the picker is open.
+    if (!mMaterialCtrlPBR->getTentative() && !mMaterialCtrlPBR->isImageLocal())
+    {
+        FSRecentAppliedAssets::instance().record(FSRecentAppliedAssets::KIND_MATERIAL, mMaterialCtrlPBR->getImageAssetID(), mMaterialCtrlPBR->getImageItemID());
+    }
+    // </FS:Trish>
 }
 
 void FSPanelFace::onCommitPbr(const LLUICtrl* pbr_ctrl)
@@ -4199,6 +4210,14 @@ void FSPanelFace::onSelectTexture()
 
     LLSelectMgr::getInstance()->saveSelectedObjectTextures();
     sendTexture();
+
+    // <FS:Trish> Recent textures and materials. Recorded here, on the picker's OK, and not in
+    // sendTexture, which also runs for every live preview while the picker is open.
+    if (!mTextureCtrl->getTentative() && !mTextureCtrl->isImageLocal())
+    {
+        FSRecentAppliedAssets::instance().record(FSRecentAppliedAssets::KIND_TEXTURE, mTextureCtrl->getImageAssetID(), mTextureCtrl->getImageItemID());
+    }
+    // </FS:Trish>
 
     LLGLenum image_format;
     bool identical_image_format = false;

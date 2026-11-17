@@ -235,6 +235,11 @@ public:
     // should return true if the drag is acceptable.
     void setDragCallback(drag_n_drop_callback cb)   { mDragCallback = cb; }
 
+    // <FS:Trish> An item dropped on this swatch goes to the recent textures and materials, as one
+    // picked with the picker's OK does (the texture panels' texture and material swatches)
+    void setFSRecordsRecent(bool record)           { mFSRecordsRecent = record; }
+    // </FS:Trish>
+
     // This callback is called when the drop happens. Return true if
     // the drop happened - resulting in an on commit callback, but not
     // necessariliy any other change.
@@ -277,6 +282,7 @@ private:
     void updateLabelColor();    // <FS:Zi> Add label/caption colors
 
 private:
+    bool                        mFSRecordsRecent = false; // <FS:Trish/>
     drag_n_drop_callback        mDragCallback;
     drag_n_drop_callback        mDropCallback;
     commit_callback_t           mOnCancelCallback;

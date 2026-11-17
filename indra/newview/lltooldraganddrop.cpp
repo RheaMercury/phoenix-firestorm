@@ -32,6 +32,7 @@
 #include <vector>
 #include <tuple>
 // project headers
+#include "fsrecentappliedassets.h" // <FS:Trish/>
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llagentwearables.h"
@@ -2795,6 +2796,10 @@ EAcceptance LLToolDragAndDrop::dad3dApplyToObject(
             if (item_permissions.allowOperationBy(PERM_COPY, gAgent.getID()))
             {
                 dropTexture(obj, face, item, mSource, mSourceID, all_faces, remove_pbr);
+                // <FS:Trish> Recent textures and materials. Once per drop, not in dropTextureOneFace,
+                // which runs for each face. A no copy item leaves inventory, so it isn't recorded.
+                FSRecentAppliedAssets::instance().recordItem(item);
+                // </FS:Trish>
             }
             else
             {
@@ -2824,6 +2829,10 @@ EAcceptance LLToolDragAndDrop::dad3dApplyToObject(
             else if (item->getPermissions().allowOperationBy(PERM_COPY, gAgent.getID()))
             {
                 dropMaterial(obj, face, item, mSource, mSourceID, all_faces);
+                // <FS:Trish> Recent textures and materials. Once per drop, not in dropMaterialOneFace,
+                // which runs for each face. A no copy item leaves inventory, so it isn't recorded.
+                FSRecentAppliedAssets::instance().recordItem(item);
+                // </FS:Trish>
             }
             else
             {

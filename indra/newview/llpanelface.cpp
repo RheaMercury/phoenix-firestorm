@@ -37,6 +37,7 @@
 #include "llfontgl.h"
 
 // project includes
+#include "fsrecentappliedassets.h" // <FS:Trish/>
 #include "llagent.h"
 #include "llagentdata.h"
 #include "llbutton.h"
@@ -418,6 +419,7 @@ bool LLPanelFace::postBuild()
     mPBRTextureCtrl->setCommitCallback([&](LLUICtrl*, const LLSD&) { onCommitPbr(); });
     mPBRTextureCtrl->setOnCancelCallback([&](LLUICtrl*, const LLSD&) { onCancelPbr(); });
     mPBRTextureCtrl->setOnSelectCallback([&](LLUICtrl*, const LLSD&) { onSelectPbr(); });
+    mPBRTextureCtrl->setFSRecordsRecent(true); // <FS:Trish/> Recent textures and materials
     mPBRTextureCtrl->setDragCallback([&](LLUICtrl*, LLInventoryItem* item) { return onDragPbr(item); });
     mPBRTextureCtrl->setOnTextureSelectedCallback([&](LLInventoryItem* item) { onPbrSelectionChanged(item); });
     mPBRTextureCtrl->setOnCloseCallback([&](LLUICtrl*, const LLSD& data) { onCloseTexturePicker(data); });
@@ -433,6 +435,7 @@ bool LLPanelFace::postBuild()
     mTextureCtrl->setCommitCallback([&](LLUICtrl*, const LLSD&) { onCommitTexture(); });
     mTextureCtrl->setOnCancelCallback([&](LLUICtrl*, const LLSD&) { onCancelTexture(); });
     mTextureCtrl->setOnSelectCallback([&](LLUICtrl*, const LLSD&) { onSelectTexture(); });
+    mTextureCtrl->setFSRecordsRecent(true); // <FS:Trish/> Recent textures and materials
     mTextureCtrl->setDragCallback([&](LLUICtrl*, LLInventoryItem* item) { return onDragTexture(item); });
     mTextureCtrl->setOnTextureSelectedCallback([&](LLInventoryItem* item) { onTextureSelectionChanged(item); });
     mTextureCtrl->setOnCloseCallback([&](LLUICtrl*, const LLSD& data) { onCloseTexturePicker(data); });
@@ -3420,6 +3423,13 @@ void LLPanelFace::onSelectPbr()
         {
             refresh();
         }
+        // <FS:Trish> Recent textures and materials. Recorded here, on the picker's OK, and not in
+        // onCommitPbr, which also runs for every live preview while the picker is open.
+        else if (!mPBRTextureCtrl->isImageLocal())
+        {
+            FSRecentAppliedAssets::instance().record(FSRecentAppliedAssets::KIND_MATERIAL, mPBRTextureCtrl->getImageAssetID(), mPBRTextureCtrl->getImageItemID());
+        }
+        // </FS:Trish>
     }
 }
 
@@ -3455,6 +3465,14 @@ void LLPanelFace::onSelectTexture()
 {
     LLSelectMgr::getInstance()->saveSelectedObjectTextures();
     sendTexture();
+
+    // <FS:Trish> Recent textures and materials. Recorded here, on the picker's OK, and not in
+    // sendTexture, which also runs for every live preview while the picker is open.
+    if (!mTextureCtrl->getTentative() && !mTextureCtrl->isImageLocal())
+    {
+        FSRecentAppliedAssets::instance().record(FSRecentAppliedAssets::KIND_TEXTURE, mTextureCtrl->getImageAssetID(), mTextureCtrl->getImageItemID());
+    }
+    // </FS:Trish>
 
     LLGLenum image_format;
     bool has_alpha;

@@ -1878,6 +1878,18 @@
                 <menu_item_check.on_enable
                  function="Tools.EnableToolNotPie" />
             </menu_item_check>
+        <!-- <FS:Trish> Recent textures and materials -->
+        <menu_item_check
+           label="Recent Textures &amp; Materials"
+           name="Recent Textures And Materials">
+          <menu_item_check.on_check
+             function="Floater.Visible"
+             parameter="fs_recent_assets" />
+          <menu_item_check.on_click
+             function="Floater.Toggle"
+             parameter="fs_recent_assets" />
+        </menu_item_check>
+        <!-- </FS:Trish> -->
         <menu
          create_jump_keys="true"
          label="Select Elements"

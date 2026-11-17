@@ -29,6 +29,8 @@
 
 #include "lltexturectrl.h"
 
+#include "fsrecentappliedassets.h" // <FS:Trish/>
+
 #include "llrender.h"
 #include "llagent.h"
 #include "llviewertexturelist.h"
@@ -2475,6 +2477,13 @@ bool LLTextureCtrl::handleDragAndDrop(S32 x, S32 y, MASK mask,
                 // there is now only one texture selected.
                 setTentative( false );
                 onCommit();
+
+                // <FS:Trish> Recent textures and materials: a drop applies at once, with no OK to record it
+                if (mFSRecordsRecent && item)
+                {
+                    FSRecentAppliedAssets::instance().recordItem(gInventory.getItem(item->getUUID()));
+                }
+                // </FS:Trish>
             }
         }
 

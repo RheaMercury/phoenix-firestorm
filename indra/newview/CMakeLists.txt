@@ -157,6 +157,7 @@ set(viewer_SOURCE_FILES
     fsfloaterposestand.cpp
     fsfloaterprotectedfolders.cpp
     fsfloaterradar.cpp
+    fsfloaterrecentassets.cpp
     fsfloaterscriptprofiler.cpp
     fsfloatersearch.cpp
     fsfloatersplashscreensettings.cpp
@@ -217,6 +218,7 @@ set(viewer_SOURCE_FILES
     fsradarentry.cpp
     fsradarlistctrl.cpp
     fsradarmenu.cpp
+    fsrecentappliedassets.cpp
     fsregioncross.cpp
     fsscriptlibrary.cpp
     fsscrolllistctrl.cpp
@@ -1070,6 +1072,7 @@ set(viewer_HEADER_FILES
     fsfloaterposestand.h
     fsfloaterprotectedfolders.h
     fsfloaterradar.h
+    fsfloaterrecentassets.h
     fsfloaterscriptprofiler.h
     fsfloatersearch.h
     fsfloatersplashscreensettings.h
@@ -1131,6 +1134,7 @@ set(viewer_HEADER_FILES
     fsradarentry.h
     fsradarlistctrl.h
     fsradarmenu.h
+    fsrecentappliedassets.h
     fsregioncross.h
     fsscriptlibrary.h
     fsscrolllistctrl.h

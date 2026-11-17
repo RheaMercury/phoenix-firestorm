@@ -3172,6 +3172,25 @@
    font.size="LSmall"/>
 />
 
+<!-- <FS:Trish> Recent textures and materials, beside the planar align check box -->
+<button
+   follows="left|top"
+   layout="topleft"
+   left_pad="4"
+   top_delta="-1"
+   width="68"
+   height="18"
+   name="recent_assets_btn"
+   label="Recent..."
+   tool_tip="Recent textures and materials: apply one you used before"
+   font="DejaVu"
+   font.size="LSmall">
+   <button.commit_callback
+      function="Floater.Toggle"
+      parameter="fs_recent_assets"/>
+</button>
+<!-- </FS:Trish> -->
+
 <check_box
    follows="right|top"
    layout="topleft"

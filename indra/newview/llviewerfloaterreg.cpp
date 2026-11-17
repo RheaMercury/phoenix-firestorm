@@ -214,6 +214,7 @@
 #include "fsfloaterposestand.h"
 #include "fsfloaterprotectedfolders.h"
 #include "fsfloaterradar.h"
+#include "fsfloaterrecentassets.h" // <FS:Trish/>
 #include "fsfloatersearch.h"
 #include "fsfloatersplashscreensettings.h"
 #include "fsfloaterstatistics.h"
@@ -657,6 +658,7 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("fs_poser", "floater_fs_poser.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPoser>); // <FS:AR> [FIRE-30873]: Poser
     LLFloaterReg::add("fs_protectedfolders", "floater_fs_protectedfolders.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterProtectedFolders>);
     LLFloaterReg::add("fs_radar", "floater_fs_radar.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterRadar>);
+    LLFloaterReg::add("fs_recent_assets", "floater_fs_recent_assets.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterRecentAssets>); // <FS:Trish/>
     LLFloaterReg::add("fs_splash_screen_settings", "floater_fs_splash_screen_settings.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterSplashScreenSettings>);
     LLFloaterReg::add("fs_script_profiler", "floater_fs_script_profiler.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterScriptProfiler>); // <FS:Trish/>
     LLFloaterReg::add("fs_camera_bookmarks", "floater_fs_camera_bookmarks.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterCameraBookmarks>); // <FS:Trish/>

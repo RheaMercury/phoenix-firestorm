@@ -158,6 +158,24 @@
              top_pad="5"
              width="25">
             </button>
+            <!-- <FS:Trish> Recent textures and materials, under copy and paste -->
+            <button
+             follows="top|right"
+             height="23"
+             image_overlay="Inv_Texture"
+             image_hover_unselected="Toolbar_Middle_Over"
+             image_selected="Toolbar_Middle_Selected"
+             image_unselected="Toolbar_Middle_Off"
+             layout="topleft"
+             name="recent_assets_btn"
+             tool_tip="Recent textures and materials: apply one you used before"
+             top_pad="5"
+             width="25">
+             <button.commit_callback
+               function="Floater.Toggle"
+               parameter="fs_recent_assets"/>
+            </button>
+            <!-- </FS:Trish> -->
             <!-- FS:Ansariel: Removed to make enough room
             <text
              type="string"
