@@ -143,6 +143,7 @@
 #include "fsdynamicresolution.h" // <FS:Trish/> Dynamic resolution
 #include "fsvrs.h" // <FS:Trish/> Variable rate shading
 #include "fsrepresentativefragment.h" // <FS:Trish/> Representative fragment test for occlusion queries
+#include "fstoolmeasure.h" // <FS:Trish/> Measuring tool
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
 #include "fsparallelcull.h" // <FS:Trish/> FSPerfParallelShadowCull
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
@@ -4954,6 +4955,13 @@ void render_hud_elements()
 
         // Draw the tracking overlays
         LLTracker::render3D();
+
+        // <FS:Trish> Measuring tool: the measured path, only while the Measure window is open with a point
+        if (FSToolMeasure::sRenderInWorld)
+        {
+            FSToolMeasure::renderInWorld();
+        }
+        // </FS:Trish>
 
         if (LLWorld::instanceExists())
         {

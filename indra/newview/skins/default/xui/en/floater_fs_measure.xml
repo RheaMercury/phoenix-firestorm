@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_measure"
+ title="Measure"
+ help_topic="fs_measure"
+ can_resize="true"
+ height="360"
+ width="400"
+ min_width="300"
+ min_height="360"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="none">-</string>
+    <string name="no_normal">n/a (no surface normal)</string>
+    <string name="unknown_region">(unknown region)</string>
+    <string name="point_format">[REGION] ([X], [Y], [Z])</string>
+    <string name="meters_format">[VALUE] m</string>
+    <string name="degrees_format">[VALUE]°</string>
+    <string name="height_b_higher">[VALUE] (B is higher)</string>
+    <string name="height_b_lower">[VALUE] (B is lower)</string>
+    <string name="height_same">[VALUE] (same height)</string>
+    <string name="label_total">Total [VALUE]</string>
+    <string name="status_idle">Press "Pick points", then click two surfaces in-world.</string>
+    <string name="status_pick_a">Click a surface for point A. Esc or right-click stops.</string>
+    <string name="status_pick_b">Click a surface for point B. Esc or right-click stops.</string>
+    <string name="status_pick_next">Click the next point of the path. Esc or right-click stops.</string>
+    <string name="status_missed">Nothing to measure there. Click an object, an avatar or the ground.</string>
+    <string name="status_hud">HUD attachments can't be measured.</string>
+    <button
+     name="pick_btn"
+     label="Pick points"
+     tool_tip="Click surfaces in-world to place the points. Esc or a right click stops picking."
+     is_toggle="true"
+     layout="topleft"
+     follows="left|top"
+     left="10"
+     top="8"
+     height="22"
+     width="100" />
+    <check_box
+     name="chain_check"
+     label="Chain"
+     tool_tip="Each further click measures on from the previous point, and the total length of the path is kept."
+     layout="topleft"
+     follows="left|top"
+     left_pad="10"
+     top_delta="3"
+     height="16"
+     width="70" />
+    <button
+     name="reset_btn"
+     label="Reset"
+     tool_tip="Remove all the points"
+     layout="topleft"
+     follows="right|top"
+     right="-80"
+     top="8"
+     height="22"
+     width="64" />
+    <button
+     name="copy_btn"
+     label="Copy"
+     tool_tip="Copy the results as text"
+     layout="topleft"
+     follows="right|top"
+     right="-10"
+     top="8"
+     height="22"
+     width="64" />
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|top"
+     left="10"
+     right="-10"
+     top="36"
+     height="30"
+     word_wrap="true" />
+    <text name="point_a_label" layout="topleft" follows="left|top" left="10" top="72" width="125" height="16">Point A:</text>
+    <text name="point_a" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" use_ellipses="true" />
+    <text name="point_b_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">Point B:</text>
+    <text name="point_b" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" use_ellipses="true" />
+    <text name="distance_label" layout="topleft" follows="left|top" left="10" top_pad="10" width="125" height="16">Distance:</text>
+    <text name="distance" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="horizontal_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">Horizontal distance:</text>
+    <text name="horizontal" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="delta_x_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">X offset:</text>
+    <text name="delta_x" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="delta_y_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">Y offset:</text>
+    <text name="delta_y" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="delta_z_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">Z offset:</text>
+    <text name="delta_z" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="height_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16">Height difference:</text>
+    <text name="height" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="normal_angle_label" layout="topleft" follows="left|top" left="10" top_pad="10" width="125" height="16" tool_tip="Angle between the surfaces' normals at A and B: 0° when they face the same way">Angle between faces:</text>
+    <text name="normal_angle" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="tilt_a_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16" tool_tip="Tilt of the surface at A from facing straight up: 0° is flat ground, 90° a wall">Tilt at A:</text>
+    <text name="tilt_a" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="tilt_b_label" layout="topleft" follows="left|top" left="10" top_pad="4" width="125" height="16" tool_tip="Tilt of the surface at B from facing straight up: 0° is flat ground, 90° a wall">Tilt at B:</text>
+    <text name="tilt_b" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+    <text name="path_total_label" layout="topleft" follows="left|top" left="10" top_pad="10" width="125" height="16">Path total:</text>
+    <text name="path_total" layout="topleft" follows="left|right|top" left="140" right="-10" top_delta="0" height="16" />
+</floater>

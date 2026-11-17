@@ -152,6 +152,7 @@ set(viewer_SOURCE_FILES
     fsfloaterimport.cpp
     fsfloaterim.cpp
     fsfloaterimcontainer.cpp
+    fsfloatermeasure.cpp
     fsfloaternearbychat.cpp
     fsfloaterpartialinventory.cpp
     fsfloaterplacedetails.cpp
@@ -230,6 +231,7 @@ set(viewer_SOURCE_FILES
     fsssrbuffer.cpp
     fsssrhiz.cpp
     fsspotlightbatch.cpp
+    fstoolmeasure.cpp
     fsvirtualtrackpad.cpp
     fsvolumeprebuild.cpp
     fsvrs.cpp
@@ -1065,6 +1067,7 @@ set(viewer_HEADER_FILES
     fsfloaterimport.h
     fsfloaterim.h
     fsfloaterimcontainer.h
+    fsfloatermeasure.h
     fsfloaternearbychat.h
     fsnativepopout.h
     fsnativepopoutpolicy.h
@@ -1149,6 +1152,7 @@ set(viewer_HEADER_FILES
     fsssrbuffer.h
     fsssrhiz.h
     fsspotlightbatch.h
+    fstoolmeasure.h
     fsvirtualtrackpad.h
     fsvolumeprebuild.h
     fsvrs.h
