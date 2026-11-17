@@ -27,6 +27,13 @@
 #ifndef LL_LLDIR_H
 #define LL_LLDIR_H
 
+// <FS:Trish> skin file index
+#include <memory>
+#include <string>
+#include <unordered_set>
+#include <vector>
+// </FS:Trish>
+
 // these numbers are read from settings_files.xml, so we need to be explicit
 typedef enum ELLPath
 {
@@ -284,7 +291,28 @@ class LLDir
         return destpath;
     }
 
+    // <FS:Trish> Skin file index. Opening a window looked up each of its layout files (and the
+    // widgets and panels in it) in every skin search directory, a file check each, and the first
+    // check of each path could wait on the disk or a virus scanner for hundreds of milliseconds
+    // with no work done. The index lists every file under the search directories, taken once on
+    // a worker thread: lookups under an indexed directory answer from it.
+    typedef std::unordered_set<std::string> fs_skin_index_t;
+    // The search directories to index, for fsBuildSkinFileIndex()
+    const std::vector<std::string>& fsSearchSkinDirs() const { return mSearchSkinDirs; }
+    // Any thread: every file under roots, keyed by fsSkinIndexKey(). warm_xui also reads each
+    // layout file (under an xui directory) once, so the system and a virus scanner have seen it.
+    static std::shared_ptr<const fs_skin_index_t> fsBuildSkinFileIndex(const std::vector<std::string>& roots, bool warm_xui);
+    // Main thread: use the index for lookups under roots (from now on, until the next setSkinFolder())
+    void fsSetSkinFileIndex(std::shared_ptr<const fs_skin_index_t> index, const std::vector<std::string>& roots);
+    // </FS:Trish>
+
 protected:
+    // <FS:Trish> Skin file index: the key of a path (separators made one kind, and without case where
+    // the file system has none) and the index with the directories it covers
+    static std::string fsSkinIndexKey(const std::string& path);
+    std::shared_ptr<const fs_skin_index_t> mFSSkinIndex;
+    std::vector<std::string> mFSSkinIndexRoots;
+    // </FS:Trish>
     // Does an add() or append() call need a directory delimiter?
     typedef std::pair<bool, unsigned short> SepOff;
     SepOff needSep(const std::string& path, const std::string& name) const;

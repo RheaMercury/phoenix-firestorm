@@ -1089,6 +1089,28 @@ bool LLAppViewer::init()
 // [/SL:KB]
 //  gDirUtilp->setSkinFolder(gDirUtilp->getSkinFolder(), LLUI::getLanguage());
 
+    // <FS:Trish> Index the skin directories on a worker, and read each layout file once, so the first
+    // opening of a window doesn't wait on the disk or a virus scanner for its files (LLDir::fsBuildSkinFileIndex)
+    {
+        auto main_queue = LL::WorkQueue::getInstance("mainloop");
+        auto general_queue = LL::WorkQueue::getInstance("General");
+        const std::vector<std::string> roots = gDirUtilp->fsSearchSkinDirs();
+        if (main_queue && general_queue)
+        {
+            main_queue->postTo(
+                general_queue,
+                [roots]() // on the worker
+                {
+                    return LLDir::fsBuildSkinFileIndex(roots, true);
+                },
+                [roots](std::shared_ptr<const LLDir::fs_skin_index_t> index) // back on the main thread
+                {
+                    gDirUtilp->fsSetSkinFileIndex(std::move(index), roots);
+                });
+        }
+    }
+    // </FS:Trish>
+
     loadLocalizedSettingsComments();
 
     // Setup LLTrans after LLUI::initClass has been called.

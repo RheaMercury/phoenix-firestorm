@@ -44,6 +44,8 @@
 #include "llprocess.h"
 #include <boost/bind.hpp>
 #include <algorithm>
+#include <filesystem> // <FS:Trish/> skin file index
+#include <fstream>    // <FS:Trish/> skin file index
 
 #include "indra_constants.h"
 
@@ -774,6 +776,13 @@ void LLDir::walkSearchSkinDirs(const std::string& subdir,
 {
     for (const std::string& skindir : mSearchSkinDirs)
     {
+        // <FS:Trish> skin file index: covers this directory?
+        const fs_skin_index_t* index = nullptr;
+        if (mFSSkinIndex && std::find(mFSSkinIndexRoots.begin(), mFSSkinIndexRoots.end(), skindir) != mFSSkinIndexRoots.end())
+        {
+            index = mFSSkinIndex.get();
+        }
+        // </FS:Trish>
         std::string subdir_path(add(skindir, subdir));
         for (const std::string& subsubdir : subsubdirs)
         {
@@ -787,7 +796,10 @@ void LLDir::walkSearchSkinDirs(const std::string& subdir,
             // }
 
             std::pair< tSkinDirCache::iterator, bool > prInsert = mSkinDirCache.insert( SkinDirFile( full_path, false ) );
-            if( prInsert.second && fileExists(full_path) )
+            // <FS:Trish> from the skin file index when it covers the directory
+            //if( prInsert.second && fileExists(full_path) )
+            if( prInsert.second && (index ? index->count(fsSkinIndexKey(full_path)) > 0 : fileExists(full_path)) )
+            // </FS:Trish>
                 prInsert.first->mExists = true;
 
             if( prInsert.first->mExists )
@@ -1132,6 +1144,10 @@ void LLDir::setSkinFolder(const std::string &skin_folder, const std::string& the
     // This method is called multiple times during viewer initialization. Each
     // time it's called, reset mSearchSkinDirs.
     mSearchSkinDirs.clear();
+    // <FS:Trish> the skin file index was taken for the old directories
+    mFSSkinIndex.reset();
+    mFSSkinIndexRoots.clear();
+    // </FS:Trish>
 
     // <FS:Ansariel> If working directory is different from executable directory, add executable subdirs as searchable folders
     if (LLStringUtil::compareInsensitive(mExecutableDir, mWorkingDir) != 0)
@@ -1177,6 +1193,82 @@ void LLDir::setSkinFolder(const std::string &skin_folder, const std::string& the
     // then user-defined skins.
     addSearchSkinDir(mUserSkinDir);
 }
+
+// <FS:Trish> Skin file index
+//static
+std::string LLDir::fsSkinIndexKey(const std::string& path)
+{
+    std::string key(path);
+#if LL_WINDOWS || LL_DARWIN
+    // file names without case, as these file systems usually are
+    LLStringUtil::toLower(key);
+#endif
+#if LL_WINDOWS
+    std::replace(key.begin(), key.end(), '/', '\\');
+    const char sep = '\\';
+#else
+    const char sep = '/';
+#endif
+    // one separator where two were joined (keep a leading pair, a network path)
+    std::string out;
+    out.reserve(key.size());
+    for (size_t i = 0; i < key.size(); ++i)
+    {
+        if (key[i] == sep && i > 1 && !out.empty() && out.back() == sep)
+        {
+            continue;
+        }
+        out += key[i];
+    }
+    return out;
+}
+
+//static
+std::shared_ptr<const LLDir::fs_skin_index_t> LLDir::fsBuildSkinFileIndex(const std::vector<std::string>& roots, bool warm_xui)
+{
+    auto index = std::make_shared<fs_skin_index_t>();
+    const std::string xui_part = fsSkinIndexKey("/xui/");
+    std::vector<char> buffer(64 * 1024);
+    for (const std::string& root : roots)
+    {
+        std::error_code ec;
+        const std::filesystem::path root_path(std::u8string(reinterpret_cast<const char8_t*>(root.data()), root.size()));
+        std::filesystem::recursive_directory_iterator it(root_path, std::filesystem::directory_options::skip_permission_denied, ec);
+        const std::filesystem::recursive_directory_iterator end;
+        for (; !ec && it != end; it.increment(ec))
+        {
+            std::error_code type_ec;
+            if (!it->is_regular_file(type_ec))
+            {
+                continue;
+            }
+            const std::u8string utf8 = it->path().u8string();
+            const std::string key = fsSkinIndexKey(std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size()));
+            if (warm_xui && key.find(xui_part) != std::string::npos)
+            {   // read once and drop it: opening a window reads it next, from the system's cache, already scanned
+                std::ifstream file(it->path(), std::ios::binary);
+                while (file.read(buffer.data(), (std::streamsize)buffer.size()))
+                {
+                }
+            }
+            index->insert(key);
+        }
+    }
+    return index;
+}
+
+void LLDir::fsSetSkinFileIndex(std::shared_ptr<const fs_skin_index_t> index, const std::vector<std::string>& roots)
+{
+    if (roots != mSearchSkinDirs)
+    {   // taken for directories no longer searched (setSkinFolder() since)
+        return;
+    }
+    mFSSkinIndex = std::move(index);
+    mFSSkinIndexRoots = roots;
+    LL_INFOS("LLDir") << "Skin file index: " << (mFSSkinIndex ? mFSSkinIndex->size() : 0) << " files in "
+                      << roots.size() << " skin directories" << LL_ENDL;
+}
+// </FS:Trish>
 
 void LLDir::addSearchSkinDir(const std::string& skindir)
 {
