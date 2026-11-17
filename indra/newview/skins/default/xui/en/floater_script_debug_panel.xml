@@ -5,23 +5,84 @@
  legacy_header_height="18"
  can_resize="true"
  height="200"
+ min_width="440"
+ min_height="140"
  layout="topleft"
  name="script"
  help_topic="script"
  short_title="[ALL SCRIPTS]"
  title="[ALL SCRIPTS]"
  width="440">
+    <!-- <FS:Trish> Script debug filter, status line and object actions -->
+    <floater.string name="tab_title_errors">[NAME] - [ERRORS] errors</floater.string>
+    <floater.string name="status_all">Errors: [ERRORS]   Lines: [LINES]</floater.string>
+    <floater.string name="status_not_in_view">Errors: [ERRORS]   Object not in view</floater.string>
+    <floater.string name="status_hud">Errors: [ERRORS]   On your HUD</floater.string>
+    <floater.string name="status_object">Errors: [ERRORS]   [DISTANCE] m away   [REGION] ([POSITION])</floater.string>
+    <floater.string name="status_object_no_region">Errors: [ERRORS]   [DISTANCE] m away</floater.string>
+    <filter_editor
+     follows="left|top"
+     height="23"
+     layout="topleft"
+     left="4"
+     label="Filter lines"
+     max_length_chars="300"
+     name="filter_input"
+     top="22"
+     width="154" />
+    <button
+     follows="right|top"
+     height="23"
+     label="Look at"
+     layout="topleft"
+     left="164"
+     name="look_at_btn"
+     tool_tip="Point the camera at this object"
+     top="22"
+     width="62" />
+    <button
+     follows="right|top"
+     height="23"
+     label="Select"
+     layout="topleft"
+     left="230"
+     name="select_btn"
+     tool_tip="Select this object and its linkset"
+     top="22"
+     width="62" />
+    <button
+     follows="right|top"
+     height="23"
+     label="Add to Script Profiler"
+     layout="topleft"
+     left="296"
+     name="profile_btn"
+     tool_tip="Add this object to the Script Profiler window"
+     top="22"
+     width="140" />
+    <text
+     follows="left|top|right"
+     height="16"
+     layout="topleft"
+     left="6"
+     name="status_text"
+     top="49"
+     use_ellipses="true"
+     width="430">
+    </text>
+    <!-- </FS:Trish> -->
+    <!-- <FS:Trish> Moved down below the filter row: was top="25" height="170" -->
     <text_editor
      bg_visible="false"
      follows="left|top|right|bottom"
-     height="170"
+     height="129"
      layout="topleft"
      max_length="1048576"
      name="Chat History Editor"
-     parse_highlights="true" 
+     parse_highlights="true"
      read_only="true"
      width="438"
-     top="25"
-     track_bottom="true" 
+     top="66"
+     track_bottom="true"
      word_wrap="true" />
 </floater>

@@ -29,9 +29,14 @@
 
 #include "llmultifloater.h"
 #include "llviewerchat.h"
+// <FS:Trish> Script debug filter, timestamps and object actions
+#include "llframetimer.h"
+#include <deque>
+// </FS:Trish>
 
 class LLTextEditor;
 class LLUUID;
+class LLViewerObject; // <FS:Trish/> Script debug object actions
 
 class LLFloaterScriptDebug : public LLMultiFloater
 {
@@ -76,6 +81,10 @@ public:
     // <FS:Kadah> [FSllOwnerSayToScriptDebugWindow]
     void clear();
 
+    // <FS:Trish> Script debug filter, timestamps and object actions
+    /*virtual*/ void draw();
+    // </FS:Trish>
+
 protected:
     LLTextEditor* mHistoryEditor;
 
@@ -83,6 +92,36 @@ protected:
 
     // <FS:Kadah> [FSllOwnerSayToScriptDebugWindow]
     std::string mUserName; //KC: This should be "object_name", but LL.
+
+    // <FS:Trish> Script debug filter, timestamps and object actions
+    // The output is one text editor, so the raw lines are kept here to be
+    // able to rebuild the text when the filter or the timestamp setting changes.
+    struct DebugLine
+    {
+        time_t      mTime{ 0 };
+        std::string mFromName;
+        std::string mText;
+        std::string mSearchText; // upper case "name: text", matched against the filter
+        bool        mIsError{ false };
+    };
+
+    void appendLine(const DebugLine& line, bool prepend_newline);
+    void rebuildText();
+    bool matchesFilter(const DebugLine& line) const;
+    void onFilterEdit(const std::string& filter);
+    void updateStatus();
+    void updateTabTitle();
+    LLViewerObject* findObject() const;
+    void onClickLookAt();
+    void onClickSelect();
+    void onClickAddToProfiler();
+
+    std::deque<DebugLine> mLines;
+    std::string mFilterUpper;
+    S32 mErrorCount{ 0 };
+    LLFrameTimer mStatusTimer;
+    boost::signals2::scoped_connection mTimestampConnection;
+    // </FS:Trish>
 };
 
 #endif // LL_LLFLOATERSCRIPTDEBUG_H

@@ -43,6 +43,27 @@
 #include "llviewercontrol.h"
 #include "llviewerobjectlist.h"
 #include "llviewertexturelist.h"
+// <FS:Trish> Script debug filter, timestamps and object actions
+#include "fsfloaterscriptprofiler.h"
+#include "llagent.h"
+#include "llagentcamera.h"
+#include "llfiltereditor.h"
+#include "llselectmgr.h"
+#include "llviewerobject.h"
+#include "llviewerregion.h"
+
+namespace
+{
+    // Each tab keeps at most this many lines for filtering. When it overflows,
+    // a batch of the oldest lines is dropped at once so the text is rebuilt
+    // rarely instead of on every new line.
+    constexpr size_t SCRIPT_DEBUG_MAX_LINES = 2000;
+    constexpr size_t SCRIPT_DEBUG_DROP_LINES = 200;
+    // Distance and position change as the object or the avatar moves, so the
+    // status line is refreshed on this interval while the tab is drawn.
+    constexpr F32 SCRIPT_DEBUG_STATUS_INTERVAL = 0.5f;
+}
+// </FS:Trish>
 
 //
 // Statics
@@ -273,6 +294,27 @@ bool LLFloaterScriptDebugOutput::postBuild()
 {
     LLFloater::postBuild();
     mHistoryEditor = getChild<LLViewerTextEditor>("Chat History Editor");
+
+    // <FS:Trish> Script debug filter, timestamps and object actions
+    getChild<LLFilterEditor>("filter_input")->setCommitCallback([this](LLUICtrl*, const LLSD& value) { onFilterEdit(value.asString()); });
+
+    // The "All" tab has no single object to act on, so it only gets the filter.
+    const bool has_object = mObjectID.notNull();
+    getChildView("look_at_btn")->setVisible(has_object);
+    getChildView("select_btn")->setVisible(has_object);
+    getChildView("profile_btn")->setVisible(has_object);
+    getChild<LLUICtrl>("look_at_btn")->setCommitCallback([this](LLUICtrl*, const LLSD&) { onClickLookAt(); });
+    getChild<LLUICtrl>("select_btn")->setCommitCallback([this](LLUICtrl*, const LLSD&) { onClickSelect(); });
+    getChild<LLUICtrl>("profile_btn")->setCommitCallback([this](LLUICtrl*, const LLSD&) { onClickAddToProfiler(); });
+
+    // Turning timestamps on or off should apply to the lines already shown too.
+    if (LLControlVariable* control = gSavedSettings.getControl("FSScriptDebugTimestamps"))
+    {
+        mTimestampConnection = control->getSignal()->connect([this](LLControlVariable*, const LLSD&, const LLSD&) { rebuildText(); });
+    }
+
+    updateStatus();
+    // </FS:Trish>
     return true;
 }
 
@@ -318,11 +360,17 @@ void LLFloaterScriptDebugOutput::addLine(const LLChat& chat, const std::string &
     else
     {
         // Print object name slurl to output on first output or name change
-        if (mHistoryEditor->getText().empty() || mUserName.compare(user_name) != 0)
+        // <FS:Trish> The editor can be empty because of the filter, so ask the stored lines instead
+        //if (mHistoryEditor->getText().empty() || mUserName.compare(user_name) != 0)
+        if (mLines.empty() || mUserName.compare(user_name) != 0)
+        // </FS:Trish>
         {
             mUserName = user_name;
-            setTitle(user_name);
-            setShortTitle(user_name);
+            // <FS:Trish> The tab title also carries the error count
+            //setTitle(user_name);
+            //setShortTitle(user_name);
+            updateTabTitle();
+            // </FS:Trish>
 
             if (gSavedPerAccountSettings.getBOOL("FSllOwnerSayToScriptDebugWindow") && getKey().asUUID().isNull())
             {
@@ -340,35 +388,268 @@ void LLFloaterScriptDebugOutput::addLine(const LLChat& chat, const std::string &
         }
     }
 
-    time_t utc_time;
-    utc_time = time_corrected();
-    std::string timeStr ="["+ LLTrans::getString("TimeHour")+"]:["+LLTrans::getString("TimeMin")+"]";
-    LLSD substitution;
-    substitution["datetime"] = (S32) utc_time;
-    LLStringUtil::format (timeStr, substitution);
+    // <FS:Trish> Script debug filter, timestamps and object actions
+    // Lines are stored so the filter can rebuild the text; appendLine() draws them.
+    //time_t utc_time;
+    //utc_time = time_corrected();
+    //std::string timeStr ="["+ LLTrans::getString("TimeHour")+"]:["+LLTrans::getString("TimeMin")+"]";
+    //LLSD substitution;
+    //substitution["datetime"] = (S32) utc_time;
+    //LLStringUtil::format (timeStr, substitution);
+    //
+    //mHistoryEditor->appendText("[" + timeStr + "] ", (!mHistoryEditor->getText().empty()), message_params.readonly_color(LLUIColorTable::instance().getColor("ChatTimestampColor")));
+    //
+    //if (mObjectID.isNull())
+    //{
+    //    LLStyle::Params link_params(message_params);
+    //    link_params.readonly_color(LLUIColorTable::instance().getColor("ChatNameObjectColor"));
+    //    mHistoryEditor->appendText(chat.mFromName + ": ", false, link_params);
+    //}
+    //
+    //if (chat.mChatType == CHAT_TYPE_DEBUG_MSG)
+    //{
+    //    mHistoryEditor->appendText(chat.mText, false, LLStyle::Params().readonly_color(LLUIColorTable::instance().getColor("ScriptErrorColor")));
+    //}
+    //else
+    //{
+    //    mHistoryEditor->appendText(chat.mText, false, message_params.readonly_color(LLUIColorTable::instance().getColor("llOwnerSayChatColor")));
+    //}
+    //mHistoryEditor->blockUndo();
 
-    mHistoryEditor->appendText("[" + timeStr + "] ", (!mHistoryEditor->getText().empty()), message_params.readonly_color(LLUIColorTable::instance().getColor("ChatTimestampColor")));
+    DebugLine line;
+    line.mTime = time_corrected();
+    line.mFromName = chat.mFromName;
+    line.mText = chat.mText;
+    // Debug channel messages are the ones that raise the script error icon;
+    // owner says routed here are ordinary output and are not counted.
+    line.mIsError = (chat.mChatType == CHAT_TYPE_DEBUG_MSG);
+    line.mSearchText = line.mFromName + ": " + line.mText;
+    LLStringUtil::toUpper(line.mSearchText);
 
-    if (mObjectID.isNull())
+    if (line.mIsError)
     {
-        LLStyle::Params link_params(message_params);
-        link_params.readonly_color(LLUIColorTable::instance().getColor("ChatNameObjectColor"));
-        mHistoryEditor->appendText(chat.mFromName + ": ", false, link_params);
+        ++mErrorCount;
+        updateTabTitle();
     }
 
-    if (chat.mChatType == CHAT_TYPE_DEBUG_MSG)
+    if (matchesFilter(line))
     {
-        mHistoryEditor->appendText(chat.mText, false, LLStyle::Params().readonly_color(LLUIColorTable::instance().getColor("ScriptErrorColor")));
+        appendLine(line, mHistoryEditor->getLength() > 0);
     }
-    else
+    mLines.push_back(std::move(line));
+
+    if (mLines.size() > SCRIPT_DEBUG_MAX_LINES)
     {
-        mHistoryEditor->appendText(chat.mText, false, message_params.readonly_color(LLUIColorTable::instance().getColor("llOwnerSayChatColor")));
+        mLines.erase(mLines.begin(), mLines.begin() + SCRIPT_DEBUG_DROP_LINES);
+        rebuildText();
     }
-    mHistoryEditor->blockUndo();
+
+    updateStatus();
+    // </FS:Trish>
 }
 
 void LLFloaterScriptDebugOutput::clear()
 {
     mHistoryEditor->clear();
+    // <FS:Trish> Script debug filter, timestamps and object actions
+    mLines.clear();
+    mErrorCount = 0;
+    updateTabTitle();
+    updateStatus();
+    // </FS:Trish>
 }
+
+// <FS:Trish> Script debug filter, timestamps and object actions
+void LLFloaterScriptDebugOutput::appendLine(const DebugLine& line, bool prepend_newline)
+{
+    LLFontGL* fontp = LLViewerChat::getChatFont();
+    LLStyle::Params message_params;
+    message_params.font.name(LLFontGL::nameFromFont(fontp));
+    message_params.font.size(LLFontGL::sizeFromFont(fontp));
+
+    static LLCachedControl<bool> show_timestamps(gSavedSettings, "FSScriptDebugTimestamps");
+    if (show_timestamps)
+    {
+        // Local time with seconds, so a line can be matched to what the user
+        // was doing or to the log of the external editor.
+        std::string time_str = "[hour,datetime,local]:[min,datetime,local]:[second,datetime,local]";
+        LLSD substitution;
+        substitution["datetime"] = (S32)line.mTime;
+        LLStringUtil::format(time_str, substitution);
+
+        LLStyle::Params time_params(message_params);
+        time_params.readonly_color(LLUIColorTable::instance().getColor("ChatTimestampColor"));
+        mHistoryEditor->appendText("[" + time_str + "] ", prepend_newline, time_params);
+        prepend_newline = false;
+    }
+
+    if (mObjectID.isNull())
+    {
+        LLStyle::Params link_params(message_params);
+        link_params.readonly_color(LLUIColorTable::instance().getColor("ChatNameObjectColor"));
+        mHistoryEditor->appendText(line.mFromName + ": ", prepend_newline, link_params);
+        prepend_newline = false;
+    }
+
+    if (line.mIsError)
+    {
+        mHistoryEditor->appendText(line.mText, prepend_newline, LLStyle::Params().readonly_color(LLUIColorTable::instance().getColor("ScriptErrorColor")));
+    }
+    else
+    {
+        mHistoryEditor->appendText(line.mText, prepend_newline, message_params.readonly_color(LLUIColorTable::instance().getColor("llOwnerSayChatColor")));
+    }
+    mHistoryEditor->blockUndo();
+}
+
+void LLFloaterScriptDebugOutput::rebuildText()
+{
+    mHistoryEditor->clear();
+    bool prepend_newline = false;
+    for (const DebugLine& line : mLines)
+    {
+        if (matchesFilter(line))
+        {
+            appendLine(line, prepend_newline);
+            prepend_newline = true;
+        }
+    }
+}
+
+bool LLFloaterScriptDebugOutput::matchesFilter(const DebugLine& line) const
+{
+    return mFilterUpper.empty() || line.mSearchText.find(mFilterUpper) != std::string::npos;
+}
+
+void LLFloaterScriptDebugOutput::onFilterEdit(const std::string& filter)
+{
+    std::string filter_upper = filter;
+    LLStringUtil::trim(filter_upper);
+    LLStringUtil::toUpper(filter_upper);
+    if (filter_upper == mFilterUpper)
+    {
+        return;
+    }
+    mFilterUpper = filter_upper;
+    rebuildText();
+}
+
+LLViewerObject* LLFloaterScriptDebugOutput::findObject() const
+{
+    if (mObjectID.isNull())
+    {
+        return nullptr;
+    }
+    LLViewerObject* objectp = gObjectList.findObject(mObjectID);
+    return (objectp && !objectp->isDead()) ? objectp : nullptr;
+}
+
+void LLFloaterScriptDebugOutput::updateTabTitle()
+{
+    // The "All" tab keeps its fixed title from the XML.
+    if (mObjectID.isNull())
+    {
+        return;
+    }
+    setTitle(mUserName);
+    if (mErrorCount > 0)
+    {
+        LLStringUtil::format_map_t args;
+        args["[NAME]"] = mUserName;
+        args["[ERRORS]"] = llformat("%d", mErrorCount);
+        setShortTitle(getString("tab_title_errors", args));
+    }
+    else
+    {
+        setShortTitle(mUserName);
+    }
+}
+
+void LLFloaterScriptDebugOutput::updateStatus()
+{
+    mStatusTimer.reset();
+
+    LLStringUtil::format_map_t args;
+    args["[ERRORS]"] = llformat("%d", mErrorCount);
+    args["[LINES]"] = llformat("%d", (S32)mLines.size());
+
+    LLViewerObject* objectp = findObject();
+    std::string status;
+    if (mObjectID.isNull())
+    {
+        status = getString("status_all", args);
+    }
+    else if (!objectp)
+    {
+        status = getString("status_not_in_view", args);
+    }
+    else if (objectp->isHUDAttachment())
+    {
+        status = getString("status_hud", args);
+    }
+    else
+    {
+        const LLVector3d pos_global = objectp->getPositionGlobal();
+        args["[DISTANCE]"] = llformat("%.1f", (F32)dist_vec(gAgent.getPositionGlobal(), pos_global));
+        if (LLViewerRegion* regionp = objectp->getRegion())
+        {
+            const LLVector3 pos_region = regionp->getPosRegionFromGlobal(pos_global);
+            args["[REGION]"] = regionp->getName();
+            args["[POSITION]"] = llformat("%.0f, %.0f, %.0f", pos_region.mV[VX], pos_region.mV[VY], pos_region.mV[VZ]);
+            status = getString("status_object", args);
+        }
+        else
+        {
+            status = getString("status_object_no_region", args);
+        }
+    }
+    getChild<LLUICtrl>("status_text")->setValue(status);
+
+    // The actions need the object in the viewer's object list. Looking at a
+    // HUD object would point the camera at a meaningless spot in the world.
+    const bool known = (objectp != nullptr);
+    getChildView("look_at_btn")->setEnabled(known && !objectp->isHUDAttachment());
+    getChildView("select_btn")->setEnabled(known);
+    getChildView("profile_btn")->setEnabled(known);
+}
+
+// virtual
+void LLFloaterScriptDebugOutput::draw()
+{
+    if (mStatusTimer.getElapsedTimeF32() > SCRIPT_DEBUG_STATUS_INTERVAL)
+    {
+        updateStatus();
+    }
+    LLFloater::draw();
+}
+
+void LLFloaterScriptDebugOutput::onClickLookAt()
+{
+    LLViewerObject* objectp = findObject();
+    if (!objectp || objectp->isHUDAttachment())
+    {
+        return;
+    }
+    gAgentCamera.setFocusOnAvatar(false, ANIMATE);
+    gAgentCamera.setFocusGlobal(objectp->getPositionGlobal(), mObjectID);
+}
+
+void LLFloaterScriptDebugOutput::onClickSelect()
+{
+    if (LLViewerObject* objectp = findObject())
+    {
+        LLSelectMgr::getInstance()->selectObjectAndFamily(objectp);
+    }
+}
+
+void LLFloaterScriptDebugOutput::onClickAddToProfiler()
+{
+    // Messages can come from any prim of a linkset while the profiler reports
+    // whole objects, so it is handed the root.
+    if (LLViewerObject* objectp = findObject())
+    {
+        FSFloaterScriptProfiler::addTargets({ objectp->getRootEdit()->getID() });
+    }
+}
+// </FS:Trish>
 // </FS:Kadah> [FSllOwnerSayToScriptDebugWindow]
