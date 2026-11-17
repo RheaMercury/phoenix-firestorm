@@ -1063,6 +1063,16 @@
      function="Inventory.DoToSelected"
      parameter="save_selected_as" />
   </menu_item_call>
+    <!-- <FS:Trish> Find uses nearby, for textures and materials -->
+    <menu_item_call
+     label="Find Uses Nearby"
+     layout="topleft"
+     name="Find Uses Nearby">
+        <menu_item_call.on_click
+         function="Inventory.DoToSelected"
+         parameter="find_uses_nearby" />
+    </menu_item_call>
+    <!-- </FS:Trish> -->
     <menu_item_separator
      layout="topleft" 
      name="Wearable And Object Separator"/>

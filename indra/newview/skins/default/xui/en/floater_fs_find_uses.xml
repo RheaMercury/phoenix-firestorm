@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_find_uses"
+ title="Uses"
+ help_topic="fs_find_uses"
+ can_resize="true"
+ height="300"
+ width="440"
+ min_width="320"
+ min_height="160"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="title">Uses of [NAME]</string>
+    <string name="status">[COUNT] faces in this region use it, nearest first. Double-click to select a face and look at it.</string>
+    <string name="status_none">No face in this region uses it.</string>
+    <string name="object_gone">That object is no longer in view.</string>
+    <string name="unnamed_object">Object [ID]</string>
+    <string name="channel_diffuse">Diffuse</string>
+    <string name="channel_normal">Normal</string>
+    <string name="channel_specular">Specular</string>
+    <string name="channel_material">Material</string>
+    <string name="channel_in_material">In material</string>
+    <string name="channel_override">Override</string>
+    <scroll_list
+     name="uses"
+     layout="topleft"
+     follows="all"
+     left="8"
+     right="-8"
+     top="6"
+     bottom="-74"
+     draw_heading="true"
+     multi_select="false"
+     can_sort="false"
+     tool_tip="Object names are known only for objects that were selected or seen by area search. Double-click to select the face and look at it.">
+        <scroll_list.columns name="name" label="Object" relative_width="0.5" />
+        <scroll_list.columns name="face" label="Face" width="40" />
+        <scroll_list.columns name="channel" label="Channel" width="80" />
+        <scroll_list.columns name="distance" label="Dist. m" width="56" />
+    </scroll_list>
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-50"
+     height="18"
+     word_wrap="false"
+     use_ellipses="true" />
+    <button
+     name="refresh"
+     label="Search again"
+     tool_tip="Search the region again"
+     layout="topleft"
+     follows="left|bottom"
+     left="8"
+     bottom="-26"
+     height="22"
+     width="100" />
+</floater>

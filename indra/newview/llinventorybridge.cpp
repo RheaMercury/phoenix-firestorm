@@ -101,6 +101,7 @@
 // </FS:Zi>
 #include "fsfloaterplacedetails.h"
 #include "fsfloaterwearablefavorites.h"
+#include "fsfloaterfinduses.h" // <FS:Trish/>
 #include "llviewerattachmenu.h"
 #include "llresmgr.h"
 
@@ -7242,6 +7243,13 @@ void LLTextureBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
             {
                 disabled_items.push_back(std::string("Save As"));
             }
+            // <FS:Trish> Find uses nearby, one item at a time as it fills one window
+            items.push_back(std::string("Find Uses Nearby"));
+            if (!gAgent.getRegion())
+            {
+                disabled_items.push_back(std::string("Find Uses Nearby"));
+            }
+            // </FS:Trish>
         }
         items.push_back(std::string("Wearable And Object Separator")); // <FS:Ansariel> Add separator
 
@@ -7293,6 +7301,12 @@ void LLTextureBridge::performAction(LLInventoryModel* model, std::string action)
         }
 
     }
+    // <FS:Trish> Find uses nearby
+    else if ("find_uses_nearby" == action)
+    {
+        FSFloaterFindUses::findUses(mUUID);
+    }
+    // </FS:Trish>
     else LLItemBridge::performAction(model, action);
 }
 
@@ -9264,9 +9278,59 @@ void LLMaterialBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
     }
     else
     {
-        LLItemBridge::buildContextMenu(menu, flags);
+        // <FS:Trish> Find uses nearby. The base menu, built here instead so the entry can be added to it
+        //LLItemBridge::buildContextMenu(menu, flags);
+        menuentry_vec_t items;
+        menuentry_vec_t disabled_items;
+        if (isItemInTrash())
+        {
+            addTrashContextMenuOptions(items, disabled_items);
+        }
+        else
+        {
+            items.push_back(std::string("Share"));
+            if (!canShare())
+            {
+                disabled_items.push_back(std::string("Share"));
+            }
+
+            addOpenRightClickMenuOption(items);
+            items.push_back(std::string("Properties"));
+
+            getClipboardEntries(true, items, disabled_items, flags);
+
+            // one item at a time, as it fills one window
+            if ((flags & ITEM_IN_MULTI_SELECTION) == 0)
+            {
+                items.push_back(std::string("Texture Separator"));
+                items.push_back(std::string("Find Uses Nearby"));
+                if (!gAgent.getRegion())
+                {
+                    disabled_items.push_back(std::string("Find Uses Nearby"));
+                }
+            }
+        }
+        addLinkReplaceMenuOption(items, disabled_items);
+        addMoveToDefaultFolderMenuOption(items);
+        hide_context_entries(menu, items, disabled_items);
+        // </FS:Trish>
     }
 }
+
+// <FS:Trish> Find uses nearby
+// virtual
+void LLMaterialBridge::performAction(LLInventoryModel* model, std::string action)
+{
+    if ("find_uses_nearby" == action)
+    {
+        FSFloaterFindUses::findUses(mUUID);
+    }
+    else
+    {
+        LLItemBridge::performAction(model, action);
+    }
+}
+// </FS:Trish>
 
 
 // +=================================================+
