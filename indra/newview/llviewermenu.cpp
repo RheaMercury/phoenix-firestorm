@@ -60,6 +60,7 @@
 // [/SL:KB]
 #include "llcompilequeue.h"
 #include "fsfloaterscriptprofiler.h" // <FS:Trish/>
+#include "fscameralinks.h" // <FS:Trish/>
 #include "fsregionluascripts.h"
 #include "llconsole.h"
 #include "lldebugview.h"
@@ -13391,6 +13392,7 @@ void initialize_menus()
     commit.add("Tools.LookAtSelection", boost::bind(&handle_look_at_selection, _2));
     commit.add("Tools.ScriptInfo",boost::bind(&handle_script_info));
     commit.add("Tools.ScriptProfilerAdd", boost::bind(&FSFloaterScriptProfiler::addSelection)); // <FS:Trish/>
+    commit.add("View.CopyCameraLink", boost::bind(&FSCameraLinks::copyCurrentViewLink)); // <FS:Trish/>
     commit.add("Tools.BuyOrTake", boost::bind(&handle_buy_or_take));
     // <FS:Trish> Take (Copy) into the folder selected in the inventory window
     //commit.add("Tools.TakeCopy", boost::bind(&handle_take_copy));
