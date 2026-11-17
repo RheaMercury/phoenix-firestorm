@@ -32,6 +32,7 @@
 #include "fslslbridgerequest.h"
 
 #include "apr_base64.h" // For getScriptInfo()
+#include "fsfloaterscriptprofiler.h" // <FS:Trish/> script profiler
 #include "llagent.h"
 #include "aoengine.h"
 #include "llappearancemgr.h"
@@ -536,7 +537,13 @@ bool FSLSLBridge::lslToViewer(std::string_view message, const LLUUID& fromID, co
                 ++scriptInfoArrayCount;
             }
 
-            if (scriptInfoArrayCount == 6 || scriptInfoArrayCount == 27)
+            // <FS:Trish> an answer the script profiler asked for goes to it, not to chat
+            //if (scriptInfoArrayCount == 6 || scriptInfoArrayCount == 27)
+            if (FSFloaterScriptProfiler::handleBridgeReply(scriptInfoArray, scriptInfoArrayCount))
+            {
+            }
+            else if (scriptInfoArrayCount == 6 || scriptInfoArrayCount == 27)
+            // </FS:Trish>
             {
                 LLStringUtil::format_map_t args;
                 args["OBJECT_NAME"] = scriptInfoArray[0].asString();

@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<floater
+ name="fs_script_profiler"
+ title="Script Profiler"
+ help_topic="fs_script_profiler"
+ can_resize="true"
+ height="320"
+ width="560"
+ min_width="460"
+ min_height="200"
+ layout="topleft"
+ save_rect="true"
+ single_instance="true">
+    <string name="no_bridge">The LSL bridge isn't available: script figures can't be asked for.</string>
+    <string name="status">[COUNT] listed, [PENDING] waiting for an answer. Script time is the server's average, in milliseconds per frame.</string>
+    <string name="avatar_pending">(avatar, asking...)</string>
+    <string name="object_pending">(object, asking...)</string>
+    <string name="not_found">(not found in this region)</string>
+    <string name="kind_avatar">Avatar</string>
+    <string name="kind_object">Object</string>
+    <scroll_list
+     name="targets"
+     layout="topleft"
+     follows="all"
+     left="8"
+     right="-8"
+     top="6"
+     bottom="-74"
+     draw_heading="true"
+     multi_select="true"
+     can_sort="true"
+     tool_tip="Double-click to look at it. An avatar's figures are the totals of its attachments.">
+        <scroll_list.columns name="name" label="Name" relative_width="0.34" />
+        <scroll_list.columns name="kind" label="Kind" width="56" />
+        <scroll_list.columns name="scripts" label="Scripts" width="58" tool_tip="Running / total scripts" />
+        <scroll_list.columns name="memory" label="Memory KB" width="76" tool_tip="Memory the scripts reserve, in KB" />
+        <scroll_list.columns name="time" label="Time ms" width="64" tool_tip="Script time, milliseconds per frame (the server's average)" />
+        <scroll_list.columns name="peak" label="Peak ms" width="64" tool_tip="Highest script time of the last 30 answers" />
+        <scroll_list.columns name="distance" label="Dist. m" width="52" />
+    </scroll_list>
+    <text
+     name="status"
+     layout="topleft"
+     follows="left|right|bottom"
+     left="8"
+     right="-8"
+     bottom="-50"
+     height="18"
+     word_wrap="false"
+     use_ellipses="true" />
+    <button
+     name="add_selection"
+     label="Add selection"
+     tool_tip="Add the selected objects (their linksets) or avatar"
+     layout="topleft"
+     follows="left|bottom"
+     left="8"
+     bottom="-26"
+     height="22"
+     width="100" />
+    <button
+     name="add_avatars"
+     label="Add avatars"
+     tool_tip="Add every avatar in this region (the LSL bridge only sees its own region)"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="90" />
+    <button
+     name="remove"
+     label="Remove"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="64" />
+    <button
+     name="clear"
+     label="Clear"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="54" />
+    <button
+     name="refresh"
+     label="Refresh"
+     layout="topleft"
+     follows="left|bottom"
+     left_pad="4"
+     height="22"
+     width="64" />
+    <check_box
+     name="auto_refresh"
+     control_name="FSScriptProfilerAutoRefresh"
+     label="Every"
+     layout="topleft"
+     follows="right|bottom"
+     left_pad="10"
+     height="22"
+     width="54" />
+    <spinner
+     name="interval"
+     control_name="FSScriptProfilerInterval"
+     enabled_control="FSScriptProfilerAutoRefresh"
+     decimal_digits="0"
+     increment="1"
+     min_val="1"
+     max_val="300"
+     tool_tip="Seconds between refreshes of the whole list"
+     layout="topleft"
+     follows="right|bottom"
+     left_pad="0"
+     height="22"
+     width="48" />
+</floater>

@@ -2047,6 +2047,16 @@
             <menu_item_call.on_click
                function="ShowScriptDebug" />
           </menu_item_call>
+          <menu_item_check
+             label="Script Profiler"
+             name="Script Profiler">
+            <menu_item_check.on_check
+               function="Floater.Visible"
+               parameter="fs_script_profiler" />
+            <menu_item_check.on_click
+               function="Floater.Toggle"
+               parameter="fs_script_profiler" />
+          </menu_item_check>
           <menu_item_call
              label="Script Info (Counter)"
              name="Script Info">
