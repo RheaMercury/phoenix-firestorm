@@ -110,6 +110,19 @@ bool LLPanelContents::postBuild()
     // update permission filter once UI is fully initialized
     mSavedFolderState.setApply(false);
 
+    // <FS:Trish> Whole linkset view: one folder per link
+    static LLCachedControl<bool> whole_linkset(gSavedSettings, "FSContentsWholeLinkset", false);
+    mPanelInventoryObject->setLinksetMode(whole_linkset);
+    if (LLUICtrl* whole_linkset_check = findChild<LLUICtrl>("contents_whole_linkset"))
+    {
+        whole_linkset_check->setCommitCallback([this](LLUICtrl* ctrl, const LLSD&)
+        {
+            mPanelInventoryObject->setLinksetMode(ctrl->getValue().asBoolean());
+            refresh();
+        });
+    }
+    // </FS:Trish>
+
     return true;
 }
 
@@ -312,9 +325,18 @@ void LLPanelContents::updateScriptSummary()
         return;
     }
     const LLPanelObjectInventory::ScriptSummary summary = mPanelInventoryObject->getScriptSummary();
+    // While the links of a whole linkset load, say how many are still to come
+    std::string links_loading;
+    if (const S32 links_pending = mPanelInventoryObject->getLinksetPendingCount(); links_pending > 0)
+    {
+        LLStringUtil::format_map_t loading_args;
+        loading_args["[PENDING]"] = llformat("%d", links_pending);
+        links_loading = " " + getString("script_summary_links_loading", loading_args);
+    }
+
     if (summary.mTotal == 0)
     {
-        mScriptSummary->setText(getString("script_summary_none"));
+        mScriptSummary->setText(getString("script_summary_none") + links_loading);
         return;
     }
 
@@ -345,7 +367,7 @@ void LLPanelContents::updateScriptSummary()
         args["[PENDING]"] = llformat("%d", pending);
         text += " " + getString("script_summary_pending", args);
     }
-    mScriptSummary->setText(text);
+    mScriptSummary->setText(text + links_loading);
 }
 // </FS:Trish>
 

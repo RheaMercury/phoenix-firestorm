@@ -3793,6 +3793,7 @@ Low ↔ Lwst
              width="90"
              font="DejaVu"
              font.size="LSmall" />
+            <!-- <FS:Trish> Room for the Whole linkset check box (was width="275") -->
             <filter_editor
              follows="left|top|right"
              label="Enter filter text"
@@ -3803,7 +3804,23 @@ Low ↔ Lwst
              highlight_text_field="true"
              name="contents_filter"
              height="23"
-             width="275" />
+             width="181" />
+            <!-- </FS:Trish> -->
+            <!-- <FS:Trish> Whole linkset view -->
+            <check_box
+             control_name="FSContentsWholeLinkset"
+             follows="top|right"
+             height="16"
+             label="Whole linkset"
+             layout="topleft"
+             left="196"
+             name="contents_whole_linkset"
+             tool_tip="Show the contents of every link of the selected linkset, one folder per link (root first), instead of only the selected prim. The filter searches all links."
+             top="48"
+             width="90"
+             font="DejaVu"
+             font.size="LSmall" />
+            <!-- </FS:Trish> -->
             <panel_inventory_object
              border="true"
              border_visible="true"
@@ -3819,6 +3836,7 @@ Low ↔ Lwst
             <string name="script_summary">Scripts: [TOTAL] - [RUNNING] running, [STOPPED] stopped</string>
             <string name="script_summary_pending">([PENDING] checking)</string>
             <string name="script_summary_none">No scripts</string>
+            <string name="script_summary_links_loading">([PENDING] links loading)</string>
             <text
              follows="left|top|right"
              font="DejaVu"
@@ -3827,7 +3845,7 @@ Low ↔ Lwst
              layout="topleft"
              left="10"
              name="contents_script_summary"
-             tool_tip="Scripts in this prim's contents: how many are running or stopped, and which engine they run on (Mono, LSL or Lua), as the region reports them."
+             tool_tip="Scripts in the contents shown above (this prim, or every link with Whole linkset): how many are running or stopped, and which engine they run on (Mono, LSL or Lua), as the region reports them."
              top="382"
              width="275" />
             <!-- </FS:Trish> -->

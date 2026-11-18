@@ -117,6 +117,32 @@
         <menu_item_call.on_click
          function="Inventory.StopScript" />
     </menu_item_call>
+    <!-- <FS:Trish> Content tab, whole linkset view: every selected script, each in its own link -->
+    <menu_item_call
+     label="Set Scripts Running"
+     layout="topleft"
+     name="Task Scripts Running">
+        <menu_item_call.on_click
+         function="Inventory.FSTaskScripts"
+         parameter="run" />
+    </menu_item_call>
+    <menu_item_call
+     label="Set Scripts Not Running"
+     layout="topleft"
+     name="Task Scripts Not Running">
+        <menu_item_call.on_click
+         function="Inventory.FSTaskScripts"
+         parameter="stop" />
+    </menu_item_call>
+    <menu_item_call
+     label="Reset Scripts"
+     layout="topleft"
+     name="Task Reset Scripts">
+        <menu_item_call.on_click
+         function="Inventory.FSTaskScripts"
+         parameter="reset" />
+    </menu_item_call>
+    <!-- </FS:Trish> -->
     <menu_item_call
      label="Properties"
      layout="topleft"

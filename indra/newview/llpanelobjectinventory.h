@@ -34,6 +34,7 @@
 #include "llinventory.h"
 
 #include <map>
+#include <memory> // <FS:Trish/>
 #include <set>
 #include <unordered_map>
 
@@ -41,6 +42,7 @@ class LLScrollContainer;
 class LLFolderView;
 class LLFolderViewFolder;
 class LLViewerObject;
+class FSLinksetInventoryLoader; // <FS:Trish/> whole linkset view
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Class LLPanelObjectInventory
@@ -72,6 +74,20 @@ public:
     void toggleScript();
     void stopScripts();
     bool canStopScripts() const;
+    // <FS:Trish> Whole linkset view: items act on their own link
+    bool canStopScripts(const LLUUID& task_id) const;
+    // "run", "stop" or "reset" for every selected script, each in its own link
+    void doScriptsAction(const LLSD& userdata);
+    // Shows one folder per link of the selected linkset instead of one object's contents
+    void setLinksetMode(bool enabled);
+    bool isLinksetMode() const { return mLinksetActive; }
+    // The link every selected item belongs to, or null when they span several links
+    const LLUUID& getSelectionTaskID();
+    bool isShowingTask(const LLUUID& task_id) const;
+    // Key for per-item maps: an item id is only unique within its own link
+    static LLUUID makeItemKey(const LLUUID& task_id, const LLUUID& item_id);
+    S32 getLinksetPendingCount() const;
+    // </FS:Trish>
 
     void refresh();
     const LLUUID& getTaskUUID() { return mTaskUUID;}
@@ -83,8 +99,12 @@ public:
     LLInventoryFilter& getFilter() { return mInventoryViewModel.getFilter(); }
     const LLInventoryFilter& getFilter() const { return mInventoryViewModel.getFilter(); }
 
-    bool getScriptRunningState(const LLUUID& item_id, bool& running) const;
-    void requestScriptRunningInfo(const LLUUID& item_id);
+    // <FS:Trish> Script state is per link
+    //bool getScriptRunningState(const LLUUID& item_id, bool& running) const;
+    //void requestScriptRunningInfo(const LLUUID& item_id);
+    bool getScriptRunningState(const LLUUID& task_id, const LLUUID& item_id, bool& running) const;
+    void requestScriptRunningInfo(const LLUUID& task_id, const LLUUID& item_id);
+    // </FS:Trish>
     // <FS:Trish> vm: -1 unknown, 0 LSL2, 1 Mono, 2 Lua (from the running state reply)
     //static void handleScriptRunningReply(const LLUUID& object_id, const LLUUID& item_id, bool running);
     static void handleScriptRunningReply(const LLUUID& object_id, const LLUUID& item_id, bool running, S32 vm = -1);
@@ -124,9 +144,23 @@ protected:
                                  void* user_data);
     void updateInventory();
     void createFolderViews(LLInventoryObject* inventory_root, LLInventoryObject::object_list_t& contents);
+    // <FS:Trish> Views are built for one link at a time
+    //void createViewsForCategory(LLInventoryObject::object_list_t* inventory,
+    //                            LLInventoryObject* parent,
+    //                            LLFolderViewFolder* folder);
     void createViewsForCategory(LLInventoryObject::object_list_t* inventory,
                                 LLInventoryObject* parent,
-                                LLFolderViewFolder* folder);
+                                LLFolderViewFolder* folder,
+                                const LLUUID& task_id,
+                                std::vector<LLUUID>* keys = nullptr);
+    void refreshLinkset(LLViewerObject* root);
+    void syncLinks(const std::vector<LLViewerObject*>& links);
+    void updateLinkset();
+    void buildLinkFolder(const LLUUID& link_id);
+    void removeLinkFolder(const LLUUID& link_id);
+    void leaveLinkset();
+    std::string getLinkLabel(const LLUUID& link_id) const;
+    // </FS:Trish>
     void clearContents();
     LLFolderViewItem* getItemByID(const LLUUID& id);
 
@@ -139,7 +173,10 @@ protected:
 
 private:
     std::unordered_map<LLUUID, LLFolderViewItem*> mItemMap;
-    void setScriptRunningState(const LLUUID& item_id, bool running);
+    // <FS:Trish> Script state is per link
+    //void setScriptRunningState(const LLUUID& item_id, bool running);
+    void setScriptRunningState(const LLUUID& task_id, const LLUUID& item_id, bool running);
+    // </FS:Trish>
     std::map<LLUUID, S32> mScriptVM; // <FS:Trish/> -1 unknown, 0 LSL2, 1 Mono, 2 Lua
 
     static std::set<LLPanelObjectInventory*> sInstances;
@@ -157,6 +194,30 @@ private:
     bool mInventoryNeedsUpdate; // for idle, set on changed callback
     LLFolderViewModelInventory  mInventoryViewModel;
     bool mShowRootFolder;
+
+    // <FS:Trish> Whole linkset view
+    struct LinkFolder
+    {
+        LLFolderViewFolder* mFolder = nullptr;
+        LLViewerObject* mObject = nullptr;  // only compared, to notice a link that was killed and recreated
+        S32 mLinkNum = 0;
+        S32 mCount = 0;
+        S16 mRequestedSerial = -1;
+        bool mOpen = false;
+        std::string mName;
+        std::vector<LLUUID> mKeys;          // item keys in mItemMap, for removal without a tree walk
+    };
+    bool mLinksetWanted = false;
+    bool mLinksetActive = false;
+    mutable bool mLinksetSummaryDirty = true;
+    LLUUID mLinksetRootID;
+    std::vector<LLUUID> mLinkOrder;
+    std::unordered_map<LLUUID, LinkFolder> mLinkFolders;
+    std::unique_ptr<FSLinksetInventoryLoader> mLinksetLoader;
+    mutable ScriptSummary mLinksetSummary;
+    U32 mSelectionTaskFrame = 0;
+    LLUUID mSelectionTaskID;
+    // </FS:Trish>
 };
 
 #endif // LL_LLPANELOBJECTINVENTORY_H

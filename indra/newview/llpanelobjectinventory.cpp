@@ -73,6 +73,11 @@
 #include "rlvlocks.h"
 // [/RLVa:KB]
 #include "llfloaterproperties.h" // <FS:Ansariel> Keep legacy properties floater
+// <FS:Trish> Whole linkset view
+#include "fslinksetinventoryloader.h"
+#include "llframetimer.h"
+#include <unordered_set>
+// </FS:Trish>
 
 const LLColor4U DEFAULT_WHITE(255, 255, 255);
 #include "tea.h" // <FS:AW opensim currency support>
@@ -95,6 +100,11 @@ protected:
 
     LLInventoryObject* findInvObject() const;
     LLInventoryItem* findItem() const;
+    // <FS:Trish> Each item acts on its own link. Null only for the panel's root
+    // folder, which follows whatever object the panel shows.
+    LLUUID mTaskID;
+    const LLUUID& getTaskID() const { return mTaskID.notNull() ? mTaskID : mPanel->getTaskUUID(); }
+    // </FS:Trish>
 
 public:
     LLTaskInvFVBridge(LLPanelObjectInventory* panel,
@@ -106,8 +116,14 @@ public:
     virtual LLFontGL::StyleFlags getLabelStyle() const { return LLFontGL::NORMAL; }
     virtual std::string getLabelSuffix() const { return LLStringUtil::null; }
 
+    // <FS:Trish> Bridges belong to one link
+    //static LLTaskInvFVBridge* createObjectBridge(LLPanelObjectInventory* panel,
+    //                                             LLInventoryObject* object);
     static LLTaskInvFVBridge* createObjectBridge(LLPanelObjectInventory* panel,
-                                                 LLInventoryObject* object);
+                                                 LLInventoryObject* object,
+                                                 const LLUUID& task_id = LLUUID::null);
+    const LLUUID& getBridgeTaskID() const { return getTaskID(); }
+    // </FS:Trish>
     void showProperties();
     S32 getPrice();
 
@@ -168,6 +184,11 @@ public:
                             std::string& tooltip_msg);
 };
 
+// <FS:Trish> The link a bridge is being created for. Passed this way rather than through
+// every subclass constructor; bridges are only created on the main thread, in createObjectBridge().
+static const LLUUID* sCreatingTaskID = nullptr;
+// </FS:Trish>
+
 LLTaskInvFVBridge::LLTaskInvFVBridge(
     LLPanelObjectInventory* panel,
     const LLUUID& uuid,
@@ -181,6 +202,12 @@ LLTaskInvFVBridge::LLTaskInvFVBridge(
     mAssetType(LLAssetType::AT_NONE),
     mInventoryType(LLInventoryType::IT_NONE)
 {
+    // <FS:Trish> Remember the link before looking the item up in it
+    if (sCreatingTaskID)
+    {
+        mTaskID = *sCreatingTaskID;
+    }
+    // </FS:Trish>
     if (const LLInventoryItem* item = findItem())
     {
         mAssetType = item->getType();
@@ -190,7 +217,10 @@ LLTaskInvFVBridge::LLTaskInvFVBridge(
 
 LLInventoryObject* LLTaskInvFVBridge::findInvObject() const
 {
-    const LLUUID& id = mPanel->getTaskUUID();
+    // <FS:Trish> Act on the item's own link
+    //const LLUUID& id = mPanel->getTaskUUID();
+    const LLUUID& id = getTaskID();
+    // </FS:Trish>
     if (LLViewerObject* object = gObjectList.findObject(id))
     {
         return object->getInventoryObject(mUUID);
@@ -206,7 +236,10 @@ LLInventoryItem* LLTaskInvFVBridge::findItem() const
 
 void LLTaskInvFVBridge::showProperties()
 {
-    show_task_item_profile(mUUID, mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //show_task_item_profile(mUUID, mPanel->getTaskUUID());
+    show_task_item_profile(mUUID, getTaskID());
+    // </FS:Trish>
 }
 
 
@@ -297,7 +330,10 @@ void LLTaskInvFVBridge::openItem()
 bool LLTaskInvFVBridge::isItemRenameable() const
 {
 // [RLVa:KB] - Checked: 2010-09-28 (RLVa-1.2.1f) | Modified: RLVa-1.0.5a
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if (rlv_handler_t::isEnabled() && object && gRlvAttachmentLocks.isLockedAttachment(object->getRootEdit()))
     {
         return false;
@@ -324,7 +360,10 @@ bool LLTaskInvFVBridge::isItemRenameable() const
 bool LLTaskInvFVBridge::renameItem(const std::string& new_name)
 {
 // [RLVa:KB] - Checked: 2010-09-28 (RLVa-1.2.1f) | Modified: RLVa-1.0.5a
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if (rlv_handler_t::isEnabled() && object && gRlvAttachmentLocks.isLockedAttachment(object->getRootEdit()))
     {
         return false;
@@ -359,7 +398,10 @@ bool LLTaskInvFVBridge::isItemMovable() const
 // [RLVa:KB] - Checked: 2010-04-01 (RLVa-1.2.0c) | Modified: RLVa-1.0.5a
     if (rlv_handler_t::isEnabled())
     {
-        const LLViewerObject* pObj = gObjectList.findObject(mPanel->getTaskUUID());
+        // <FS:Trish> Act on the item's own link
+        //const LLViewerObject* pObj = gObjectList.findObject(mPanel->getTaskUUID());
+        const LLViewerObject* pObj = gObjectList.findObject(getTaskID());
+        // </FS:Trish>
         if (pObj)
         {
             if (gRlvAttachmentLocks.isLockedAttachment(pObj->getRootEdit()))
@@ -379,7 +421,10 @@ bool LLTaskInvFVBridge::isItemMovable() const
 
 bool LLTaskInvFVBridge::isItemRemovable(bool check_worn) const
 {
-    const LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //const LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    const LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
 // [RLVa:KB] - Checked: 2010-04-01 (RLVa-1.2.0c) | Modified: RLVa-1.0.5a
     if (object && rlv_handler_t::isEnabled())
     {
@@ -436,7 +481,10 @@ bool LLTaskInvFVBridge::removeItem()
 {
     if (isItemRemovable() && mPanel)
     {
-        if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+        // <FS:Trish> Act on the item's own link
+        //if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+        if (LLViewerObject* object = gObjectList.findObject(getTaskID()))
+        // </FS:Trish>
         {
             if (object->permModify())
             {
@@ -460,7 +508,41 @@ void LLTaskInvFVBridge::removeBatch(std::vector<LLFolderViewModelItem*>& batch)
         return;
     }
 
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> A selection can span several links: remove each item from its own link
+    if (mPanel->isLinksetMode())
+    {
+        bool refused = false;
+        for (LLFolderViewModelItem* item : batch)
+        {
+            LLTaskInvFVBridge* bridge = dynamic_cast<LLTaskInvFVBridge*>(item);
+            if (!bridge || !bridge->isItemRemovable())
+            {
+                continue;
+            }
+            LLViewerObject* link = gObjectList.findObject(bridge->getTaskID());
+            if (!link)
+            {
+                continue;
+            }
+            if (!link->permModify())
+            {
+                refused = true;
+                continue;
+            }
+            link->removeInventory(bridge->getUUID());
+        }
+        if (refused)
+        {
+            LLNotificationsUtil::add("CantModifyContentInNoModTask");
+        }
+        return;
+    }
+    // </FS:Trish>
+
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if (!object)
     {
         return;
@@ -527,7 +609,22 @@ bool LLTaskInvFVBridge::startDrag(EDragAndDropType* type, LLUUID* id) const
     if (!mPanel)
         return false;
 
-    if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+    // <FS:Trish> A drag carries one source object, so items from several links
+    // can't be dragged out together. The drag's source is this item's link.
+    if (mPanel->isLinksetMode())
+    {
+        if (mPanel->getSelectionTaskID() != getTaskID())
+        {
+            return false;
+        }
+        mPanel->getRootViewModel().setTaskID(getTaskID());
+    }
+    // </FS:Trish>
+
+    // <FS:Trish> Act on the item's own link
+    //if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+    if (LLViewerObject* object = gObjectList.findObject(getTaskID()))
+    // </FS:Trish>
     {
         if (LLInventoryItem* inv = (LLInventoryItem*)object->getInventoryObject(mUUID))
         {
@@ -603,7 +700,10 @@ void LLTaskInvFVBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
 // [RLVa:KB] - Checked: 2010-03-01 (RLVa-1.2.0b) | Modified: RLVa-1.1.0a
         if (rlv_handler_t::isEnabled())
         {
-            LLViewerObject* pAttachObj = gObjectList.findObject(mPanel->getTaskUUID());
+            // <FS:Trish> Act on the item's own link
+            //LLViewerObject* pAttachObj = gObjectList.findObject(mPanel->getTaskUUID());
+            LLViewerObject* pAttachObj = gObjectList.findObject(getTaskID());
+            // </FS:Trish>
             bool fLocked = (pAttachObj) ? gRlvAttachmentLocks.isLockedAttachment(pAttachObj->getRootEdit()) : false;
             if ( ((LLAssetType::AT_NOTECARD == item->getType()) && ((gRlvHandler.hasBehaviour(RLV_BHVR_VIEWNOTE)) || (fLocked))) ||
                  ((LLAssetType::AT_LSL_TEXT == item->getType()) && ((gRlvHandler.hasBehaviour(RLV_BHVR_VIEWSCRIPT)) || (fLocked))) ||
@@ -619,18 +719,43 @@ void LLTaskInvFVBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
     {
         items.push_back(std::string("Task Stop Script"));
         bool is_running = true;
-        if (!mPanel->getScriptRunningState(item->getUUID(), is_running))
+        // <FS:Trish> Act on the item's own link
+        //if (!mPanel->getScriptRunningState(item->getUUID(), is_running))
+        if (!mPanel->getScriptRunningState(getTaskID(), item->getUUID(), is_running))
+        // </FS:Trish>
         {
-            mPanel->requestScriptRunningInfo(item->getUUID());
+            // <FS:Trish> Act on the item's own link
+            //mPanel->requestScriptRunningInfo(item->getUUID());
+            mPanel->requestScriptRunningInfo(getTaskID(), item->getUUID());
+            // </FS:Trish>
         }
         if (LLMenuItemGL* menu_item = menu.getChild<LLMenuItemGL>("Task Stop Script", true))
         {
             menu_item->setLabel(LLStringExplicit(is_running ? "Stop Script" : "Start Script"));
         }
-        if (!mPanel->canStopScripts())
+        // <FS:Trish> Act on the item's own link
+        //if (!mPanel->canStopScripts())
+        if (!mPanel->canStopScripts(getTaskID()))
+        // </FS:Trish>
         {
             disabled_items.push_back(std::string("Task Stop Script"));
         }
+        // <FS:Trish> Whole linkset view: run, stop or reset every selected script, each in its own link
+        if (mPanel->isLinksetMode())
+        {
+            items.push_back(std::string("Task Scripts Running"));
+            items.push_back(std::string("Task Scripts Not Running"));
+            items.push_back(std::string("Task Reset Scripts"));
+            LLViewerObject* link = gObjectList.findObject(getTaskID());
+            const bool locked = link && rlv_handler_t::isEnabled() && gRlvAttachmentLocks.isLockedAttachment(link->getRootEdit());
+            if (locked || !mPanel->canStopScripts(getTaskID()))
+            {
+                disabled_items.push_back(std::string("Task Scripts Running"));
+                disabled_items.push_back(std::string("Task Scripts Not Running"));
+                disabled_items.push_back(std::string("Task Reset Scripts"));
+            }
+        }
+        // </FS:Trish>
     }
     // <FS:Ansariel> Improved object properties
     //if ((flags & FIRST_SELECTED_ITEM) == 0)
@@ -733,7 +858,10 @@ const std::string& LLTaskCategoryBridge::getDisplayName() const
         //mSearchableName.assign(name);
         if (cat->getParentUUID().isNull() && cat->getName() == "Contents")
         {
-            if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+            // <FS:Trish> Act on the item's own link
+            //if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+            if (LLViewerObject* object = gObjectList.findObject(getTaskID()))
+            // </FS:Trish>
             {
                 LLInventoryObject::object_list_t contents;
 
@@ -781,7 +909,10 @@ void LLTaskCategoryBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
     if (category && category->getParentUUID().isNull() && category->getName() == "Contents")
     {
         items.push_back(std::string("Task Stop Scripts"));
-        if (!mPanel->canStopScripts())
+        // <FS:Trish> Act on the item's own link
+        //if (!mPanel->canStopScripts())
+        if (!mPanel->canStopScripts(getTaskID()))
+        // </FS:Trish>
         {
             disabled_items.push_back(std::string("Task Stop Scripts"));
         }
@@ -809,7 +940,10 @@ bool LLTaskCategoryBridge::startDrag(EDragAndDropType* type, LLUUID* id) const
     //LL_INFOS() << "LLTaskInvFVBridge::startDrag()" << LL_ENDL;
     if (mPanel && mUUID.notNull())
     {
-        if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+        // <FS:Trish> Act on the item's own link
+        //if (LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID()))
+        if (LLViewerObject* object = gObjectList.findObject(getTaskID()))
+        // </FS:Trish>
         {
             const LLInventoryObject* cat = object->getInventoryObject(mUUID);
             if (cat && move_inv_category_world_to_agent(mUUID, LLUUID::null, false))
@@ -831,7 +965,10 @@ bool LLTaskCategoryBridge::dragOrDrop(MASK mask, bool drop,
 {
     //LL_INFOS() << "LLTaskCategoryBridge::dragOrDrop()" << LL_ENDL;
     bool accept = false;
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(object)
     {
         switch(cargo_type)
@@ -892,6 +1029,45 @@ bool LLTaskCategoryBridge::dragOrDrop(MASK mask, bool drop,
     return accept;
 }
 
+// <FS:Trish> Whole linkset view: the folder holding one link's contents.
+// Dropping on it puts the item into that link (LLTaskCategoryBridge::dragOrDrop
+// uses the bridge's own link).
+class LLTaskLinkBridge : public LLTaskCategoryBridge
+{
+public:
+    LLTaskLinkBridge(LLPanelObjectInventory* panel,
+                     const LLUUID& link_id,
+                     const std::string& label) :
+        LLTaskCategoryBridge(panel, link_id, label)
+    {
+        mTaskID = link_id;
+        setLabel(label);
+    }
+
+    void setLabel(const std::string& label)
+    {
+        mLabel = label;
+        mDisplayName = label;
+        mSearchableName = label;
+        LLStringUtil::toUpper(mSearchableName);
+    }
+
+    const std::string& getName() const override { return mLabel; }
+    const std::string& getDisplayName() const override { return mDisplayName; }
+    LLUIImagePtr getIcon() const override { return LLUI::getUIImage("Inv_Object"); }
+    void buildContextMenu(LLMenuGL& menu, U32 flags) override
+    {
+        std::vector<std::string> items;
+        std::vector<std::string> disabled_items;
+        hide_context_entries(menu, items, disabled_items);
+    }
+    bool startDrag(EDragAndDropType* type, LLUUID* id) const override { return false; }
+
+private:
+    std::string mLabel;
+};
+// </FS:Trish>
+
 ///----------------------------------------------------------------------------
 /// Class LLTaskTextureBridge
 ///----------------------------------------------------------------------------
@@ -913,7 +1089,10 @@ void LLTaskTextureBridge::openItem()
 {
     LL_INFOS() << "LLTaskTextureBridge::openItem()" << LL_ENDL;
     // <FS:Ansariel> FIRE-17096 / BUG-10486 / MAINT-5753: Viewer crashes when opening a texture from object contents
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
@@ -926,7 +1105,10 @@ void LLTaskTextureBridge::openItem()
         {
             preview->setAuxItem(item);
         }
-        preview->setObjectID(mPanel->getTaskUUID());
+        // <FS:Trish> Act on the item's own link
+        //preview->setObjectID(mPanel->getTaskUUID());
+        preview->setObjectID(getTaskID());
+        // </FS:Trish>
     }
 }
 
@@ -954,7 +1136,10 @@ public:
 void LLTaskSoundBridge::openItem()
 {
     // <FS:Ansariel> FIRE-17096 / BUG-10486 / MAINT-5753: Viewer crashes when opening a texture from object contents
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
@@ -973,7 +1158,10 @@ void LLTaskSoundBridge::openSoundPreview(void* data)
     LLPreviewSound* preview = LLFloaterReg::showTypedInstance<LLPreviewSound>("preview_sound", LLSD(self->mUUID), TAKE_FOCUS_YES);
     if (preview)
     {
-        preview->setObjectID(self->mPanel->getTaskUUID());
+        // <FS:Trish> Act on the item's own link
+        //preview->setObjectID(self->mPanel->getTaskUUID());
+        preview->setObjectID(self->getTaskID());
+        // </FS:Trish>
     }
 }
 
@@ -1101,9 +1289,15 @@ LLFontGL::StyleFlags LLTaskScriptBridge::getLabelStyle() const
     bool is_running = true;
     if (mPanel)
     {
-        if (!mPanel->getScriptRunningState(mUUID, is_running))
+        // <FS:Trish> Act on the item's own link
+        //if (!mPanel->getScriptRunningState(mUUID, is_running))
+        if (!mPanel->getScriptRunningState(getTaskID(), mUUID, is_running))
+        // </FS:Trish>
         {
-            mPanel->requestScriptRunningInfo(mUUID);
+            // <FS:Trish> Act on the item's own link
+            //mPanel->requestScriptRunningInfo(mUUID);
+            mPanel->requestScriptRunningInfo(getTaskID(), mUUID);
+            // </FS:Trish>
         }
     }
 
@@ -1127,9 +1321,15 @@ std::string LLTaskScriptBridge::getLabelSuffix() const
     bool is_running = true;
     if (mPanel)
     {
-        if (!mPanel->getScriptRunningState(mUUID, is_running))
+        // <FS:Trish> Act on the item's own link
+        //if (!mPanel->getScriptRunningState(mUUID, is_running))
+        if (!mPanel->getScriptRunningState(getTaskID(), mUUID, is_running))
+        // </FS:Trish>
         {
-            mPanel->requestScriptRunningInfo(mUUID);
+            // <FS:Trish> Act on the item's own link
+            //mPanel->requestScriptRunningInfo(mUUID);
+            mPanel->requestScriptRunningInfo(getTaskID(), mUUID);
+            // </FS:Trish>
             return suffix;
         }
     }
@@ -1163,7 +1363,10 @@ public:
 void LLTaskLSLBridge::openItem()
 {
     LL_INFOS() << "LLTaskLSLBridge::openItem() " << mUUID << LL_ENDL;
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
@@ -1178,18 +1381,31 @@ void LLTaskLSLBridge::openItem()
     if (object->permModify() || gAgent.isGodlike())
     {
         LLSD floater_key;
-        floater_key["taskid"] = mPanel->getTaskUUID();
+        // <FS:Trish> Act on the item's own link
+        //floater_key["taskid"] = mPanel->getTaskUUID();
+        floater_key["taskid"] = getTaskID();
+        // </FS:Trish>
         floater_key["itemid"] = mUUID;
 
         LLLiveLSLEditor* preview = LLFloaterReg::showTypedInstance<LLLiveLSLEditor>("preview_scriptedit", floater_key, TAKE_FOCUS_YES);
         if (preview)
         {
-            LLSelectNode *node = LLSelectMgr::getInstance()->getSelection()->getFirstRootNode(NULL, true);
+            // <FS:Trish> Name the script's own link when the whole linkset is shown
+            //LLSelectNode *node = LLSelectMgr::getInstance()->getSelection()->getFirstRootNode(NULL, true);
+            LLSelectNode *node = mPanel->isLinksetMode() ? LLSelectMgr::getInstance()->getSelection()->findNode(object) : nullptr;
+            if (!node)
+            {
+                node = LLSelectMgr::getInstance()->getSelection()->getFirstRootNode(NULL, true);
+            }
+            // </FS:Trish>
             if (node && node->mValid)
             {
                 preview->setObjectName(node->mName);
             }
-            preview->setObjectID(mPanel->getTaskUUID());
+            // <FS:Trish> Act on the item's own link
+            //preview->setObjectID(mPanel->getTaskUUID());
+            preview->setObjectID(getTaskID());
+            // </FS:Trish>
         }
     }
     else
@@ -1239,7 +1455,10 @@ public:
 // virtual
 void LLTaskNotecardBridge::openItem()
 {
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
@@ -1261,12 +1480,18 @@ void LLTaskNotecardBridge::openItem()
         || gAgent.isGodlike())
     {
         LLSD floater_key;
-        floater_key["taskid"] = mPanel->getTaskUUID();
+        // <FS:Trish> Act on the item's own link
+        //floater_key["taskid"] = mPanel->getTaskUUID();
+        floater_key["taskid"] = getTaskID();
+        // </FS:Trish>
         floater_key["itemid"] = mUUID;
         LLPreviewNotecard* preview = LLFloaterReg::showTypedInstance<LLPreviewNotecard>("preview_notecard", floater_key, TAKE_FOCUS_YES);
         if (preview)
         {
-            preview->setObjectID(mPanel->getTaskUUID());
+            // <FS:Trish> Act on the item's own link
+            //preview->setObjectID(mPanel->getTaskUUID());
+            preview->setObjectID(getTaskID());
+            // </FS:Trish>
         }
     }
 }
@@ -1298,12 +1523,18 @@ public:
 // virtual
 void LLTaskGestureBridge::openItem()
 {
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
     }
-    LLPreviewGesture::show(mUUID, mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLPreviewGesture::show(mUUID, mPanel->getTaskUUID());
+    LLPreviewGesture::show(mUUID, getTaskID());
+    // </FS:Trish>
 }
 
 // virtual
@@ -1334,7 +1565,10 @@ public:
 // virtual
 void LLTaskAnimationBridge::openItem()
 {
-    const LLUUID& task_id = mPanel->getTaskUUID();
+    // <FS:Trish> Act on the item's own link
+    //const LLUUID& task_id = mPanel->getTaskUUID();
+    const LLUUID& task_id = getTaskID();
+    // </FS:Trish>
     LLViewerObject* object = gObjectList.findObject(task_id);
     if (!object || object->isInventoryPending())
     {
@@ -1344,7 +1578,10 @@ void LLTaskAnimationBridge::openItem()
     LLPreviewAnim* preview = LLFloaterReg::showTypedInstance<LLPreviewAnim>("preview_anim", LLSD(mUUID), TAKE_FOCUS_YES);
     if (preview && (object->permModify() || gAgent.isGodlike()))
     {
-        preview->setObjectID(mPanel->getTaskUUID());
+        // <FS:Trish> Act on the item's own link
+        //preview->setObjectID(mPanel->getTaskUUID());
+        preview->setObjectID(getTaskID());
+        // </FS:Trish>
     }
 }
 
@@ -1426,7 +1663,10 @@ public:
 // virtual
 void LLTaskMaterialBridge::openItem()
 {
-    LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    // <FS:Trish> Act on the item's own link
+    //LLViewerObject* object = gObjectList.findObject(mPanel->getTaskUUID());
+    LLViewerObject* object = gObjectList.findObject(getTaskID());
+    // </FS:Trish>
     if(!object || object->isInventoryPending())
     {
         return;
@@ -1440,12 +1680,18 @@ void LLTaskMaterialBridge::openItem()
         || gAgent.isGodlike())
     {
         LLSD floater_key;
-        floater_key["taskid"] = mPanel->getTaskUUID();
+        // <FS:Trish> Act on the item's own link
+        //floater_key["taskid"] = mPanel->getTaskUUID();
+        floater_key["taskid"] = getTaskID();
+        // </FS:Trish>
         floater_key["itemid"] = mUUID;
         LLMaterialEditor* mat = LLFloaterReg::getTypedInstance<LLMaterialEditor>("material_editor", floater_key);
         if (mat)
         {
-            mat->setObjectID(mPanel->getTaskUUID());
+            // <FS:Trish> Act on the item's own link
+            //mat->setObjectID(mPanel->getTaskUUID());
+            mat->setObjectID(getTaskID());
+            // </FS:Trish>
             mat->openFloater(floater_key);
             mat->setFocus(true);
         }
@@ -1463,10 +1709,22 @@ bool LLTaskMaterialBridge::removeItem()
 /// LLTaskInvFVBridge impl
 //----------------------------------------------------------------------------
 
+// <FS:Trish> Bridges belong to one link
+//LLTaskInvFVBridge* LLTaskInvFVBridge::createObjectBridge(LLPanelObjectInventory* panel,
+//                                                         LLInventoryObject* object)
 LLTaskInvFVBridge* LLTaskInvFVBridge::createObjectBridge(LLPanelObjectInventory* panel,
-                                                         LLInventoryObject* object)
+                                                         LLInventoryObject* object,
+                                                         const LLUUID& task_id)
+// </FS:Trish>
 {
     LLTaskInvFVBridge* new_bridge = NULL;
+    // <FS:Trish> Hand the link to the bridge constructors, see sCreatingTaskID
+    struct CreatingTask
+    {
+        CreatingTask(const LLUUID& id) { sCreatingTaskID = id.notNull() ? &id : nullptr; }
+        ~CreatingTask() { sCreatingTaskID = nullptr; }
+    } creating_task(task_id);
+    // </FS:Trish>
     const LLInventoryItem* item = dynamic_cast<LLInventoryItem*>(object);
     const U32 itemflags = ( NULL == item ? 0 : item->getFlags() );
     LLAssetType::EType type = object ? object->getType() : LLAssetType::AT_CATEGORY;
@@ -1588,6 +1846,7 @@ LLPanelObjectInventory::LLPanelObjectInventory(const LLPanelObjectInventory::Par
     mCommitCallbackRegistrar.add("Inventory.DoToSelected", boost::bind(&LLPanelObjectInventory::doToSelected, this, _2));
     mCommitCallbackRegistrar.add("Inventory.StopScript", boost::bind(&LLPanelObjectInventory::toggleScript, this));
     mCommitCallbackRegistrar.add("Inventory.StopScripts", boost::bind(&LLPanelObjectInventory::stopScripts, this));
+    mCommitCallbackRegistrar.add("Inventory.FSTaskScripts", boost::bind(&LLPanelObjectInventory::doScriptsAction, this, _2)); // <FS:Trish/>
     mCommitCallbackRegistrar.add("Inventory.EmptyTrash", boost::bind(&LLInventoryModel::emptyFolderType, &gInventory, "ConfirmEmptyTrash", LLFolderType::FT_TRASH));
     mCommitCallbackRegistrar.add("Inventory.EmptyLostAndFound", boost::bind(&LLInventoryModel::emptyFolderType, &gInventory, "ConfirmEmptyLostAndFound", LLFolderType::FT_LOST_AND_FOUND));
     mCommitCallbackRegistrar.add("Inventory.DoCreate", boost::bind(&do_nothing));
@@ -1630,9 +1889,14 @@ bool LLPanelObjectInventory::postBuild()
     return true;
 }
 
-bool LLPanelObjectInventory::getScriptRunningState(const LLUUID& item_id, bool& running) const
+// <FS:Trish> Script state is per link
+//bool LLPanelObjectInventory::getScriptRunningState(const LLUUID& item_id, bool& running) const
+//{
+//auto it = mScriptRunningState.find(item_id);
+bool LLPanelObjectInventory::getScriptRunningState(const LLUUID& task_id, const LLUUID& item_id, bool& running) const
 {
-    auto it = mScriptRunningState.find(item_id);
+    auto it = mScriptRunningState.find(makeItemKey(task_id, item_id));
+// </FS:Trish>
     if (it == mScriptRunningState.end())
     {
         return false;
@@ -1642,20 +1906,32 @@ bool LLPanelObjectInventory::getScriptRunningState(const LLUUID& item_id, bool& 
     return true;
 }
 
-void LLPanelObjectInventory::requestScriptRunningInfo(const LLUUID& item_id)
+// <FS:Trish> Script state is per link
+//void LLPanelObjectInventory::requestScriptRunningInfo(const LLUUID& item_id)
+//{
+void LLPanelObjectInventory::requestScriptRunningInfo(const LLUUID& task_id, const LLUUID& item_id)
 {
+    const LLUUID key = makeItemKey(task_id, item_id);
+// </FS:Trish>
     if (item_id.isNull())
     {
         return;
     }
 
-    if (mScriptRunningRequested.find(item_id) != mScriptRunningRequested.end() ||
-        mScriptRunningState.find(item_id) != mScriptRunningState.end())
+    // <FS:Trish> Script state is per link
+    //if (mScriptRunningRequested.find(item_id) != mScriptRunningRequested.end() ||
+    //mScriptRunningState.find(item_id) != mScriptRunningState.end())
+    if (mScriptRunningRequested.find(key) != mScriptRunningRequested.end() ||
+        mScriptRunningState.find(key) != mScriptRunningState.end())
+    // </FS:Trish>
     {
         return;
     }
 
-    LLViewerObject* object = gObjectList.findObject(mTaskUUID);
+    // <FS:Trish> Script state is per link
+    //LLViewerObject* object = gObjectList.findObject(mTaskUUID);
+    LLViewerObject* object = gObjectList.findObject(task_id);
+    // </FS:Trish>
     if (!object || object->isInventoryPending())
     {
         return;
@@ -1676,19 +1952,35 @@ void LLPanelObjectInventory::requestScriptRunningInfo(const LLUUID& item_id)
     LLMessageSystem* msg = gMessageSystem;
     msg->newMessageFast(_PREHASH_GetScriptRunning);
     msg->nextBlockFast(_PREHASH_Script);
-    msg->addUUIDFast(_PREHASH_ObjectID, mTaskUUID);
+    // <FS:Trish> Script state is per link
+    //msg->addUUIDFast(_PREHASH_ObjectID, mTaskUUID);
+    //msg->addUUIDFast(_PREHASH_ItemID, item_id);
+    //msg->sendReliable(region->getHost());
+    //
+    //mScriptRunningRequested.insert(item_id);
+    msg->addUUIDFast(_PREHASH_ObjectID, task_id);
     msg->addUUIDFast(_PREHASH_ItemID, item_id);
     msg->sendReliable(region->getHost());
 
-    mScriptRunningRequested.insert(item_id);
+    mScriptRunningRequested.insert(key);
+    // </FS:Trish>
 }
 
-void LLPanelObjectInventory::setScriptRunningState(const LLUUID& item_id, bool running)
+// <FS:Trish> Script state is per link
+//void LLPanelObjectInventory::setScriptRunningState(const LLUUID& item_id, bool running)
+//{
+//auto existing = mScriptRunningState.find(item_id);
+//const bool state_changed = existing == mScriptRunningState.end() || existing->second != running;
+//mScriptRunningState[item_id] = running;
+//mScriptRunningRequested.insert(item_id);
+void LLPanelObjectInventory::setScriptRunningState(const LLUUID& task_id, const LLUUID& item_id, bool running)
 {
-    auto existing = mScriptRunningState.find(item_id);
+    const LLUUID key = makeItemKey(task_id, item_id);
+    auto existing = mScriptRunningState.find(key);
     const bool state_changed = existing == mScriptRunningState.end() || existing->second != running;
-    mScriptRunningState[item_id] = running;
-    mScriptRunningRequested.insert(item_id);
+    mScriptRunningState[key] = running;
+    mScriptRunningRequested.insert(key);
+// </FS:Trish>
 
     // GetScriptRunning replies can be duplicated while task inventory is being
     // saved or rebuilt. Do not repeatedly invalidate layout for the same state.
@@ -1697,7 +1989,11 @@ void LLPanelObjectInventory::setScriptRunningState(const LLUUID& item_id, bool r
         return;
     }
 
-    if (LLFolderViewItem* item = getItemByID(item_id))
+    // <FS:Trish> Script state is per link
+    //if (LLFolderViewItem* item = getItemByID(item_id))
+    mLinksetSummaryDirty = true;
+    if (LLFolderViewItem* item = getItemByID(key))
+    // </FS:Trish>
     {
         // Only the style and "[stopped]" suffix changed. A full refresh also
         // dirties the inventory filter and can create a refresh/arrange loop
@@ -1717,31 +2013,40 @@ void LLPanelObjectInventory::handleScriptRunningReply(const LLUUID& object_id, c
 {
     for (LLPanelObjectInventory* panel : sInstances)
     {
-        if (!panel || panel->mTaskUUID != object_id)
+        // <FS:Trish> Script state is per link
+        //if (!panel || panel->mTaskUUID != object_id)
+        if (!panel || !panel->isShowingTask(object_id))
+        // </FS:Trish>
         {
             continue;
         }
 
-        panel->setScriptRunningState(item_id, running);
+        // <FS:Trish> Script state is per link
+        //panel->setScriptRunningState(item_id, running);
+        panel->setScriptRunningState(object_id, item_id, running);
+        // </FS:Trish>
         // <FS:Trish>
         if (vm >= 0)
         {
-            panel->mScriptVM[item_id] = vm;
+            panel->mScriptVM[makeItemKey(object_id, item_id)] = vm; // per link
         }
         // </FS:Trish>
     }
 }
 
 // <FS:Trish> Script counts for the Content tab
-LLPanelObjectInventory::ScriptSummary LLPanelObjectInventory::getScriptSummary() const
+// Adds the scripts of one object to the counts
+static void add_script_summary(LLViewerObject* object,
+                               const std::map<LLUUID, bool>& running_state,
+                               const std::map<LLUUID, S32>& script_vm,
+                               LLPanelObjectInventory::ScriptSummary& summary)
 {
-    ScriptSummary summary;
-    LLViewerObject* object = gObjectList.findObject(mTaskUUID);
     if (!object || object->isInventoryPending())
     {
-        return summary;
+        return;
     }
 
+    const LLUUID& task_id = object->getID();
     LLInventoryObject::object_list_t contents;
     object->getInventoryContents(contents);
     for (const LLPointer<LLInventoryObject>& obj : contents)
@@ -1750,17 +2055,17 @@ LLPanelObjectInventory::ScriptSummary LLPanelObjectInventory::getScriptSummary()
         {
             continue;
         }
-        const LLUUID& id = obj->getUUID();
+        const LLUUID key = LLPanelObjectInventory::makeItemKey(task_id, obj->getUUID());
         ++summary.mTotal;
 
-        auto state = mScriptRunningState.find(id);
-        if (state != mScriptRunningState.end())
+        auto state = running_state.find(key);
+        if (state != running_state.end())
         {
             ++(state->second ? summary.mRunning : summary.mStopped);
         }
 
-        auto vm = mScriptVM.find(id);
-        if (vm != mScriptVM.end())
+        auto vm = script_vm.find(key);
+        if (vm != script_vm.end())
         {
             switch (vm->second)
             {
@@ -1771,14 +2076,43 @@ LLPanelObjectInventory::ScriptSummary LLPanelObjectInventory::getScriptSummary()
             }
         }
     }
-    return summary;
+}
+
+LLPanelObjectInventory::ScriptSummary LLPanelObjectInventory::getScriptSummary() const
+{
+    if (!mLinksetActive)
+    {
+        ScriptSummary summary;
+        add_script_summary(gObjectList.findObject(mTaskUUID), mScriptRunningState, mScriptVM, summary);
+        return summary;
+    }
+
+    // Whole linkset: counted again only after a link's contents or a script's state changed
+    if (mLinksetSummaryDirty)
+    {
+        mLinksetSummary = ScriptSummary();
+        for (const LLUUID& link_id : mLinkOrder)
+        {
+            auto link = mLinkFolders.find(link_id);
+            if (link != mLinkFolders.end() && link->second.mCount > 0)
+            {
+                add_script_summary(gObjectList.findObject(link_id), mScriptRunningState, mScriptVM, mLinksetSummary);
+            }
+        }
+        mLinksetSummaryDirty = false;
+    }
+    return mLinksetSummary;
 }
 // </FS:Trish>
 
 void LLPanelObjectInventory::doToSelected(const LLSD& userdata)
 {
     std::string action = userdata.asString();
-    if ("rename" == action || "delete" == action)
+    // <FS:Trish> Whole linkset view
+    //if ("rename" == action || "delete" == action)
+    // In the whole linkset view each item checks its own link (removeBatch, isItemRenameable)
+    if (!mLinksetActive && ("rename" == action || "delete" == action))
+    // </FS:Trish>
     {
         LLViewerObject* objectp = gObjectList.findObject(mTaskUUID);
         if (objectp && !objectp->permModify())
@@ -1796,9 +2130,19 @@ void LLPanelObjectInventory::doToSelected(const LLSD& userdata)
     }
 }
 
+// <FS:Trish> Any link of the linkset
+//bool LLPanelObjectInventory::canStopScripts() const
+//{
+//LLViewerObject* object = gObjectList.findObject(mTaskUUID);
 bool LLPanelObjectInventory::canStopScripts() const
 {
-    LLViewerObject* object = gObjectList.findObject(mTaskUUID);
+    return canStopScripts(mTaskUUID);
+}
+
+bool LLPanelObjectInventory::canStopScripts(const LLUUID& task_id) const
+{
+    LLViewerObject* object = gObjectList.findObject(task_id);
+// </FS:Trish>
     if (!object || object->isInventoryPending() || !object->permModify())
     {
         return false;
@@ -1851,12 +2195,33 @@ void LLPanelObjectInventory::stopScripts()
         msg->addBOOLFast(_PREHASH_Running, false);
         msg->sendReliable(region->getHost());
 
-        setScriptRunningState(inventory->getUUID(), false);
+        // <FS:Trish> Script state is per link
+        //setScriptRunningState(inventory->getUUID(), false);
+        setScriptRunningState(mTaskUUID, inventory->getUUID(), false);
+        // </FS:Trish>
     }
 }
 
 void LLPanelObjectInventory::toggleScript()
 {
+    // <FS:Trish> Whole linkset view: the clicked script decides, every selected script follows in its own link
+    if (mLinksetActive)
+    {
+        LLFolderViewItem* current = mFolders ? mFolders->getCurSelectedItem() : nullptr;
+        LLTaskInvFVBridge* bridge = current ? dynamic_cast<LLTaskInvFVBridge*>(current->getViewModelItem()) : nullptr;
+        if (!bridge)
+        {
+            return;
+        }
+        bool is_running = true;
+        if (!getScriptRunningState(bridge->getBridgeTaskID(), bridge->getUUID(), is_running))
+        {
+            requestScriptRunningInfo(bridge->getBridgeTaskID(), bridge->getUUID());
+        }
+        doScriptsAction(LLSD(is_running ? "stop" : "run"));
+        return;
+    }
+    // </FS:Trish>
     if (!canStopScripts() || !mFolders)
     {
         return;
@@ -1884,10 +2249,16 @@ void LLPanelObjectInventory::toggleScript()
     }
 
     bool is_running = true;
-    if (!getScriptRunningState(inventory->getUUID(), is_running))
+    // <FS:Trish> Script state is per link
+    //if (!getScriptRunningState(inventory->getUUID(), is_running))
+    //{
+    //requestScriptRunningInfo(inventory->getUUID());
+    //}
+    if (!getScriptRunningState(mTaskUUID, inventory->getUUID(), is_running))
     {
-        requestScriptRunningInfo(inventory->getUUID());
+        requestScriptRunningInfo(mTaskUUID, inventory->getUUID());
     }
+    // </FS:Trish>
     const bool new_running_state = !is_running;
 
     // The context-menu label and action are based on the current item, but
@@ -1914,7 +2285,10 @@ void LLPanelObjectInventory::toggleScript()
         msg->addBOOLFast(_PREHASH_Running, new_running_state);
         msg->sendReliable(region->getHost());
 
-        setScriptRunningState(selected_script->getUUID(), new_running_state);
+        // <FS:Trish> Script state is per link
+        //setScriptRunningState(selected_script->getUUID(), new_running_state);
+        setScriptRunningState(mTaskUUID, selected_script->getUUID(), new_running_state);
+        // </FS:Trish>
     }
 }
 
@@ -1930,6 +2304,14 @@ void LLPanelObjectInventory::clearContents()
     }
 
     clearItemIDs();
+    // <FS:Trish> Link folders go with the tree
+    mLinksetSummaryDirty = true;
+    for (auto& link : mLinkFolders)
+    {
+        link.second.mFolder = nullptr;
+        link.second.mKeys.clear();
+    }
+    // </FS:Trish>
 
     if (mFolders)
     {
@@ -2057,7 +2439,10 @@ void LLPanelObjectInventory::updateInventory()
         std::set<LLFolderViewItem*> selected_items = mFolders->getSelectionList();
         for (LLFolderViewItem* item : selected_items)
         {
-            selected_item_ids.push_back(static_cast<LLFolderViewModelItemInventory*>(item->getViewModelItem())->getUUID());
+            // <FS:Trish> Item keys are per link
+            //selected_item_ids.push_back(static_cast<LLFolderViewModelItemInventory*>(item->getViewModelItem())->getUUID());
+            selected_item_ids.push_back(makeItemKey(mTaskUUID, static_cast<LLFolderViewModelItemInventory*>(item->getViewModelItem())->getUUID()));
+            // </FS:Trish>
         }
     }
 
@@ -2168,7 +2553,10 @@ void LLPanelObjectInventory::createFolderViews(LLInventoryObject* inventory_root
 
         if (!contents.empty())
         {
-            createViewsForCategory(&contents, inventory_root, mShowRootFolder ? new_folder : mFolders);
+            // <FS:Trish> Views are built for one link at a time
+            //createViewsForCategory(&contents, inventory_root, mShowRootFolder ? new_folder : mFolders);
+            createViewsForCategory(&contents, inventory_root, mShowRootFolder ? new_folder : mFolders, mTaskUUID);
+            // </FS:Trish>
         }
 
         if (mShowRootFolder)
@@ -2181,9 +2569,16 @@ void LLPanelObjectInventory::createFolderViews(LLInventoryObject* inventory_root
 
 typedef std::pair<LLInventoryObject*, LLFolderViewFolder*> obj_folder_pair;
 
+// <FS:Trish> Views are built for one link at a time
+//void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_list_t* inventory,
+//LLInventoryObject* parent,
+//LLFolderViewFolder* folder)
 void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_list_t* inventory,
                                               LLInventoryObject* parent,
-                                              LLFolderViewFolder* folder)
+                                              LLFolderViewFolder* folder,
+                                              const LLUUID& task_id,
+                                              std::vector<LLUUID>* keys)
+// </FS:Trish>
 {
     LLUIColor item_color = LLUIColorTable::instance().getColor("MenuItemEnabledColor", DEFAULT_WHITE);
 
@@ -2193,7 +2588,10 @@ void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_li
     {
         if (parent->getUUID() == obj->getParentUUID())
         {
-            if (LLTaskInvFVBridge* bridge = LLTaskInvFVBridge::createObjectBridge(this, obj))
+            // <FS:Trish> Bridges belong to one link
+            //if (LLTaskInvFVBridge* bridge = LLTaskInvFVBridge::createObjectBridge(this, obj))
+            if (LLTaskInvFVBridge* bridge = LLTaskInvFVBridge::createObjectBridge(this, obj, task_id))
+            // </FS:Trish>
             {
                 LLFolderViewItem* view;
                 if (LLAssetType::AT_CATEGORY == obj->getType())
@@ -2241,12 +2639,25 @@ void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_li
                 }
 
                 view->addToFolder(folder);
-                addItemID(obj->getUUID(), view);
+                // <FS:Trish> Item keys are per link
+                //addItemID(obj->getUUID(), view);
+                //
+                //if (obj->getType() == LLAssetType::AT_LSL_TEXT)
+                //{
+                //requestScriptRunningInfo(obj->getUUID());
+                //}
+                const LLUUID key = makeItemKey(task_id, obj->getUUID());
+                addItemID(key, view);
+                if (keys)
+                {
+                    keys->push_back(key);
+                }
 
                 if (obj->getType() == LLAssetType::AT_LSL_TEXT)
                 {
-                    requestScriptRunningInfo(obj->getUUID());
+                    requestScriptRunningInfo(task_id, obj->getUUID());
                 }
+                // </FS:Trish>
             }
         }
     }
@@ -2254,7 +2665,10 @@ void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_li
     // now, for each category, do the second pass
     for (obj_folder_pair* pair : child_categories)
     {
-        createViewsForCategory(inventory, pair->first, pair->second);
+        // <FS:Trish> Views are built for one link at a time
+        //createViewsForCategory(inventory, pair->first, pair->second);
+        createViewsForCategory(inventory, pair->first, pair->second, task_id, keys);
+        // </FS:Trish>
         delete pair;
     }
     folder->setChildrenInited(true);
@@ -2263,6 +2677,38 @@ void LLPanelObjectInventory::createViewsForCategory(LLInventoryObject::object_li
 void LLPanelObjectInventory::refresh()
 {
     //LL_INFOS() << "LLPanelObjectInventory::refresh()" << LL_ENDL;
+    // <FS:Trish> Whole linkset view, for a single selected linkset of more than one prim
+    if (mLinksetWanted)
+    {
+        LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
+        LLSelectNode* node = selection->getFirstRootNode(NULL, true);
+        LLViewerObject* object = (node && node->mValid) ? node->getObject() : nullptr;
+        LLViewerObject* root = object ? object->getRootEdit() : nullptr;
+        bool has_links = false;
+        if (root && !root->isDead() && !root->isAvatar()
+            && ((selection->getRootObjectCount() == 1) || (selection->getObjectCount() == 1)))
+        {
+            for (const LLPointer<LLViewerObject>& child : root->getChildren())
+            {
+                if (child && !child->isAvatar())
+                {
+                    has_links = true;
+                    break;
+                }
+            }
+        }
+        if (has_links)
+        {
+            refreshLinkset(root);
+            mInventoryViewModel.setTaskID(mTaskUUID);
+            return;
+        }
+        if (mLinksetActive)
+        {
+            leaveLinkset();
+        }
+    }
+    // </FS:Trish>
     bool has_inventory = false;
     const bool non_root_ok = true;
     LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
@@ -2332,6 +2778,13 @@ void LLPanelObjectInventory::refresh()
 
 void LLPanelObjectInventory::clearInventoryTask()
 {
+    // <FS:Trish> Whole linkset view
+    mLinksetActive = false;
+    mLinksetLoader.reset();
+    mLinkFolders.clear();
+    mLinkOrder.clear();
+    mLinksetRootID.setNull();
+    // </FS:Trish>
     mTaskUUID = LLUUID::null;
     mAttachmentUUID = LLUUID::null;
     removeVOInventoryListener();
@@ -2394,6 +2847,14 @@ void LLPanelObjectInventory::deleteAllChildren()
     }
     mScroller = NULL;
     mFolders = NULL;
+    // <FS:Trish> Link folders go with the tree
+    for (auto& link : mLinkFolders)
+    {
+        link.second.mFolder = nullptr;
+        link.second.mKeys.clear();
+    }
+    clearItemIDs();
+    // </FS:Trish>
     LLView::deleteAllChildren();
 }
 
@@ -2429,6 +2890,13 @@ void LLPanelObjectInventory::idle(void* user_data)
     {
         self->updateInventory();
     }
+    // <FS:Trish> Whole linkset view: start queued requests, fill links that arrived.
+    // Only while the Content tab is shown: a hidden tab doesn't need 255 requests.
+    if (self->mLinksetActive && self->isInVisibleChain())
+    {
+        self->updateLinkset();
+    }
+    // </FS:Trish>
 }
 
 void LLPanelObjectInventory::onFocusLost()
@@ -2530,3 +2998,526 @@ bool LLPanelObjectInventory::isSelectionRemovable()
 
     return true;
 }
+
+// <FS:Trish> Whole linkset view: one folder per link, each item acting on its own link
+
+// static
+LLUUID LLPanelObjectInventory::makeItemKey(const LLUUID& task_id, const LLUUID& item_id)
+{
+    // Item ids are only unique within one object; mixing in the link keeps
+    // the per-item maps apart when two links hold an item with the same id.
+    LLUUID key = item_id;
+    for (S32 i = 0; i < UUID_BYTES; ++i)
+    {
+        key.mData[i] ^= task_id.mData[i];
+    }
+    return key;
+}
+
+bool LLPanelObjectInventory::isShowingTask(const LLUUID& task_id) const
+{
+    if (task_id.isNull())
+    {
+        return false;
+    }
+    if (task_id == mTaskUUID)
+    {
+        return true;
+    }
+    return mLinksetActive && mLinkFolders.count(task_id) != 0;
+}
+
+S32 LLPanelObjectInventory::getLinksetPendingCount() const
+{
+    return (mLinksetActive && mLinksetLoader) ? mLinksetLoader->getPendingCount() : 0;
+}
+
+const LLUUID& LLPanelObjectInventory::getSelectionTaskID()
+{
+    // Asked once per dragged item; work it out once per frame
+    const U32 frame = LLFrameTimer::getFrameCount();
+    if (frame != mSelectionTaskFrame)
+    {
+        mSelectionTaskFrame = frame;
+        mSelectionTaskID.setNull();
+        if (mFolders)
+        {
+            bool first = true;
+            for (LLFolderViewItem* item : mFolders->getSelectionList())
+            {
+                LLTaskInvFVBridge* bridge = item ? dynamic_cast<LLTaskInvFVBridge*>(item->getViewModelItem()) : nullptr;
+                if (!bridge)
+                {
+                    continue;
+                }
+                if (first)
+                {
+                    mSelectionTaskID = bridge->getBridgeTaskID();
+                    first = false;
+                }
+                else if (bridge->getBridgeTaskID() != mSelectionTaskID)
+                {
+                    mSelectionTaskID.setNull();
+                    break;
+                }
+            }
+        }
+    }
+    return mSelectionTaskID;
+}
+
+void LLPanelObjectInventory::setLinksetMode(bool enabled)
+{
+    if (mLinksetWanted == enabled)
+    {
+        return;
+    }
+    mLinksetWanted = enabled;
+    if (!enabled && mLinksetActive)
+    {
+        // Back to one object; the next refresh() requests its contents again
+        leaveLinkset();
+    }
+}
+
+void LLPanelObjectInventory::leaveLinkset()
+{
+    mLinksetActive = false;
+    mLinksetLoader.reset();
+    mLinkFolders.clear();
+    mLinkOrder.clear();
+    mLinksetRootID.setNull();
+    mTaskUUID.setNull();
+    mAttachmentUUID.setNull();
+    clearContents();
+}
+
+std::string LLPanelObjectInventory::getLinkLabel(const LLUUID& link_id) const
+{
+    auto it = mLinkFolders.find(link_id);
+    if (it == mLinkFolders.end())
+    {
+        return std::string();
+    }
+    const LinkFolder& link = it->second;
+    LLStringUtil::format_map_t args;
+    args["[LINK]"] = llformat("%d", link.mLinkNum);
+    args["[NAME]"] = link.mName.empty() ? LLTrans::getString("FSContentsLinkUnnamed") : link.mName;
+    args["[COUNT]"] = llformat("%d", link.mCount);
+    return LLTrans::getString("FSContentsLinkFolder", args);
+}
+
+// Puts a new label on a link folder and lets the tree sort it again
+static void relabel_link_folder(LLFolderView* root, LLFolderViewFolder* folder, const std::string& label)
+{
+    if (!root || !folder)
+    {
+        return;
+    }
+    if (LLTaskLinkBridge* bridge = dynamic_cast<LLTaskLinkBridge*>(folder->getViewModelItem()))
+    {
+        bridge->setLabel(label);
+        bridge->dirtyFilter();
+        folder->refresh();
+        root->getViewModelItem()->requestSort();
+        root->requestArrange();
+    }
+}
+
+void LLPanelObjectInventory::refreshLinkset(LLViewerObject* root)
+{
+    if (!mLinksetActive || mLinksetRootID != root->getID() || !mFolders)
+    {
+        // A new linkset: start over with an empty tree
+        removeVOInventoryListener();
+        mLinksetLoader.reset();
+        mLinkFolders.clear();
+        mLinkOrder.clear();
+        reset();
+        mLinksetLoader = std::make_unique<FSLinksetInventoryLoader>();
+        mLinksetActive = true;
+        mLinksetRootID = root->getID();
+        mTaskUUID = root->getID();
+        mAttachmentUUID = root->getAttachmentItemID();
+        mHaveInventory = false;
+        mIsInventoryEmpty = true;
+        // A single-object update still waiting would rebuild the tree as one object
+        mInventoryNeedsUpdate = false;
+    }
+    else if (mAttachmentUUID != root->getAttachmentItemID())
+    {
+        mAttachmentUUID = root->getAttachmentItemID();
+        if (mAttachmentUUID.notNull())
+        {
+            // Server unsubscribes viewer (deselects object) from property
+            // updates after "ObjectAttach" so we need to resubscribe
+            LLSelectMgr::getInstance()->sendSelect();
+        }
+    }
+
+    // Root first, then the child prims in link order. Seated avatars are children too, but not links.
+    const LLViewerObject::child_list_t& children = root->getChildren();
+    std::vector<LLViewerObject*> links;
+    links.reserve(children.size() + 1);
+    links.push_back(root);
+    for (const LLPointer<LLViewerObject>& child : children)
+    {
+        if (child && !child->isAvatar() && !child->isDead())
+        {
+            links.push_back(child.get());
+        }
+    }
+    syncLinks(links);
+
+    // Names come with the object properties, a contents change with a new inventory serial.
+    // One pass over the selection, one over the links.
+    std::unordered_map<LLUUID, LLSelectNode*> nodes;
+    LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
+    for (LLObjectSelection::iterator it = selection->begin(); it != selection->end(); ++it)
+    {
+        LLSelectNode* node = *it;
+        if (node && node->mValid && node->getObject())
+        {
+            nodes[node->getObject()->getID()] = node;
+        }
+    }
+
+    for (LLViewerObject* link : links)
+    {
+        const LLUUID& link_id = link->getID();
+        auto folder_it = mLinkFolders.find(link_id);
+        if (folder_it == mLinkFolders.end())
+        {
+            continue;
+        }
+        LinkFolder& folder = folder_it->second;
+
+        auto node_it = nodes.find(link_id);
+        LLSelectNode* node = (node_it != nodes.end()) ? node_it->second : nullptr;
+        if (node && !node->mName.empty() && node->mName != folder.mName)
+        {
+            folder.mName = node->mName;
+            relabel_link_folder(mFolders, folder.mFolder, getLinkLabel(link_id));
+        }
+
+        if (mLinksetLoader->isLoaded(link_id))
+        {
+            bool stale = link->isInventoryDirty();
+            if (node && node->mInventorySerial != link->getInventorySerial() && node->mInventorySerial != folder.mRequestedSerial)
+            {
+                stale = true;
+            }
+            if (stale)
+            {
+                // Remembered so a serial that never matches can't ask again on every refresh
+                folder.mRequestedSerial = node ? node->mInventorySerial : -1;
+                mLinksetLoader->requestAgain(link_id);
+            }
+        }
+    }
+}
+
+void LLPanelObjectInventory::syncLinks(const std::vector<LLViewerObject*>& links)
+{
+    // Usual case: nothing linked, unlinked or recreated
+    bool same = links.size() == mLinkOrder.size();
+    for (size_t i = 0; same && i < links.size(); ++i)
+    {
+        auto it = mLinkFolders.find(links[i]->getID());
+        same = mLinkOrder[i] == links[i]->getID() && it != mLinkFolders.end() && it->second.mObject == links[i];
+    }
+    if (same)
+    {
+        return;
+    }
+
+    std::unordered_set<LLUUID> present;
+    present.reserve(links.size());
+    std::vector<LLUUID> order;
+    order.reserve(links.size());
+    for (size_t i = 0; i < links.size(); ++i)
+    {
+        LLViewerObject* object = links[i];
+        const LLUUID& link_id = object->getID();
+        present.insert(link_id);
+        order.push_back(link_id);
+
+        LinkFolder& folder = mLinkFolders[link_id];
+        if (folder.mObject != object)
+        {
+            // New link, or the prim was killed and sent again: listen to the object we have now.
+            // Its folder stays until the new contents arrive.
+            folder.mObject = object;
+            folder.mRequestedSerial = -1;
+            mLinksetLoader->addLink(object);
+        }
+
+        const S32 link_num = (S32)i + 1;
+        if (folder.mLinkNum != link_num)
+        {
+            folder.mLinkNum = link_num;
+            relabel_link_folder(mFolders, folder.mFolder, getLinkLabel(link_id));
+        }
+    }
+
+    for (const LLUUID& link_id : mLinkOrder)
+    {
+        if (!present.count(link_id))
+        {
+            removeLinkFolder(link_id);
+        }
+    }
+    mLinkOrder.swap(order);
+    mLinksetSummaryDirty = true;
+
+    bool empty = true;
+    for (const auto& folder : mLinkFolders)
+    {
+        if (folder.second.mFolder)
+        {
+            empty = false;
+            break;
+        }
+    }
+    mIsInventoryEmpty = empty;
+}
+
+void LLPanelObjectInventory::removeLinkFolder(const LLUUID& link_id)
+{
+    auto it = mLinkFolders.find(link_id);
+    if (it == mLinkFolders.end())
+    {
+        return;
+    }
+
+    LinkFolder& folder = it->second;
+    for (const LLUUID& key : folder.mKeys)
+    {
+        removeItemID(key);
+    }
+    if (folder.mFolder)
+    {
+        folder.mFolder->destroyView();
+        if (mFolders)
+        {
+            mFolders->requestArrange();
+        }
+    }
+    if (mLinksetLoader)
+    {
+        mLinksetLoader->removeLink(link_id);
+    }
+    mLinkFolders.erase(it);
+    mLinksetSummaryDirty = true;
+}
+
+void LLPanelObjectInventory::buildLinkFolder(const LLUUID& link_id)
+{
+    auto it = mLinkFolders.find(link_id);
+    if (it == mLinkFolders.end() || !mFolders)
+    {
+        return;
+    }
+
+    LinkFolder& link = it->second;
+    mLinksetSummaryDirty = true;
+
+    // Only this link's views are rebuilt; the rest of the tree is left alone
+    if (link.mFolder)
+    {
+        link.mOpen = link.mFolder->isOpen();
+        for (const LLUUID& key : link.mKeys)
+        {
+            removeItemID(key);
+        }
+        link.mKeys.clear();
+        link.mFolder->destroyView();
+        link.mFolder = nullptr;
+    }
+    link.mCount = 0;
+
+    LLViewerObject* object = gObjectList.findObject(link_id);
+    if (!object || object->isDead())
+    {
+        return;
+    }
+
+    LLInventoryObject* inventory_root = object->getInventoryRoot();
+    LLInventoryObject::object_list_t contents;
+    object->getInventoryContents(contents);
+    link.mCount = (S32)contents.size();
+    if (!inventory_root || contents.empty())
+    {
+        // Links without contents are left out
+        return;
+    }
+
+    const std::string label = getLinkLabel(link_id);
+    LLUIColor item_color = LLUIColorTable::instance().getColor("MenuItemEnabledColor", DEFAULT_WHITE);
+
+    LLFolderViewFolder::Params p;
+    p.name = label;
+    p.tool_tip = label;
+    p.root = mFolders;
+    p.listener = new LLTaskLinkBridge(this, link_id, label);
+    p.font_color = item_color;
+    p.font_highlight_color = item_color;
+    p.for_inventory = true;
+
+    static LLCachedControl<S32> fsFolderViewItemHeight(gSavedSettings, "FSFolderViewItemHeight");
+    const LLFolderViewItem::Params& default_params = LLUICtrlFactory::getDefaultParams<LLFolderViewItem>();
+    p.item_height = fsFolderViewItemHeight;
+    p.item_top_pad = default_params.item_top_pad - (default_params.item_height - fsFolderViewItemHeight) / 2 - 1;
+
+    LLFolderViewFolder* folder = LLUICtrlFactory::create<LLFolderViewFolder>(p);
+    folder->addToFolder(mFolders);
+    createViewsForCategory(&contents, inventory_root, folder, link_id, &link.mKeys);
+    if (link.mOpen)
+    {
+        folder->setOpen(true);
+    }
+    folder->refresh();
+    link.mFolder = folder;
+
+    // Keep legacy properties floaters showing this link's items up to date
+    for (const LLPointer<LLInventoryObject>& item : contents)
+    {
+        if (LLFloaterProperties* floater = LLFloaterReg::findTypedInstance<LLFloaterProperties>("properties", item->getUUID()))
+        {
+            floater->refresh();
+        }
+    }
+}
+
+void LLPanelObjectInventory::updateLinkset()
+{
+    if (!mLinksetLoader)
+    {
+        return;
+    }
+
+    std::vector<LLUUID> changed;
+    mLinksetLoader->update(changed);
+
+    if (!changed.empty() && mFolders)
+    {
+        // Rebuilding a folder drops the whole selection; put it back afterwards
+        const bool has_focus = gFocusMgr.childHasKeyboardFocus(mFolders);
+        std::vector<LLUUID> selected;
+        for (LLFolderViewItem* item : mFolders->getSelectionList())
+        {
+            LLTaskInvFVBridge* bridge = item ? dynamic_cast<LLTaskInvFVBridge*>(item->getViewModelItem()) : nullptr;
+            if (bridge)
+            {
+                selected.push_back(makeItemKey(bridge->getBridgeTaskID(), bridge->getUUID()));
+            }
+        }
+
+        for (const LLUUID& link_id : changed)
+        {
+            buildLinkFolder(link_id);
+        }
+
+        bool first_item = true;
+        for (const LLUUID& key : selected)
+        {
+            if (LLFolderViewItem* item = getItemByID(key))
+            {
+                if (first_item)
+                {
+                    mFolders->setSelection(item, true, has_focus);
+                    first_item = false;
+                }
+                else
+                {
+                    mFolders->changeSelection(item, true);
+                }
+            }
+        }
+
+        bool empty = true;
+        for (const auto& folder : mLinkFolders)
+        {
+            if (folder.second.mFolder)
+            {
+                empty = false;
+                break;
+            }
+        }
+        mIsInventoryEmpty = empty;
+        mFolders->setEnabled(true);
+        mFolders->requestArrange();
+    }
+
+    mHaveInventory = mLinksetLoader->getPendingCount() == 0;
+}
+
+void LLPanelObjectInventory::doScriptsAction(const LLSD& userdata)
+{
+    if (!mFolders)
+    {
+        return;
+    }
+
+    const std::string action = userdata.asString();
+    const bool reset = action == "reset";
+    const bool running = action == "run";
+    if (!reset && !running && action != "stop")
+    {
+        return;
+    }
+
+    bool blocked = false;
+    for (LLFolderViewItem* item : mFolders->getSelectionList())
+    {
+        LLTaskInvFVBridge* bridge = item ? dynamic_cast<LLTaskInvFVBridge*>(item->getViewModelItem()) : nullptr;
+        if (!bridge)
+        {
+            continue;
+        }
+
+        const LLUUID& task_id = bridge->getBridgeTaskID();
+        LLViewerObject* object = gObjectList.findObject(task_id);
+        LLViewerRegion* region = object ? object->getRegion() : nullptr;
+        if (!object || !region || object->isDead() || !object->permModify())
+        {
+            continue;
+        }
+        LLInventoryObject* script = object->getInventoryObject(bridge->getUUID());
+        if (!script || script->getType() != LLAssetType::AT_LSL_TEXT)
+        {
+            continue;
+        }
+        // Same restriction as the script editor's Reset and Running controls
+        if (rlv_handler_t::isEnabled() && gRlvAttachmentLocks.isLockedAttachment(object->getRootEdit()))
+        {
+            blocked = true;
+            continue;
+        }
+
+        LLMessageSystem* msg = gMessageSystem;
+        msg->newMessageFast(reset ? _PREHASH_ScriptReset : _PREHASH_SetScriptRunning);
+        msg->nextBlockFast(_PREHASH_AgentData);
+        msg->addUUIDFast(_PREHASH_AgentID, gAgent.getID());
+        msg->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
+        msg->nextBlockFast(_PREHASH_Script);
+        msg->addUUIDFast(_PREHASH_ObjectID, task_id);
+        msg->addUUIDFast(_PREHASH_ItemID, script->getUUID());
+        if (!reset)
+        {
+            msg->addBOOLFast(_PREHASH_Running, running);
+        }
+        msg->sendReliable(region->getHost());
+
+        if (!reset)
+        {
+            setScriptRunningState(task_id, script->getUUID(), running);
+        }
+    }
+
+    if (blocked)
+    {
+        RlvUtil::notifyBlockedGeneric();
+    }
+}
+// </FS:Trish>

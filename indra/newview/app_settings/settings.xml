@@ -20386,6 +20386,17 @@ Change of this parameter will affect the layout of buttons in notification toast
 			<key>Value</key>
 			<string>Wood</string>
 		</map>
+		<key>FSContentsWholeLinkset</key>
+		<map>
+			<key>Comment</key>
+			<string>Build floater, Content tab: show the contents of every link of the selected linkset, one folder per link, instead of only the selected prim</string>
+			<key>Persist</key>
+			<integer>1</integer>
+			<key>Type</key>
+			<string>Boolean</string>
+			<key>Value</key>
+			<integer>0</integer>
+		</map>
 		<key>FSCopyObjKeySeparator</key>
 		<map>
 			<key>Comment</key>

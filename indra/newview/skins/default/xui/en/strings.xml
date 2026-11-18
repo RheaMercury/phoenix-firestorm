@@ -3377,6 +3377,10 @@ Your current position: [AVATAR_POS]
   <string name="FSObjectInventoryNoElements">No Elements</string>
   <string name="FSObjectInventoryOneElement">1 Element</string>
   <string name="FSObjectInventoryElements">[NUM_ELEMENTS] Elements</string>
+  <!-- <FS:Trish> Content tab, whole linkset view: one folder per link -->
+  <string name="FSContentsLinkFolder">#[LINK] [NAME] ([COUNT])</string>
+  <string name="FSContentsLinkUnnamed">(unnamed)</string>
+  <!-- </FS:Trish> -->
   <string name="OpenSimInventoryValidationErrorGenericHelp">your Grid Operator's support team</string>
   <string name="Unlimited">Unlimited</string>
 
