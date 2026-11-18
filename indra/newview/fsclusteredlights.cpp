@@ -1,6 +1,6 @@
 /**
  * @file fsclusteredlights.cpp
- * @brief Clustered shading of the deferred local point lights
+ * @brief Clustered shading of the deferred local point lights, and their glow in fog
  *
  * $LicenseInfo:firstyear=2026&license=fsviewerlgpl$
  * Phoenix Firestorm Viewer Source Code
@@ -29,22 +29,28 @@
 
 #include "fsclusteredlights.h"
 
+#include "lldrawpoolalpha.h"
 #include "llenvironment.h"
 #include "llgl.h"
 #include "llglheaders.h"
 #include "llrender.h"
+#include "llrendertarget.h"
 #include "llvertexbuffer.h"
+#include "llviewercamera.h"
 #include "llviewercontrol.h"
 #include "llviewershadermgr.h"
+#include "llworld.h"
 #include "pipeline.h"
 
 #include <algorithm>
 #include <cmath>
 
 extern U32 gFrameCount;
+extern bool gSnapshotNoPost;
 
 FSClusteredLights gFSClusteredLights;
 LLGLSLShader gFSClusteredLightProgram;
+LLGLSLShader gFSPointLightScatterProgram;
 
 namespace
 {
@@ -67,6 +73,12 @@ namespace
     LLStaticHashedString s_dims("fs_cl_dims");
     LLStaticHashedString s_scale("fs_cl_scale");
     LLStaticHashedString s_debug("fs_cl_debug");
+    LLStaticHashedString s_scatter_max("fs_scatter_max");
+    LLStaticHashedString s_scatter_strength("fs_scatter_strength");
+    LLStaticHashedString s_scatter_density("fs_scatter_density");
+    LLStaticHashedString s_anisotropy("vol_anisotropy");
+    LLStaticHashedString s_air_fog("fs_air_fog");
+    LLStaticHashedString s_air_plane("fs_air_plane");
 }
 
 bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height)
@@ -76,8 +88,12 @@ bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& proje
     mLights.clear();
     mFarDepth = SLICE_NEAR;
     mActive = false;
+    mShade = false;
+    mBinned = false;
+    mTileLists = false;
 
-    if (!enabled || !gFSClusteredLightProgram.isComplete())
+    const bool scatter = scatterWanted();
+    if ((!enabled || !gFSClusteredLightProgram.isComplete()) && !scatter)
     {
         return false;
     }
@@ -92,26 +108,6 @@ bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& proje
     mWidth = llmax(width, 1u);
     mHeight = llmax(height, 1u);
 
-    // Lights handed over must be drawn, so everything that could stop flush() from drawing them
-    // is checked here, before the loop: room in the buffer texture for the grid's header and a
-    // useful number of list entries, two texture units past the program's own samplers, and
-    // the buffer and texture objects
-    const U64 header = (U64)((mWidth + TILE_PIXELS - 1) / TILE_PIXELS) * ((mHeight + TILE_PIXELS - 1) / TILE_PIXELS) * DEPTH_SLICES * 2;
-    if ((U64)mMaxTexels < header + 65536)
-    {
-        return false;
-    }
-    const S32 units = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS);
-    if (gFSClusteredLightProgram.mActiveTextureChannels + 2 > units)
-    {
-        if (!mWarned)
-        {
-            mWarned = true;
-            LL_WARNS("FSClusteredLights") << gFSClusteredLightProgram.mName << " uses " << gFSClusteredLightProgram.mActiveTextureChannels
-                                          << " of " << units << " texture units, no room for the light lists" << LL_ENDL;
-        }
-        return false;
-    }
     if (!mLightBuffer)
     {
         glGenBuffers(1, &mLightBuffer);
@@ -119,14 +115,42 @@ bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& proje
         glGenTextures(1, &mLightTexture);
         glGenTextures(1, &mListTexture);
     }
-    if (!mLightBuffer || !mListBuffer || !mLightTexture || !mListTexture)
+    if (!mLightBuffer || !mListBuffer || !mLightTexture || !mListTexture || mMaxTexels < 65536)
+    {
+        return false;
+    }
+
+    // Lights handed over for shading must be drawn, so everything that could stop flush() from
+    // drawing them is checked here, before the loop: room in the buffer texture for the grid's
+    // header (clusters and tile lists) and a useful number of list entries, and two texture
+    // units past the program's own samplers
+    bool shade = enabled && gFSClusteredLightProgram.isComplete();
+    const U64 header = (U64)((mWidth + TILE_PIXELS - 1) / TILE_PIXELS) * ((mHeight + TILE_PIXELS - 1) / TILE_PIXELS) * (DEPTH_SLICES + 1) * 2;
+    if ((U64)mMaxTexels < header + 65536)
+    {
+        shade = false;
+    }
+    const S32 units = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS);
+    if (shade && gFSClusteredLightProgram.mActiveTextureChannels + 2 > units)
+    {
+        if (!mWarned)
+        {
+            mWarned = true;
+            LL_WARNS("FSClusteredLights") << gFSClusteredLightProgram.mName << " uses " << gFSClusteredLightProgram.mActiveTextureChannels
+                                          << " of " << units << " texture units, no room for the light lists" << LL_ENDL;
+        }
+        shade = false;
+    }
+    if (!shade && !scatter)
     {
         return false;
     }
 
     mModelview = modelview;
     mProjection = projection;
+    mShade = shade;
     mActive = true;
+    mFrame = LLFrameTimer::getFrameCount();
     return true;
 }
 
@@ -141,12 +165,13 @@ bool FSClusteredLights::add(const F32* center_agent, F32 size, const LLColor3& l
     mLights.emplace_back(c.x, c.y, c.z, size);
     mLights.emplace_back(linear_color.mV[0], linear_color.mV[1], linear_color.mV[2], falloff);
     mFarDepth = llmax(mFarDepth, -c.z + size);
-    return true;
+    return mShade;
 }
 
-// Sorts the lights into the grid: mLists gets a header of (offset, count) per cluster, then the
-// lists of light indices, each list nearest light first.
-void FSClusteredLights::binLights()
+// Sorts the lights into the grid: mLists gets a header of (offset, count) per cluster (and with
+// tile_lists, per screen tile after them), then the lists of light indices, each list nearest
+// light first.
+void FSClusteredLights::binLights(bool tile_lists)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
 
@@ -256,11 +281,24 @@ void FSClusteredLights::binLights()
                 mSpans.push_back(span);
             }
         }
+        // The glow's tile list: every tile the whole sphere covers, any depth
+        if (tile_lists)
+        {
+            const F32 rs = s * (1.f + DEPTH_SLACK) + 1e-3f;
+            Span span;
+            span.mLight = i;
+            span.mSlice = mSlices;
+            if (box_tiles(l.mV[0] - rs, l.mV[0] + rs, l.mV[1] - rs, l.mV[1] + rs, dmin, dmax, span))
+            {
+                mSpans.push_back(span);
+            }
+        }
     }
 
     // Count, cap, lay out the lists, fill them. Spans run light by light, so each list comes out
     // in light order, nearest first.
-    const U32 entries = mTilesX * mTilesY * mSlices;
+    const U32 entries = mTilesX * mTilesY * (mSlices + (tile_lists ? 1 : 0));
+    mTileHeader = mTilesX * mTilesY * mSlices;
     mCounts.assign(entries, 0);
     for (const Span& span : mSpans)
     {
@@ -363,7 +401,7 @@ void FSClusteredLights::bindBuffers(LLGLSLShader& shader)
 
     shader.uniform1i(s_lights, mUnits[0]);
     shader.uniform1i(s_lists, mUnits[1]);
-    const GLint dims[4] = { (GLint)mTilesX, (GLint)mTilesY, (GLint)mSlices, 0 };
+    const GLint dims[4] = { (GLint)mTilesX, (GLint)mTilesY, (GLint)mSlices, (GLint)mTileHeader };
     shader.uniform4iv(s_dims, 1, dims);
     shader.uniform4f(s_scale, (F32)mWidth / (F32)TILE_PIXELS, (F32)mHeight / (F32)TILE_PIXELS, mSliceScale, mLogNear);
 }
@@ -389,16 +427,19 @@ void FSClusteredLights::flush(LLVertexBuffer* screen_tri)
         return;
     }
     mActive = false;
-    if (mLights.empty() || !screen_tri)
+    if (mLights.empty() || !mShade || !screen_tri)
     {
-        return;
+        return; // without shading, kept for the glow
     }
 
     LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - clustered lights");
     LL_PROFILE_GPU_ZONE("clustered lights");
 
-    binLights();
+    // The glow's tile lists are binned with the clusters, while the lights are at hand
+    mTileLists = scatterWanted();
+    binLights(mTileLists);
     upload();
+    mBinned = true;
 
     static LLCachedControl<bool> debug(gSavedSettings, "FSRenderClusteredLightsDebug", false);
 
@@ -413,6 +454,119 @@ void FSClusteredLights::flush(LLVertexBuffer* screen_tri)
     screen_tri->drawArrays(LLRender::TRIANGLES, 0, 3);
     unbindBuffers();
     gPipeline.unbindDeferredShader(shader);
+}
+
+// static
+bool FSClusteredLights::scatterWanted()
+{
+    static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderPointLightScatter", false);
+    static LLCachedControl<F32> strength(gSavedSettings, "FSRenderPointLightScatterStrength", 1.f);
+    return enabled && strength > 0.f && gFSPointLightScatterProgram.isComplete() && !gSnapshotNoPost &&
+           !LLPipeline::sUnderWaterRender &&
+           !(LLViewerCamera::getInstance()->cameraUnderWater() && LLWorld::getInstance()->getAllowRenderWater());
+}
+
+bool FSClusteredLights::prepareScatter(S32 max_lights)
+{
+    // Only this frame's lights: the light pass may not have collected any (local lights off,
+    // a frame without the main view's light pass)
+    if (mFrame != LLFrameTimer::getFrameCount() || mLights.empty() || max_lights <= 0)
+    {
+        return false;
+    }
+    if (mBinned)
+    {
+        return mTileLists; // the tile lists went up with the clusters (unless the glow was off then)
+    }
+
+    // Without clustered shading: one tile covering the screen, listing the nearest lights (the
+    // stock loop runs nearest first)
+    const U32 count = llmin((U32)(mLights.size() / 2), (U32)max_lights);
+    mTilesX = 1;
+    mTilesY = 1;
+    mSlices = 0;
+    mTileHeader = 0;
+    mSliceScale = 1.f;
+    mLogNear = 0.f;
+    mLists.resize(2 + (size_t)count);
+    mLists[0] = 2;
+    mLists[1] = count;
+    for (U32 i = 0; i < count; ++i)
+    {
+        mLists[2 + i] = i;
+    }
+    upload();
+    mBinned = true;
+    mTileLists = true;
+    return true;
+}
+
+bool FSClusteredLights::drawScatter(LLRenderTarget& depth_source, LLVertexBuffer* screen_tri, F32 strength_scale, F32 anisotropy, S32 max_lights)
+{
+    static LLCachedControl<F32> density(gSavedSettings, "FSRenderPointLightScatterDensity", 0.02f);
+
+    LLGLSLShader& shader = gFSPointLightScatterProgram;
+    const S32 units = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS);
+
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    LL_PROFILE_GPU_ZONE("point light scatter");
+
+    shader.bind();
+    const bool drawn = shader.mActiveTextureChannels + 2 <= units;
+    if (drawn)
+    {
+        shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &depth_source, true);
+        bindBuffers(shader);
+        shader.uniform1i(s_scatter_max, llclamp(max_lights, 1, 64));
+        shader.uniform1f(s_scatter_strength, strength_scale);
+        shader.uniform1f(s_scatter_density, llclamp((F32)density, 0.f, 1.f));
+        shader.uniform1f(s_anisotropy, llclamp(anisotropy, 0.f, 0.9f));
+        setAirUniforms(shader, true);
+        screen_tri->setBuffer();
+        screen_tri->drawArrays(LLRender::TRIANGLES, 0, 3);
+        unbindBuffers();
+    }
+    shader.unbind();
+    return drawn;
+}
+
+// static
+void FSClusteredLights::setAirUniforms(LLGLSLShader& shader, bool use_fog)
+{
+    // The height fog's values as fs_upload_height_fog_uniforms (llviewershadermgr.cpp) sends them
+    static LLCachedControl<bool> fog_on(gSavedSettings, "FSRenderHeightFog", false);
+    static LLCachedControl<F32> fog_density(gSavedSettings, "FSRenderHeightFogDensity", 0.003f);
+    static LLCachedControl<F32> fog_falloff(gSavedSettings, "FSRenderHeightFogFalloff", 0.02f);
+    static LLCachedControl<F32> fog_base(gSavedSettings, "FSRenderHeightFogBaseHeight", 0.f);
+    static LLCachedControl<bool> fog_base_absolute(gSavedSettings, "FSRenderHeightFogBaseAbsolute", false);
+    static LLCachedControl<bool> fog_sky_haze(gSavedSettings, "FSRenderHeightFogSkyHaze", true);
+
+    // Only while the fog itself is drawn (its define is set once the shaders were rebuilt)
+    if (!use_fog || !fog_on || !LLGLSLShader::sGlobalDefines.count("FS_HEIGHT_FOG"))
+    {
+        shader.uniform4f(s_air_fog, 0.f, 0.f, 0.f, 0.f);
+        shader.uniform4f(s_air_plane, 0.f, 0.f, 1.f, 0.f);
+        return;
+    }
+
+    LLEnvironment& environment = LLEnvironment::instance();
+    F32 sigma = llclamp((F32)fog_density, 0.f, 0.1f);
+    LLSettingsSky::ptr_t psky = environment.getCurrentSky();
+    if (fog_sky_haze && psky)
+    {
+        sigma *= llclamp(sqrtf(llmax(psky->getHazeDensity(), 0.f) / 0.7f), 0.5f, 2.f);
+    }
+    F32 base = llclamp((F32)fog_base, -4096.f, 8192.f);
+    if (fog_base_absolute)
+    {
+        base -= environment.getWaterHeight();
+    }
+
+    // Height above the fog's base of a view space point p: dot(p, plane.xyz) + plane.w, from the
+    // water plane (view space, normalised) the haze pass gives the fog
+    const LLVector4& water = LLDrawPoolAlpha::sWaterPlane;
+    shader.uniform4f(s_air_fog, sigma, llclamp((F32)fog_falloff, 0.f, 1.f), 0.f, 1.f);
+    shader.uniform4f(s_air_plane, water.mV[VX], water.mV[VY], water.mV[VZ], water.mV[VW] - base);
 }
 
 void FSClusteredLights::release()
@@ -448,4 +602,6 @@ void FSClusteredLights::release()
     mLists.clear();
     mLists.shrink_to_fit();
     mActive = false;
+    mShade = false;
+    mBinned = false;
 }

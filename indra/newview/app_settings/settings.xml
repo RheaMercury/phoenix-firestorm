@@ -27680,6 +27680,61 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.3</real>
     </map>
+    <key>FSRenderSpotVolumetricUseHeightFog</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With the height fog on (FSRenderHeightFog), the volumetric projector cones (FSRenderSpotVolumetric) take their air from it: its density at the fog's base, thinning with height by its falloff, instead of the constant FSRenderSpotVolumetricDensity. Cones are thick in ground fog and faint above it. The height fog is usually much thinner than the cones' default density, so raise FSRenderSpotVolumetricStrength to match. Without the height fog the constant density is used.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderPointLightScatter</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Local point lights (lanterns, lamps, club lights) glow in the air: the light each one scatters toward the camera along every view ray, in closed form for its falloff, with the Henyey-Greenstein lobe of FSRenderSpotVolumetricAnisotropy. Drawn into the volumetric projector light's map at its resolution (FSRenderSpotVolumetricResolution) and temporal option, and added to the scene with it. The air is the height fog's when that is on, else FSRenderPointLightScatterDensity. Uses the lights the light pass draws (RenderLocalLightCount, attached lights). Off under water and in snapshots without post effects.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderPointLightScatterStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Brightness of the point light glow (FSRenderPointLightScatter). With the height fog the air is usually thin, so values well above 1 may be wanted.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderPointLightScatterDensity</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Scattering of the air per metre for the point light glow (FSRenderPointLightScatter) while the height fog is off. With the height fog on, its own density is used.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.02</real>
+    </map>
+    <key>FSRenderPointLightScatterMaxLights</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Point lights that glow per pixel at most, the nearest first (FSRenderPointLightScatter). With clustered lights (FSRenderClusteredLights) this many of each screen tile's lights, else this many of the nearest lights overall. Each costs a few dozen instructions per pixel at the volumetric map's resolution.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>16</integer>
+    </map>
     <key>FSRenderSpecularAA</key>
     <map>
       <key>Comment</key>

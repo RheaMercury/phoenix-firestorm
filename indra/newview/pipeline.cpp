@@ -12186,7 +12186,8 @@ void LLPipeline::renderDeferredLighting()
                 gDeferredLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky->canAutoAdjust()) ? 1 : 0); // <FS:Trish/> once, not per light
                 const bool fs_batch_lights = gFSPointLightBatch.begin(); // <FS:Trish/> FSPerfBatchedLocalLights
                 // <FS:Trish> FSRenderClusteredLights: the main view's point lights are handed over and
-                // shaded together after the loop; probe captures keep the stock passes
+                // shaded together after the loop; probe captures keep the stock passes. The point
+                // light glow (FSRenderPointLightScatter) takes the same lights, drawn or not.
                 const bool fs_clustered = !gCubeSnapshot &&
                     gFSClusteredLights.begin(mat, get_current_projection(), screen_target->getWidth(), screen_target->getHeight());
                 // </FS:Trish>
@@ -12272,7 +12273,7 @@ void LLPipeline::renderDeferredLighting()
                         }
                         sFSLightStats.mBoxPoint += fs_count; // <FS:Trish/>
 
-                        // <FS:Trish> Clustered: shaded with the others after the loop
+                        // <FS:Trish> Clustered: shaded with the others after the loop (kept for the glow either way)
                         if (fs_clustered && gFSClusteredLights.add(c, s, col, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF)))
                         {
                             continue;
@@ -12308,7 +12309,7 @@ void LLPipeline::renderDeferredLighting()
                         }
                         sFSLightStats.mInsidePoint += fs_count; // <FS:Trish/>
 
-                        // <FS:Trish> Clustered: shaded with the others after the loop
+                        // <FS:Trish> Clustered: shaded with the others after the loop (kept for the glow either way)
                         if (fs_clustered && gFSClusteredLights.add(c, s, col, volume->getLightFalloff(DEFERRED_LIGHT_FALLOFF)))
                         {
                             continue;
@@ -15971,8 +15972,16 @@ void LLPipeline::renderSpotVolumetrics()
     static LLCachedControl<F32> anisotropy(gSavedSettings, "FSRenderSpotVolumetricAnisotropy", 0.3f);
     static LLCachedControl<bool> dust_motes(gSavedSettings, "FSRenderDustMotes", false); // <FS:Trish/> Dust motes
     static LLCachedControl<bool> temporal_setting(gSavedSettings, "FSRenderSpotVolumetricTemporal", false); // <FS:Trish/>
+    // <FS:Trish> Point lights glowing in fog (FSRenderPointLightScatter): drawn into the same map
+    // before the projectors, so they share its resolution, temporal resolve and composite
+    static LLCachedControl<F32> point_strength(gSavedSettings, "FSRenderPointLightScatterStrength", 1.f);
+    static LLCachedControl<S32> point_max_lights(gSavedSettings, "FSRenderPointLightScatterMaxLights", 16);
+    static LLCachedControl<bool> spot_height_fog(gSavedSettings, "FSRenderSpotVolumetricUseHeightFog", false);
+    const bool fs_points = FSClusteredLights::scatterWanted();
+    // </FS:Trish>
 
-    if (!enabled)
+    //if (!enabled)
+    if (!enabled && !fs_points) // <FS:Trish/>
     {
         mSpotVolumeMap.release();
         // <FS:Trish> FSRenderSpotVolumetricTemporal
@@ -15983,8 +15992,14 @@ void LLPipeline::renderSpotVolumetrics()
         return;
     }
 
-    if (strength <= 0.f || density <= 0.f || gSnapshotNoPost || sUnderWaterRender ||
+    // <FS:Trish> The projector cones only when their own settings ask for them (with the height
+    // fog's air, their density setting is not used)
+    //if (strength <= 0.f || density <= 0.f || gSnapshotNoPost || sUnderWaterRender ||
+    //    !gFSSpotVolumetricProgram.isComplete() || !gFSSpotVolumetricCompositeProgram.isComplete())
+    const bool fs_spots = enabled && strength > 0.f && (density > 0.f || spot_height_fog);
+    if ((!fs_spots && !fs_points) || gSnapshotNoPost || sUnderWaterRender ||
         !gFSSpotVolumetricProgram.isComplete() || !gFSSpotVolumetricCompositeProgram.isComplete())
+    // </FS:Trish>
     {
         return;
     }
@@ -16006,7 +16021,8 @@ void LLPipeline::renderSpotVolumetrics()
     auto usable = [&](LLDrawable* drawable) -> LLVOVolume*
     {
         LLVOVolume* volume = drawable ? drawable->getVOVolume() : nullptr;
-        if (!volume || !volume->isLightSpotlight() || (volume->isAttachment() && !sRenderAttachedLights))
+        //if (!volume || !volume->isLightSpotlight() || (volume->isAttachment() && !sRenderAttachedLights))
+        if (!fs_spots || !volume || !volume->isLightSpotlight() || (volume->isAttachment() && !sRenderAttachedLights)) // <FS:Trish/> no cones while only the glow runs
         {
             return nullptr;
         }
@@ -16077,7 +16093,11 @@ void LLPipeline::renderSpotVolumetrics()
     }
     s_weights.swap(weights);
     lights.swap(drawn);
-    if (lights.empty())
+    // <FS:Trish> The point light glow's lists, from the light pass's lights
+    const bool fs_points_drawn = fs_points && gFSClusteredLights.prepareScatter(point_max_lights);
+    //if (lights.empty())
+    if (lights.empty() && !fs_points_drawn)
+    // </FS:Trish>
     {
         return;
     }
@@ -16123,18 +16143,31 @@ void LLPipeline::renderSpotVolumetrics()
         LLGLEnable blend(GL_BLEND);
         gGL.setSceneBlendType(LLRender::BT_ADD);
 
+        // <FS:Trish> The point light glow first, writing the distances into alpha for the map
+        bool fs_glow_drawn = false;
+        if (fs_points_drawn)
+        {
+            gGL.setColorMask(true, true);
+            fs_glow_drawn = gFSClusteredLights.drawScatter(mRT->deferredScreen, mScreenTriangleVB,
+                                                           (F32)point_strength / (fs_spots ? (F32)strength : 1.f),
+                                                           (F32)anisotropy, point_max_lights);
+        }
+        // </FS:Trish>
+
         shader.bind();
         shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
         //shader.uniform1i(s_vol_steps, llclamp((S32)steps, 4, 64));
         shader.uniform1i(s_vol_steps, llclamp(march_steps, 4, 64)); // <FS:Trish/>
         shader.uniform1f(s_vol_frame_offset, temporal ? fmodf((F32)(LLFrameTimer::getFrameCount() % 4096) * 0.618034f, 1.f) : 0.f); // <FS:Trish/>
         shader.uniform1f(s_vol_density, (F32)density);
+        FSClusteredLights::setAirUniforms(shader, spot_height_fog); // <FS:Trish/> FSRenderSpotVolumetricUseHeightFog
         shader.uniform1f(s_vol_anisotropy, llclamp((F32)anisotropy, 0.f, 0.9f));
         shader.uniform1f(LLShaderMgr::DEFERRED_SPOT_SHADOW_BIAS, RenderSpotShadowBias);
         const S32 shadow_channel = shader.enableTexture(LLShaderMgr::DEFERRED_SHADOW0);
         const S32 proj_channel = shader.enableTexture(LLShaderMgr::DEFERRED_PROJECTION);
 
-        bool first = true;
+        //bool first = true;
+        bool first = !fs_glow_drawn; // <FS:Trish/> the glow wrote the distances
         for (const VolumeLight& light : lights)
         {
             LLDrawable* drawablep = light.mDrawable;
@@ -16365,7 +16398,8 @@ void LLPipeline::renderSpotVolumetrics()
         //gFSSpotVolumetricCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, &mSpotVolumeMap, false, LLTexUnit::TFO_POINT);
         gFSSpotVolumetricCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, fs_volume, false, LLTexUnit::TFO_POINT); // <FS:Trish/>
         gFSSpotVolumetricCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
-        gFSSpotVolumetricCompositeProgram.uniform1f(s_vol_strength, (F32)strength);
+        //gFSSpotVolumetricCompositeProgram.uniform1f(s_vol_strength, (F32)strength);
+        gFSSpotVolumetricCompositeProgram.uniform1f(s_vol_strength, fs_spots ? (F32)strength : 1.f); // <FS:Trish/> the glow scales itself
         fs_draw_screen_triangle(mScreenTriangleVB);
         gFSSpotVolumetricCompositeProgram.unbind();
 

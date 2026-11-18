@@ -30,6 +30,11 @@ uniform int vol_steps;
 uniform float vol_density;      // scattering per metre
 uniform float vol_anisotropy;   // 0 scatters evenly, toward 1 concentrates looking into the light
 uniform float vol_frame_offset;  // added to the start offset each frame (temporal option), 0 otherwise
+// FSRenderSpotVolumetricUseHeightFog: the air is the height fog's, thinning with height. fs_air_fog
+// is its density at the fog's base, its falloff per metre, unused, and 1 when on (else vol_density
+// throughout); fs_air_plane is view space up and the camera's height above the fog's base.
+uniform vec4 fs_air_fog;
+uniform vec4 fs_air_plane;
 
 // Distance stored for the sky. Fits a half float.
 const float SKY_DIST = 65000.0;
@@ -46,6 +51,13 @@ float phase(float cos_theta, float g)
     float denom = 1.0 + g2 - 2.0 * g * cos_theta;
     // Capped: near g = 1 the peak grows without bound and blows out bloom
     return min((1.0 - g2) / (denom * sqrt(denom)), 16.0);
+}
+
+// The height fog's density at a view space point (fs_air_fog on)
+float fogDensity(vec3 p)
+{
+    float h = dot(p, fs_air_plane.xyz) + fs_air_plane.w;
+    return fs_air_fog.x * exp(-fs_air_fog.y * max(h, 0.0));
 }
 
 // Per pixel start offset (interleaved gradient noise, as in fsSunRaysF): neighbouring pixels
@@ -120,10 +132,22 @@ void main()
                 vec3 light = getProjectedLightDiffuseColor(-dot(lv, proj_n), proj_tc.xy);
 
                 float cos_theta = dot(view_dir, normalize(proj_origin - p));
-                result += light * (dist_atten * vis * phase(cos_theta, vol_anisotropy));
+                float w = dist_atten * vis * phase(cos_theta, vol_anisotropy);
+                if (fs_air_fog.w > 0.5)
+                {
+                    w *= fogDensity(p);
+                }
+                result += light * w;
             }
             // light scattered over the march, dimmed by the air between it and the camera
-            result *= vol_density * dt * exp(-vol_density * t0);
+            if (fs_air_fog.w > 0.5)
+            {
+                result *= dt * exp(-fogDensity(view_dir * (0.5 * t0)) * t0);
+            }
+            else
+            {
+                result *= vol_density * dt * exp(-vol_density * t0);
+            }
         }
     }
 

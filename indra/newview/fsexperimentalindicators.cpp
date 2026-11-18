@@ -185,6 +185,11 @@ namespace
         { "FSRenderSpotVolumetricTemporal", CS, VN },
         { "FSRenderSpotVolumetricNearRange", CL, VM },
         { "FSRenderSpotVolumetricAnisotropy", CL, VM },
+        { "FSRenderSpotVolumetricUseHeightFog", CL, VM },
+        { "FSRenderPointLightScatter", CL, VL },
+        { "FSRenderPointLightScatterStrength", CL, VM },
+        { "FSRenderPointLightScatterDensity", CL, VM },
+        { "FSRenderPointLightScatterMaxLights", CL, VM },
 
         // Effects: water
         { "FSRenderWaterCaustics", CL, VM },

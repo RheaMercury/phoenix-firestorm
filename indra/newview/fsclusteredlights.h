@@ -1,6 +1,6 @@
 /**
  * @file fsclusteredlights.h
- * @brief Clustered shading of the deferred local point lights
+ * @brief Clustered shading of the deferred local point lights, and their glow in fog
  *
  * $LicenseInfo:firstyear=2026&license=fsviewerlgpl$
  * Phoenix Firestorm Viewer Source Code
@@ -36,6 +36,7 @@
 
 #include <vector>
 
+class LLRenderTarget;
 class LLVertexBuffer;
 
 // The local point lights of the main view, shaded in one full screen pass (FSRenderClusteredLights)
@@ -51,6 +52,13 @@ class LLVertexBuffer;
 // fsClusteredLightF.glsl shades every pixel with the lights of its own cluster only, with the
 // stock point light maths. Projectors, spotlights and reflection probe captures keep the stock
 // passes. The binning runs on the CPU, so it works on OpenGL 3.3 and macOS alike.
+//
+// The same lights glow in the air (FSRenderPointLightScatter): fsPointLightScatterF.glsl adds
+// their in-scattering into the projector volumetric map (LLPipeline::renderSpotVolumetrics), so
+// it shares that map's resolution, temporal resolve and composite. With clustered shading on,
+// each pixel takes the lights of its screen tile (the union of the tile's clusters, binned with
+// them); without it, the nearest lights. The lights are collected in the same stock loop, so the
+// glow follows every setting that decides which lights are drawn.
 class FSClusteredLights
 {
 public:
@@ -58,25 +66,44 @@ public:
     static constexpr U32 DEPTH_SLICES = 16;
 
     // Start of the main view's local light pass, before the stock loop. Clears the light list.
-    // True when the loop should hand its point lights to add() instead of drawing them: the
-    // setting is on and the program, buffer textures and texture units are usable. Everything
-    // that could stop flush() from drawing the lights is checked here.
+    // True when the loop should hand its point lights to add(): clustered shading is on and its
+    // program, buffer textures and texture units are usable (everything that could stop flush()
+    // from drawing the lights is checked here), or the glow wants them.
     bool begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height);
 
     // One point light that passed the stock loop's tests: agent space centre, volume half size
-    // (radius * 1.5, as the stock path sends), linear colour already scaled, and falloff. False
-    // when the light is not taken, and the stock passes must draw it.
+    // (radius * 1.5, as the stock path sends), linear colour already scaled, and falloff. True
+    // when clustered shading draws it; false when the stock passes must still draw it (shading
+    // off, the light only kept for the glow).
     bool add(const F32* center_agent, F32 size, const LLColor3& linear_color, F32 falloff);
 
     // After the stock loop: bin, upload and draw the lights into the bound lighting target
     // (additive blend, as the stock light passes). screen_tri is the full screen triangle.
     void flush(LLVertexBuffer* screen_tri);
 
+    // Point light glow (renderSpotVolumetrics). True when it is on and can run this frame: the
+    // setting and strength, its program, not under water nor in a snapshot without post effects.
+    static bool scatterWanted();
+    // Gets the lists ready for the glow: this frame's tile lists after clustered shading, else
+    // the nearest max_lights lights. False when there is nothing to draw.
+    bool prepareScatter(S32 max_lights);
+    // Draws the glow into the bound target (the projector volumetric map, cleared, additive
+    // blend), writing the distance each pixel sees into alpha as that map wants. strength_scale
+    // is the glow's strength over the strength the map's composite applies. False when nothing
+    // was drawn (no texture units left for the lists).
+    bool drawScatter(LLRenderTarget& depth_source, LLVertexBuffer* screen_tri, F32 strength_scale, F32 anisotropy, S32 max_lights);
+
+    // Air density uniforms of the volumetric shaders (fs_air_fog, fs_air_plane). With use_fog
+    // and the height fog on, the air is the height fog's: its density at the fog's base and its
+    // falloff with height, measured from the water plane as fsHeightFogF.glsl does. Otherwise
+    // fs_air_fog.w is 0 and the shader keeps its constant density.
+    static void setAirUniforms(LLGLSLShader& shader, bool use_fog);
+
     // Release the GL objects (LLPipeline::cleanup).
     void release();
 
 private:
-    void binLights();
+    void binLights(bool tile_lists);
     void upload();
     // Binds the two buffer textures to texture units past the shader's own samplers and sets
     // the grid uniforms.
@@ -86,7 +113,7 @@ private:
     struct Span
     {
         U32 mLight;
-        U32 mSlice;
+        U32 mSlice;     // DEPTH_SLICES for a screen tile list
         U32 mX0, mX1, mY0, mY1; // tiles, inclusive
     };
 
@@ -94,7 +121,11 @@ private:
     glm::mat4 mProjection = glm::mat4(1.f);
     U32 mWidth = 1;
     U32 mHeight = 1;
-    bool mActive = false;
+    bool mActive = false;               // collecting lights between begin() and flush()
+    bool mShade = false;                // and shading them
+    bool mBinned = false;               // the buffers hold this frame's lists
+    bool mTileLists = false;            // and those include the glow's tile lists
+    U32 mFrame = 0;                     // frame of the last begin() that collected
 
     std::vector<LLVector4> mLights;     // per light: eye space centre + size, colour + falloff
     F32 mFarDepth = 1.f;                // farthest depth any light reaches
@@ -103,13 +134,15 @@ private:
     U32 mTilesX = 1;
     U32 mTilesY = 1;
     U32 mSlices = 1;
+    U32 mTileHeader = 0;                // first tile list entry of the header
     F32 mSliceScale = 1.f;              // slices per unit of log depth
     F32 mLogNear = 0.f;
 
     std::vector<Span> mSpans;
     std::vector<U32> mCounts;
     std::vector<U32> mFill;
-    std::vector<U32> mLists;            // header (offset, count per cluster), then the light indices
+    std::vector<U32> mLists;            // header (offset, count per cluster, then per tile list),
+                                        // then the light indices
 
     U32 mLightBuffer = 0;
     U32 mLightTexture = 0;
@@ -123,5 +156,6 @@ private:
 extern FSClusteredLights gFSClusteredLights;
 
 extern LLGLSLShader gFSClusteredLightProgram; // fsClusteredLightF.glsl, built in loadShadersDeferred
+extern LLGLSLShader gFSPointLightScatterProgram; // fsPointLightScatterF.glsl, a post effect program
 
 #endif // FS_CLUSTEREDLIGHTS_H

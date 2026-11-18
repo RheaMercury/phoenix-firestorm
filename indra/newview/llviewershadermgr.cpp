@@ -1812,6 +1812,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSSpotVolumetricProgram.unload();
         gFSSpotVolumetricCompositeProgram.unload();
         gFSSpotVolumetricTemporalProgram.unload(); // <FS:Trish/>
+        gFSPointLightScatterProgram.unload(); // <FS:Trish/> point lights glowing in fog
         gFSDustMotesProgram.unload(); // <FS:Trish/> Dust motes
         gFSBloomPrefilterProgram.unload();
         gFSBloomDownProgram.unload();
@@ -3711,6 +3712,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSSpotVolumetricProgram,   "FS Spot Volumetric",    "deferred/fsSpotVolumetricF.glsl",   true },
             { &gFSSpotVolumetricCompositeProgram, "FS Spot Volumetric Composite", "deferred/fsSpotVolumetricCompositeF.glsl", true },
             { &gFSSpotVolumetricTemporalProgram, "FS Spot Volumetric Temporal", "deferred/fsSpotVolumetricTemporalF.glsl", false }, // <FS:Trish/>
+            { &gFSPointLightScatterProgram, "FS Point Light Scatter", "deferred/fsPointLightScatterF.glsl", true }, // <FS:Trish/> point lights glowing in fog
             { &gFSDustMotesProgram,        "FS Dust Motes",         "deferred/fsDustMotesF.glsl",        true }, // <FS:Trish/> Dust motes
             { &gFSBloomPrefilterProgram,   "FS Bloom Prefilter",    "deferred/fsBloomPrefilterF.glsl",   false },
             { &gFSBloomDownProgram,        "FS Bloom Downsample",   "deferred/fsBloomDownF.glsl",        false },
