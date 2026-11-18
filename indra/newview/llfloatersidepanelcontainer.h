@@ -55,6 +55,11 @@ public:
 
     void closeFloater(bool app_quitting = false) override;
 
+    // <FS:Trish> An inventory window opened on a folder (New Window) keeps its own place, per folder,
+    // instead of sharing the main inventory's. Set before it opens.
+    void setFolderWindow(const LLUUID& folder_id);
+    // </FS:Trish>
+
     void onClickCloseBtn(bool app_qutting) override;
 
     void cleanup() { destroy(); }
@@ -112,6 +117,13 @@ protected:
     void onCloseMsgCallback(const LLSD& notification, const LLSD& response);
 
     LLPanel* mMainPanel = nullptr;
+
+    // <FS:Trish> Inventory folder windows keep their own place
+    bool applyRectControl() override;
+
+    bool    mFolderWindow = false;
+    LLUUID  mFolderWindowID;
+    // </FS:Trish>
 };
 
 #endif // LL_LLFLOATERSIDEPANELCONTAINER_H

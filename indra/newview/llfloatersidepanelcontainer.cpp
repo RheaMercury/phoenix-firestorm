@@ -36,6 +36,7 @@
 #include "lltransientfloatermgr.h"
 #include "llpaneloutfitedit.h"
 #include "llsidepanelappearance.h"
+#include "llviewercontrol.h" // <FS:Trish/> inventory folder windows keep their own place
 
 //static
 const std::string LLFloaterSidePanelContainer::sMainPanelName("main_panel");
@@ -51,6 +52,114 @@ LLFloaterSidePanelContainer::LLFloaterSidePanelContainer(const LLSD& key, const 
     // when this floater is clicked.
     LLTransientFloaterMgr::getInstance()->addControlView(LLTransientFloaterMgr::GLOBAL, this);
 }
+
+// <FS:Trish> Inventory folder windows keep their own place, per folder, in FSInventoryFolderWindowRects:
+// { "<folder id>": { "rect": <LLRect>, "used": <seconds since epoch> } }, the most recently used kept
+namespace
+{
+    constexpr S32 FOLDER_WINDOW_RECTS_KEPT = 50;
+    const std::string FOLDER_WINDOW_RECTS("FSInventoryFolderWindowRects");
+
+    // The place saved for a folder's window; or else, with fallback, the place of the folder window used last
+    bool folder_window_rect(const LLUUID& folder_id, bool fallback, LLRect& rect)
+    {
+        const LLSD rects = gSavedPerAccountSettings.getLLSD(FOLDER_WINDOW_RECTS);
+        if (!rects.isMap())
+        {
+            return false;
+        }
+        LLSD entry = rects.get(folder_id.asString());
+        if (!entry.isMap() && fallback)
+        {
+            F64 newest = -1.0;
+            for (LLSD::map_const_iterator it = rects.beginMap(); it != rects.endMap(); ++it)
+            {
+                if (it->second.isMap() && it->second["used"].asReal() > newest)
+                {
+                    newest = it->second["used"].asReal();
+                    entry = it->second;
+                }
+            }
+        }
+        if (!entry.isMap())
+        {
+            return false;
+        }
+        rect.setValue(entry["rect"]);
+        return rect.notEmpty();
+    }
+
+    void save_folder_window_rect(const LLUUID& folder_id, const LLRect& rect)
+    {
+        LLSD rects = gSavedPerAccountSettings.getLLSD(FOLDER_WINDOW_RECTS);
+        if (!rects.isMap())
+        {
+            rects = LLSD::emptyMap();
+        }
+        LLSD entry;
+        entry["rect"] = rect.getValue();
+        entry["used"] = LLDate::now().secondsSinceEpoch();
+        rects[folder_id.asString()] = entry;
+
+        while (rects.size() > FOLDER_WINDOW_RECTS_KEPT)
+        {
+            std::string oldest;
+            F64 oldest_used = 0.0;
+            for (LLSD::map_const_iterator it = rects.beginMap(); it != rects.endMap(); ++it)
+            {
+                const F64 used = it->second["used"].asReal();
+                if (oldest.empty() || used < oldest_used)
+                {
+                    oldest = it->first;
+                    oldest_used = used;
+                }
+            }
+            rects.erase(oldest);
+        }
+        gSavedPerAccountSettings.setLLSD(FOLDER_WINDOW_RECTS, rects);
+    }
+}
+
+void LLFloaterSidePanelContainer::setFolderWindow(const LLUUID& folder_id)
+{
+    mFolderWindow = true;
+    mFolderWindowID = folder_id;
+    // The main inventory's place, visibility and docking are its own: this window neither reads nor writes them
+    mRectControl.clear();
+    mPosXControl.clear();
+    mPosYControl.clear();
+    mVisibilityControl.clear();
+    mDocStateControl.clear();
+}
+
+bool LLFloaterSidePanelContainer::applyRectControl()
+{
+    if (!mFolderWindow)
+    {
+        return LLFloater::applyRectControl();
+    }
+
+    // A folder never opened in a window before takes the place of the folder window used last, unless
+    // another inventory window is open: it then opens cascaded from that one
+    bool alone = true;
+    for (LLFloater* inst : LLFloaterReg::getFloaterList(mInstanceName))
+    {
+        alone &= (inst == this || !inst->getVisible() || inst->isMinimized());
+    }
+    LLRect rect;
+    if (!folder_window_rect(mFolderWindowID, alone, rect))
+    {
+        return false;
+    }
+    setOrigin(rect.mLeft, rect.mBottom);
+    if (isResizable())
+    {
+        reshape(llmax(getMinWidth(), rect.getWidth()), llmax(getMinHeight(), rect.getHeight()));
+    }
+    gFloaterView->adjustToFitScreen(this, false);
+    return true;
+}
+// </FS:Trish>
 
 LLFloaterSidePanelContainer::~LLFloaterSidePanelContainer()
 {
@@ -70,6 +179,12 @@ void LLFloaterSidePanelContainer::onOpen(const LLSD& key)
 
 void LLFloaterSidePanelContainer::closeFloater(bool app_quitting)
 {
+    // <FS:Trish> An inventory folder window's place is kept for its folder, also when quitting
+    if (mFolderWindow && !getHost() && !isMinimized())
+    {
+        save_folder_window_rect(mFolderWindowID, getRect());
+    }
+    // </FS:Trish>
     if(getInstanceName() == "appearance")
     {
         LLPanelOutfitEdit* panel_outfit_edit = findChild<LLPanelOutfitEdit>("panel_outfit_edit");

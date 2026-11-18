@@ -889,6 +889,18 @@
 		<key>Value</key>
 			<integer>0</integer>
 	</map>
+	<key>FSInventoryFolderWindowRects</key>
+	<map>
+		<key>Comment</key>
+			<string>Where inventory windows opened on a folder (New Window) were last, per folder: { folder id: { rect, used } }, the 50 most recently used</string>
+		<key>Persist</key>
+			<integer>1</integer>
+		<key>Type</key>
+			<string>LLSD</string>
+		<key>Value</key>
+			<map>
+			</map>
+	</map>
 	<key>FSLastOpenIMs</key>
 	<map>
 		<key>Comment</key>

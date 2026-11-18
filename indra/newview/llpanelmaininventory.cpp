@@ -680,7 +680,21 @@ void LLPanelMainInventory::newFolderWindow(LLUUID folder_id, LLUUID item_to_sele
 
     S32 instance_num = get_instance_num();
 
-    LLFloaterSidePanelContainer* inventory_container = LLFloaterReg::showTypedInstance<LLFloaterSidePanelContainer>("inventory", LLSD(instance_num));
+    // <FS:Trish> Marked as a folder window before it opens, so it opens in that folder's own place
+    // instead of the main inventory's (which it no longer overwrites either)
+    //LLFloaterSidePanelContainer* inventory_container = LLFloaterReg::showTypedInstance<LLFloaterSidePanelContainer>("inventory", LLSD(instance_num));
+    LLFloaterSidePanelContainer* inventory_container = LLFloaterReg::getTypedInstance<LLFloaterSidePanelContainer>("inventory", LLSD(instance_num));
+    if (inventory_container)
+    {
+        inventory_container->setFolderWindow(folder_id);
+        if (!LLFloaterReg::showTypedInstance<LLFloaterSidePanelContainer>("inventory", LLSD(instance_num)))
+        {
+            // refused (RLVa): the window built for it goes
+            inventory_container->cleanup();
+            inventory_container = nullptr;
+        }
+    }
+    // </FS:Trish>
     if(inventory_container)
     {
         LLSidepanelInventory* sidepanel_inventory = dynamic_cast<LLSidepanelInventory*>(inventory_container->findChild<LLPanel>("main_panel", true));
