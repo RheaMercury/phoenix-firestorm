@@ -28,7 +28,10 @@
  * Which pixels: with the feature on, rigged (HAS_SKIN) and system avatar g-buffer writers bias
  * their g-buffer flag by FS_SKIN_FLAG_BIAS (see LLShaderMgr::loadShaderFile), which marks
  * "drawn as part of an avatar" without disturbing GET_GBUFFER_FLAG's 0.1 tolerance. Inside
- * that, a skin-tone weight on the albedo keeps the blur off most clothing.
+ * that, a skin weight (fsSkinUtil.glsl: a tone test on the albedo, with
+ * FSRenderSkinDetectMaterial also a material test) keeps the blur off most clothing.
+ *
+ * Debug view (sss_debug, FSRenderSkinDebug): pass 1 alone tints avatar pixels by that weight.
  *
  * Translucency (sss_translucency > 0, vertical pass only): sunlight transmitted through thin
  * skin lit from behind (ears, fingers, nostrils, rims), after Jimenez et al. 2010, "Real-Time
@@ -53,6 +56,9 @@ out vec4 frag_color;
 in vec2 vary_fragcoord;
 
 uniform sampler2D diffuseRect;      // g-buffer albedo
+#ifdef FS_SKIN_DETECT_MATERIAL
+uniform sampler2D specularRect;     // g-buffer specular / ORM, for the material score
+#endif
 uniform sampler2D altDiffuseMap;    // the lit screen (pass 0) or the scratch (pass 1)
 uniform sampler2D exposureMap;
 
@@ -67,6 +73,7 @@ uniform float sss_tone_match;       // 0: every avatar surface, 1: skin coloured
 uniform float sss_max_px;           // cap on the kernel reach in pixels
 uniform float exposure;             // RenderExposure, as the tone mapper uses it
 uniform float sss_translucency;     // strength of the light transmitted through thin skin, 0 off
+uniform int sss_debug;              // 1: pass 1 only tints avatar pixels by their skin weight
 
 // Sun shadow (cascades 0 and 1 as raw depth), for the translucency thickness
 uniform sampler2D shadowDepth0;
@@ -97,10 +104,13 @@ vec4 getPosition(vec2 pos_screen);
 vec3 linear_to_srgb(vec3 cl);
 vec3 srgb_to_linear(vec3 cs);
 
-#define FS_SKIN_FLAG_BIAS 0.05
+// fsSkinUtil.glsl
+int fsSkinSurface(float flag);
+float fsSkinWeightRaw(int surface, vec4 base, vec4 spec, float env, out vec3 albedo);
+float fsSkinWeightParts(int surface, vec4 base, vec4 spec, float env, out vec3 albedo, out float material, out float tone);
+
 #define FS_SKIN_TAPS 7              // per side
 #define FS_SKIN_RANGE_MM 6.0        // reach of the outermost tap at sss_radius 1
-#define FS_SKIN_MIN_ALBEDO 0.02     // linear; darker albedo is floored before dividing by it
 #define FS_SKIN_TRANS_SHRINK 0.002  // m: the receiver is pushed this far inside the surface
 #define FS_SKIN_TRANS_MM 6.0        // measured thickness (mm) per profile mm at sss_radius 1
 
@@ -140,81 +150,24 @@ bool fsSkinBad(float v)
     return isnan(v) || isinf(v);
 }
 
-// 0: not avatar, 1: legacy avatar surface, 2: PBR avatar surface
-int fsSkinSurface(float flag)
-{
-    if (abs(flag - (GBUFFER_FLAG_HAS_ATMOS + FS_SKIN_FLAG_BIAS)) < 0.02)
-    {
-        return 1;
-    }
-    if (abs(flag - (GBUFFER_FLAG_HAS_PBR + FS_SKIN_FLAG_BIAS)) < 0.02)
-    {
-        return 2;
-    }
-    return 0;
-}
-
-// How much an albedo looks like skin, across the range of human tones: red leading, hue between
-// red and yellow-orange, moderate saturation, not black. Smooth edges so the mask has no seams.
-float fsSkinTone(vec3 c)
-{
-    float mx = max(c.r, max(c.g, c.b));
-    float mn = min(c.r, min(c.g, c.b));
-    float d = mx - mn;
-    float s = d / max(mx, 1e-4);
-
-    float h;    // degrees, -180..180 with red at 0
-    if (d < 1e-4)
-    {
-        h = 180.0;
-    }
-    else if (mx == c.r)
-    {
-        h = 60.0 * (c.g - c.b) / d;
-    }
-    else if (mx == c.g)
-    {
-        h = 60.0 * ((c.b - c.r) / d + 2.0);
-    }
-    else
-    {
-        h = 60.0 * ((c.r - c.g) / d + 4.0);
-        h = h > 180.0 ? h - 360.0 : h;
-    }
-
-    float wh = smoothstep(-25.0, -5.0, h) * (1.0 - smoothstep(45.0, 65.0, h));
-    float ws = smoothstep(0.05, 0.14, s) * (1.0 - smoothstep(0.72, 0.88, s));
-    float wv = smoothstep(0.04, 0.12, mx);
-    return wh * ws * wv;
-}
-
-// Skin weight of a pixel in [0,1], or -1 when it is not an avatar surface. albedo: the linear
-// diffuse albedo the lighting multiplied by (legacy albedo is stored sRGB, PBR linear), floored.
+// Skin weight of a pixel in [0,1], or -1 when it is not an avatar surface (fsSkinUtil.glsl).
+// albedo: the linear diffuse albedo the lighting multiplied by (legacy albedo is stored sRGB, PBR
+// linear), floored.
 float fsSkinSample(vec2 tc, out vec3 albedo)
 {
     albedo = vec3(1.0);
-    int surface = fsSkinSurface(getNormRaw(tc).a);
+    vec4 norm_raw = getNormRaw(tc);
+    int surface = fsSkinSurface(norm_raw.a);
     if (surface == 0)
     {
         return -1.0;
     }
-
-    vec4 base = texture(diffuseRect, tc);
-    vec3 srgb;
-    float w = 1.0;
-    if (surface == 2)
-    {
-        albedo = base.rgb;
-        srgb = linear_to_srgb(base.rgb);
-    }
-    else
-    {
-        albedo = srgb_to_linear(base.rgb);
-        srgb = base.rgb;
-        w = 1.0 - clamp(base.a, 0.0, 1.0); // legacy alpha is the fullbright share
-    }
-    albedo = max(albedo, vec3(FS_SKIN_MIN_ALBEDO));
-    return w * mix(1.0, fsSkinTone(srgb), clamp(sss_tone_match, 0.0, 1.0));
+#ifdef FS_SKIN_DETECT_MATERIAL
+    vec4 spec = texture(specularRect, tc);
+#else
+    vec4 spec = vec4(0.0); // only the material score reads it
+#endif
+    return fsSkinWeightRaw(surface, texture(diffuseRect, tc), spec, norm_raw.b, albedo);
 }
 
 // Linear sun (or moon) colour at the ground, as calcAtmosphericVarsLinear gives the lighting
@@ -336,6 +289,34 @@ vec3 fsSkinTranslucency(vec3 pos, vec3 n)
 void main()
 {
     vec2 tc = vary_fragcoord.xy;
+
+    if (sss_debug != 0)
+    {
+        // Debug view (FSRenderSkinDebug), pass 1 only: avatar pixels tinted green as far as they
+        // count as skin, the rest red where the colour test turned them down and blue where the
+        // material test did. Everything else is left as it is.
+        vec4 norm_raw = getNormRaw(tc);
+        int surface = fsSkinSurface(norm_raw.a);
+        if (surface == 0)
+        {
+            discard;
+        }
+#ifdef FS_SKIN_DETECT_MATERIAL
+        vec4 spec = texture(specularRect, tc);
+#else
+        vec4 spec = vec4(0.0);
+#endif
+        vec3 d_albedo;
+        float material;
+        float tone;
+        float w = clamp(fsSkinWeightParts(surface, texture(diffuseRect, tc), spec, norm_raw.b, d_albedo, material, tone), 0.0, 1.0);
+        float tone_w = mix(1.0, tone, clamp(sss_tone_match, 0.0, 1.0));
+        vec3 rejected = material < tone_w ? vec3(0.1, 0.25, 1.0) : vec3(1.0, 0.1, 0.05);
+        vec3 c = mix(rejected, vec3(0.1, 1.0, 0.2), w) * (0.25 * fsSkinDiffuseCeiling());
+        const float a = 0.8;
+        frag_color = vec4(c * a, a);
+        return;
+    }
 
     vec3 albedo;
     float center_w = fsSkinSample(tc, albedo);

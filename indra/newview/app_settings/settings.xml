@@ -28010,6 +28010,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderSkinDetectMaterial</key>
+    <map>
+      <key>Comment</key>
+      <string>Skin subsurface scattering: also judge skin by its material (PBR metallic and roughness, legacy glossiness, environment and specular colour) rather than by albedo colour alone. Rough cloth, metal and very glossy surfaces drop out, so beige clothing is no longer taken for skin, and the colour test can be relaxed (FSRenderSkinToneRange) to take in pale, very dark and fantasy skins. The system avatar's bakes carry no material, so there the colour still decides. Needs FSRenderSkinSSS; rebuilds shaders. Costs one more texture read per skin sample.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSkinToneRange</key>
+    <map>
+      <key>Comment</key>
+      <string>Skin subsurface scattering, with FSRenderSkinDetectMaterial on: how far the skin colour test opens up (0 the human tone window, 1 any hue, very pale and very dark). The material test keeps clothing out instead.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
+    <key>FSRenderSkinDebug</key>
+    <map>
+      <key>Comment</key>
+      <string>Skin subsurface scattering debug view: tints avatar pixels green as far as they count as skin, red where the colour test turns them down and blue where the material test does (FSRenderSkinDetectMaterial). Replaces the scattering while on. Needs FSRenderSkinSSS.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderColoredShadowsProjectors</key>
     <map>
       <key>Comment</key>

@@ -6621,7 +6621,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="731"
+                 height="815"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -6833,7 +6833,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency" />
+                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug" />
                     </button>
                     <check_box
                      control_name="FSRenderSkinSSS"
@@ -6976,6 +6976,56 @@
                      tool_tip="EXPERIMENTAL. Sunlight shining through thin skin lit from behind: ears, fingers and nostrils glow red when the sun is behind the avatar. 1 is the physical amount, 0 is off. Needs sun shadows (thickness is measured in the sun shadow map); the radius above also scales how thick skin can be and still glow."
                      top="567"
                      width="100" />
+                    <check_box
+                     control_name="FSRenderSkinDetectMaterial"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Detect skin by its material too"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskindetectmaterial"
+                     tool_tip="EXPERIMENTAL. Judge what is skin by its material as well as its colour: skin is non-metallic with medium roughness, while most cloth is rougher and jewellery metallic or very glossy. Keeps scattering off beige clothing and lets the colour test take in pale, very dark and fantasy skins. The system avatar&apos;s bakes have no material, so there colour still decides. Rebuilds shaders when changed."
+                     top="595"
+                     width="455" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskintonerange_label"
+                     tool_tip="EXPERIMENTAL. With material detection on: how far the skin colour test opens up. 0 is the human tone range, 1 takes any hue and very pale or very dark skin; the material test keeps clothing out instead."
+                     top="625"
+                     width="285">
+                        Skin colour range
+                    </text>
+                    <spinner
+                     control_name="FSRenderSkinToneRange"
+                     decimal_digits="2"
+                     enabled_control="FSRenderSkinDetectMaterial"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderskintonerange"
+                     tool_tip="EXPERIMENTAL. With material detection on: how far the skin colour test opens up. 0 is the human tone range, 1 takes any hue and very pale or very dark skin; the material test keeps clothing out instead."
+                     top="623"
+                     width="100" />
+                    <check_box
+                     control_name="FSRenderSkinDebug"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Show what counts as skin (debug)"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskindebug"
+                     tool_tip="EXPERIMENTAL. Debug view: avatar surfaces are tinted green as far as they count as skin, red where the colour test turns them down and blue where the material test does. Replaces the scattering while on."
+                     top="651"
+                     width="455" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -6983,7 +7033,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_hair_and_transparency"
-                     top="609"
+                     top="693"
                      width="340">
                         Hair and transparency
                     </text>
@@ -6995,7 +7045,7 @@
                      left="370"
                      name="reset_fs_heading_hair_and_transparency"
                      tool_tip="Set every option in &quot;Hair and transparency&quot; back to its default value."
-                     top="608"
+                     top="692"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7010,7 +7060,7 @@
                      left="15"
                      name="fs_fsrenderhairtwopass"
                      tool_tip="EXPERIMENTAL. Draws alpha-blended rigged mesh (hair, layered clothing) as a depth-sorted solid core and a blended soft fringe, so inner layers stop showing through outer ones. Costs roughly two extra draws of rigged alpha. Rebuilds shaders when changed."
-                     top="635"
+                     top="719"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7019,7 +7069,7 @@
                      left="35"
                      name="fs_fsrenderhairalphathreshold_label"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="663"
+                     top="747"
                      width="285">
                         Hair solid alpha threshold
                     </text>
@@ -7035,7 +7085,7 @@
                      min_val="0.5"
                      name="fs_fsrenderhairalphathreshold"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="661"
+                     top="745"
                      width="100" />
                     <check_box
                      control_name="FSRenderAlphaHybridOIT"
@@ -7046,7 +7096,7 @@
                      left="15"
                      name="fs_fsrenderalphahybridoit"
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
-                     top="689"
+                     top="773"
                      width="475" />
                 </panel>
             </scroll_container>

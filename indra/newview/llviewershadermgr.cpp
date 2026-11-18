@@ -3781,7 +3781,13 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSSkinSSSProgram.clearPermutations();
         gFSSkinSSSProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
         gFSSkinSSSProgram.mShaderFiles.push_back(make_pair("deferred/fsSkinSSSF.glsl", GL_FRAGMENT_SHADER));
+        gFSSkinSSSProgram.mShaderFiles.push_back(make_pair("deferred/fsSkinUtil.glsl", GL_FRAGMENT_SHADER)); // which pixels are skin
         gFSSkinSSSProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        static LLCachedControl<bool> detect_material(gSavedSettings, "FSRenderSkinDetectMaterial", false);
+        if (detect_material)
+        {
+            gFSSkinSSSProgram.addPermutation("FS_SKIN_DETECT_MATERIAL", "1"); // material score, fsSkinUtil.glsl
+        }
         if (!gFSSkinSSSProgram.createShader())
         {
             LL_WARNS("ShaderLoading") << "FS Skin SSS failed to build, that effect stays off" << LL_ENDL;

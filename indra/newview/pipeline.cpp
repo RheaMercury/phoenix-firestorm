@@ -11392,6 +11392,9 @@ static void fs_unbind_sun_shadow_extras(LLGLSLShader& shader)
 // FSRenderSkinSSSTranslucency adds sunlight transmitted through thin backlit skin in the
 // vertical pass, measuring thickness in sun cascades 0 and 1 read as raw depth through the PCSS
 // depth-fetch sampler (GL 3.3), so it needs sun shadows.
+// FSRenderSkinDetectMaterial adds a material test to the skin weight (fsSkinUtil.glsl), which
+// reads the g-buffer's specular attachment; FSRenderSkinDebug replaces both passes with a tint
+// of the avatar pixels by that weight.
 static void fs_render_skin_sss(LLRenderTarget* screen)
 {
     static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderSkinSSS", false);
@@ -11401,6 +11404,8 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
     static LLCachedControl<F32> tone_match(gSavedSettings, "FSRenderSkinSSSToneMatch", 0.8f);
     static LLCachedControl<F32> translucency(gSavedSettings, "FSRenderSkinSSSTranslucency", 1.0f);
     static LLCachedControl<F32> exposure(gSavedSettings, "RenderExposure", 1.f);
+    static LLCachedControl<F32> tone_range(gSavedSettings, "FSRenderSkinToneRange", 0.5f);
+    static LLCachedControl<bool> debug_view(gSavedSettings, "FSRenderSkinDebug", false);
 
     // The flag needs the 16 bit normal attachment; the 2 bit alpha of the non-HDR one drops it
     if (!enabled || gCubeSnapshot || !gFSSkinSSSProgram.isComplete() || !LLRender::sGBufferNormHDR || radius <= 0.f)
@@ -11408,11 +11413,13 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
         return;
     }
 
-    const bool scatter = strength > 0.f;
-    const bool translucent = translucency > 0.f && LLPipeline::RenderShadowDetail > 0 &&
+    // The debug view replaces the effect: only its vertical pass runs, tinting avatar pixels
+    const bool debug = debug_view;
+    const bool scatter = strength > 0.f && !debug;
+    const bool translucent = translucency > 0.f && !debug && LLPipeline::RenderShadowDetail > 0 &&
                              gGLManager.mGLVersion >= 3.29f && gPipeline.getSunShadowTarget(0)->isComplete() &&
                              gPipeline.getSunShadowTarget(1)->isComplete();
-    if (!scatter && !translucent)
+    if (!scatter && !translucent && !debug)
     {
         return;
     }
@@ -11435,6 +11442,8 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
     static LLStaticHashedString s_max_px("sss_max_px");
     static LLStaticHashedString s_exposure("exposure");
     static LLStaticHashedString s_translucency("sss_translucency");
+    static LLStaticHashedString s_debug("sss_debug");
+    static LLStaticHashedString s_tone_range("fs_skin_tone_range");
 
     // Cap on the kernel reach, so a face right against the camera costs no more than a close-up
     const F32 max_px = llclamp(screen->getHeight() * 0.1f, 16.f, 256.f);
@@ -11446,6 +11455,7 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
     shader.bind(); // also uploads the sky uniforms the diffuse ceiling reads (it is in mShaderList)
     shader.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, gbuffer, false, LLTexUnit::TFO_POINT, 0);
     shader.bindTexture(LLShaderMgr::NORMAL_MAP, gbuffer, false, LLTexUnit::TFO_POINT, 2);
+    shader.bindTexture(LLShaderMgr::DEFERRED_SPECULAR, gbuffer, false, LLTexUnit::TFO_POINT, 1); // material score only (-1 without it)
     shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, gbuffer, true, LLTexUnit::TFO_POINT);
     shader.bindTexture(LLShaderMgr::EXPOSURE_MAP, &gPipeline.mExposureMap);
     shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)screen->getWidth(), (GLfloat)screen->getHeight());
@@ -11456,6 +11466,8 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
     shader.uniform1f(s_max_px, max_px);
     shader.uniform1f(s_exposure, llclamp((F32)exposure, 0.5f, 4.f)); // as the tone mapper clamps it
     shader.uniform1f(s_translucency, translucent ? llclamp((F32)translucency, 0.f, 4.f) : 0.f);
+    shader.uniform1i(s_debug, debug ? 1 : 0);
+    shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
     if (translucent)
     {
         // As bindDeferredShader sets them for the sun pass
