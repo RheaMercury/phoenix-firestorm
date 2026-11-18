@@ -93,6 +93,11 @@ float fsSkinWeightGB(GBufferInfo gb);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
 vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
 #endif
+#ifdef FS_SKIN_TRANS_LOCAL
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n);
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos);
+vec3 fsSkinAlbedo(GBufferInfo gb);
+#endif
 // </FS:Trish>
 
 void main()
@@ -120,6 +125,20 @@ void main()
     vec3 n = gb.normal;
     if (dot(n, lv) <= 0.0)
     {
+        // <FS:Trish> Skin: light through it from behind (FSRenderSkinTranslucencyLocal)
+#ifdef FS_SKIN_TRANS_LOCAL
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_t = fsSkinLocalTranslucency(fsSkinAlbedo(gb), n, normalize(lv), fsSkinThickness(tc, pos, n), fs_skin, pos) *
+                        color * calcLegacyDistanceAttenuation(length(lv) / size, falloff);
+            if (dot(fs_t, fs_t) > 0.0)
+            {
+                frag_color = vec4(max(fs_t * (classic_mode > 0 ? 0.9 : 1.0), vec3(0.0)), 0.0);
+                return;
+            }
+        }
+#endif
+        // </FS:Trish>
         discard;
     }
 

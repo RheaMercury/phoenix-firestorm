@@ -108,6 +108,11 @@ float fsSkinWeightGB(GBufferInfo gb);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
 vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
 #endif
+#ifdef FS_SKIN_TRANS_LOCAL
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n);
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos);
+vec3 fsSkinAlbedo(GBufferInfo gb);
+#endif
 // </FS:Trish>
 
 void main()
@@ -223,6 +228,15 @@ void main()
                 final_color += intensity * clampRadiance(nl * (diffPunc + specPunc));
                 lit = clamp(nl * dist_atten, 0.0, 1.0);
             }
+            // <FS:Trish> Skin: light through it from behind (FSRenderSkinTranslucencyLocal)
+#ifdef FS_SKIN_TRANS_LOCAL
+            else if (fs_skin > 0.0)
+            {
+                final_color += fsSkinLocalTranslucency(baseColor, n, lv, fsSkinThickness(tc, pos, n), fs_skin, pos) *
+                               getProjectedLightDiffuseColor(l_dist, proj_tc.xy) * (dist_atten * shadow);
+            }
+#endif
+            // </FS:Trish>
 
             // Ambiance is scaled by proj_ambiance throughout, and most projectors leave it at zero:
             // skip the mipmapped cookie fetch then. The condition is uniform.
@@ -274,6 +288,17 @@ void main()
 
                 amb_da += (nl*0.5+0.5) * proj_ambiance;
             }
+
+            // <FS:Trish> Skin: light through it from behind (FSRenderSkinTranslucencyLocal). nl is
+            // floored above zero, so the facing test is on the raw dot product.
+#ifdef FS_SKIN_TRANS_LOCAL
+            if (fs_skin > 0.0 && dot(n, l) <= 0.0)
+            {
+                final_color += fsSkinLocalTranslucency(diffuse, n, l, fsSkinThickness(tc, pos, n), fs_skin, pos) *
+                               getProjectedLightDiffuseColor(l_dist, proj_tc.xy) * (dist_atten * shadow);
+            }
+#endif
+            // </FS:Trish>
 
             // See the PBR branch: zero ambiance contributes exactly nothing here either (where lit
             // exceeds 1 and the clamp goes negative, nl > 0 and the facing factor is zero).

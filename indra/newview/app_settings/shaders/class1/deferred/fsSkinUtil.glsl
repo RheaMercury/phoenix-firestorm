@@ -268,3 +268,110 @@ vec3 fsSkinWarmVisibility(vec3 v, float w)
     return pow(clamp(v, vec3(0.0), vec3(1.0)), e);
 }
 #endif
+
+// Transmittance of the skin profile through s mm (Jimenez et al. 2010): the same six Gaussians,
+// so red carries through far more skin than green and blue
+vec3 fsSkinTransmittance(float s)
+{
+    float d = -s * s;
+    return vec3(0.233, 0.455, 0.649) * exp(d / 0.0064) +
+           vec3(0.100, 0.336, 0.344) * exp(d / 0.0484) +
+           vec3(0.118, 0.198, 0.000) * exp(d / 0.187) +
+           vec3(0.113, 0.007, 0.007) * exp(d / 0.567) +
+           vec3(0.358, 0.004, 0.000) * exp(d / 1.99) +
+           vec3(0.078, 0.000, 0.000) * exp(d / 7.41);
+}
+
+// How much of the light coming through the skin heads for the eye (n: normal, v: toward the eye,
+// l: toward the light). Thin skin scatters mostly forward, so the glow is strongest looking into
+// the light through it; bending the light direction by the normal gathers that on the rims of an
+// ear or a finger rather than lighting the whole part evenly. About 0.35 seen from the side,
+// up to 2 looking straight into the light.
+float fsSkinForwardScatter(vec3 n, vec3 v, vec3 l)
+{
+    vec3 h = l + n * 0.4;
+    float f = clamp(dot(v, -h) * inversesqrt(max(dot(h, h), 1e-8)), 0.0, 1.0);
+    return 0.35 + 1.65 * f * f * f;
+}
+
+// Skin seen edge on is the thin edge of a part (the rim of an ear, the side of a finger): the
+// thickness there is scaled down, by up to 40 % at the silhouette, so the glow grades toward it
+float fsSkinRimThinning(vec3 n, vec3 v)
+{
+    float g = 1.0 - abs(dot(n, v));
+    return 1.0 - 0.4 * g * g;
+}
+
+#ifdef FS_SKIN_TRANS_LOCAL
+// Light from local lights shining through thin skin from behind (FSRenderSkinTranslucencyLocal):
+// ears, fingers and nostril rims glow red with a club light or a lamp behind them. Point lights
+// have no shadow maps in SL, so the thickness the light passes through cannot be measured as the
+// sun's translucency measures it (fsSkinSSSF.glsl). It is estimated from how strongly the surface
+// bends instead: a thin rounded part of radius R (an ear rim, a finger) bends by 1/R and is about
+// 2R thick, while a cheek or the back of a head bends gently and is thick, so it stays dark. The
+// bend is how fast the stored normal turns: the angle between the normals a few pixels either
+// side over the distance between their positions, on both screen axes, taking the stronger.
+// The normals are interpolated across the triangles, so the bend is smooth over a faceted mesh
+// (the depth buffer's own curvature is zero inside each flat triangle and spikes on its edges,
+// which drew the triangle edges as red lines). Across a silhouette or onto another surface an
+// axis is skipped; with neither usable, the part counts as thick.
+uniform float sss_translucency;     // strength, FSRenderSkinSSSTranslucency
+uniform float sss_radius;           // profile scale, 1 = measured human skin
+uniform float sss_tint;             // 0: every channel transmits like red, 1: skin profile
+uniform vec2 screen_res;
+vec4 getPosition(vec2 pos_screen);
+vec4 getNorm(vec2 screenpos);
+
+#define FS_SKIN_TRANS_MM 6.0        // as fsSkinSSSF.glsl: measured thickness (mm) per profile mm
+#define FS_SKIN_THICK_MAX_MM 200.0  // flat or unknown: no light gets through
+
+// Estimated thickness in mm of the skin at tc (view space position pos, normal n)
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n)
+{
+    float tol = 0.02 * max(-pos.z, 0.05); // a bigger depth step is another surface
+    float bend = 0.0;
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        vec2 d = (axis == 0 ? vec2(3.0, 0.0) : vec2(0.0, 3.0)) / screen_res;
+        vec3 pa = getPosition(tc + d).xyz;
+        vec3 pb = getPosition(tc - d).xyz;
+        if (abs(pa.z - pos.z) > tol || abs(pb.z - pos.z) > tol)
+        {
+            continue;
+        }
+        vec3 na = getNorm(tc + d).xyz;
+        vec3 nb = getNorm(tc - d).xyz;
+        if (dot(na, n) < 0.0 || dot(nb, n) < 0.0)
+        {
+            continue; // folded onto another part
+        }
+        // On a circle of radius R, normals at arc s either side differ by 2 sin(s / R), and the
+        // points by a chord of about 2s, so the ratio is the bend 1 / R
+        bend = max(bend, length(na - nb) / max(distance(pa, pb), 1e-6));
+    }
+    return bend > 0.0 ? clamp(2000.0 / bend, 1.0, FS_SKIN_THICK_MAX_MM) : FS_SKIN_THICK_MAX_MM;
+}
+
+// Light a local light behind the skin sends through it to the eye, per unit of the light's colour
+// times its attenuation: the skin profile's transmittance through the thickness, on the albedo,
+// as strong as the light falls on the far side (N.L there, 0 at the terminator)
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos)
+{
+    float back = -dot(n, l);
+    if (back <= 0.0 || w <= 0.0 || thickness_mm >= FS_SKIN_THICK_MAX_MM)
+    {
+        return vec3(0.0);
+    }
+    vec3 v = -pos * inversesqrt(max(dot(pos, pos), 1e-12));
+    thickness_mm *= fsSkinRimThinning(n, v);
+    vec3 t = fsSkinTransmittance(thickness_mm / (FS_SKIN_TRANS_MM * max(sss_radius, 0.05)));
+    t = mix(vec3(t.r), t, clamp(sss_tint, 0.0, 1.0));
+    return t * albedo * (min(back, 1.0) * fsSkinForwardScatter(n, v, l) * clamp(sss_translucency, 0.0, 4.0) * w);
+}
+
+// The linear diffuse albedo of a g-buffer pixel
+vec3 fsSkinAlbedo(GBufferInfo gb)
+{
+    return GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR) ? gb.albedo.rgb : srgb_to_linear(gb.albedo.rgb);
+}
+#endif

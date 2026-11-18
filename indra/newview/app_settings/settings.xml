@@ -28087,6 +28087,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderSkinTranslucencyLocal</key>
+    <map>
+      <key>Comment</key>
+      <string>Avatar skin: local lights (point lights and projectors) behind thin skin shine through it, red, as the sun does with FSRenderSkinSSSTranslucency (whose strength, and the scattering radius and red falloff, it shares). Point lights have no shadow maps, so the thickness is estimated from how strongly the surface bends in the depth buffer: ear rims and fingers glow, cheeks and the back of a head stay dark. Moonlight is already covered by the sun translucency, which follows the moon at night. Needs FSRenderSkinSSS; rebuilds shaders. Four depth reads per skin pixel in the light passes.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderColoredShadowsProjectors</key>
     <map>
       <key>Comment</key>

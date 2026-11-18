@@ -76,6 +76,11 @@ float fsSkinWeightGB(GBufferInfo gb);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
 vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
 #endif
+#ifdef FS_SKIN_TRANS_LOCAL
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n);
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos);
+vec3 fsSkinAlbedo(GBufferInfo gb);
+#endif
 // </FS:Trish>
 
 void main()
@@ -92,6 +97,13 @@ void main()
     // <FS:Trish> How much of this pixel is avatar skin (fsSkinUtil.glsl), 0 elsewhere
 #ifdef FS_SKIN_LIGHTING
     float fs_skin = fsSkinWeightGB(gb);
+#endif
+    // </FS:Trish>
+    // <FS:Trish> Skin: how thick it is where lights may shine through it from behind, once for
+    // every light (FSRenderSkinTranslucencyLocal)
+#ifdef FS_SKIN_TRANS_LOCAL
+    float fs_thick = fs_skin > 0.0 ? fsSkinThickness(tc, pos, gb.normal) : 0.0;
+    vec3 fs_albedo = fsSkinAlbedo(gb);
 #endif
     // </FS:Trish>
 
@@ -152,6 +164,15 @@ void main()
                 intensity *= fsMicroShadow(nl, orm.r);
                 final_color += intensity * clampRadiance(nl * (diff + specPunc));
             }
+            // <FS:Trish> Skin: light through it from behind (FSRenderSkinTranslucencyLocal)
+#ifdef FS_SKIN_TRANS_LOCAL
+            else if (fs_thick > 0.0 && dist <= 1.0)
+            {
+                final_color += fsSkinLocalTranslucency(fs_albedo, n, lv / max(lightDist, 1e-8), fs_thick, fs_skin, pos) *
+                               lightColor * calcLegacyDistanceAttenuation(dist, falloff);
+            }
+#endif
+            // </FS:Trish>
         }
     }
     else
@@ -219,6 +240,15 @@ void main()
                     // a highlight that hits the ceiling dims rather than changing hue.
                     final_color += clampRadiance(col);
                 }
+                // <FS:Trish> Skin: light through it from behind (FSRenderSkinTranslucencyLocal)
+#ifdef FS_SKIN_TRANS_LOCAL
+                else if (fs_thick > 0.0)
+                {
+                    final_color += fsSkinLocalTranslucency(fs_albedo, n, normalize(lv), fs_thick, fs_skin, pos) *
+                                   light_col[i].rgb * calcLegacyDistanceAttenuation(dist, light_col[i].a);
+                }
+#endif
+                // </FS:Trish>
             }
         }
     }

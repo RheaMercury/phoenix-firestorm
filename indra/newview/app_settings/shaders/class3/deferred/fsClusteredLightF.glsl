@@ -82,6 +82,11 @@ float fsSkinWeightGB(GBufferInfo gb);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
 vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
 #endif
+#ifdef FS_SKIN_TRANS_LOCAL
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n);
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos);
+vec3 fsSkinAlbedo(GBufferInfo gb);
+#endif
 
 // The cluster of a pixel, as fsclusteredlights.cpp bins them
 int clusterOf(vec2 tc, float depth)
@@ -120,6 +125,11 @@ void main()
     GBufferInfo gb = getGBuffer(tc);
 #ifdef FS_SKIN_LIGHTING
     float fs_skin = fsSkinWeightGB(gb); // how much of this pixel is avatar skin, 0 elsewhere
+#endif
+#ifdef FS_SKIN_TRANS_LOCAL
+    // Skin: how thick it is where lights may shine through it from behind, once for every light
+    float fs_thick = fs_skin > 0.0 ? fsSkinThickness(tc, pos, gb.normal) : 0.0;
+    vec3 fs_albedo = fsSkinAlbedo(gb);
 #endif
 
     vec3 n = gb.normal;
@@ -177,6 +187,13 @@ void main()
                 intensity *= fsMicroShadow(nl, orm.r);
                 final_color += intensity * clampRadiance(nl * (diff + specPunc));
             }
+#ifdef FS_SKIN_TRANS_LOCAL
+            else if (fs_thick > 0.0 && dist <= 1.0) // skin: light through it from behind
+            {
+                final_color += fsSkinLocalTranslucency(fs_albedo, n, lv / max(lightDist, 1e-8), fs_thick, fs_skin, pos) *
+                               lightColor * calcLegacyDistanceAttenuation(dist, falloff);
+            }
+#endif
         }
     }
     else
@@ -238,6 +255,13 @@ void main()
                     // Bounded per light, as the stock passes do
                     final_color += clampRadiance(col);
                 }
+#ifdef FS_SKIN_TRANS_LOCAL
+                else if (fs_thick > 0.0) // skin: light through it from behind
+                {
+                    final_color += fsSkinLocalTranslucency(fs_albedo, n, normalize(lv), fs_thick, fs_skin, pos) *
+                                   light_col.rgb * calcLegacyDistanceAttenuation(dist, light_col.a);
+                }
+#endif
             }
         }
     }

@@ -87,6 +87,11 @@ float fsSkinWeightGB(GBufferInfo gb);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
 vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
 #endif
+#ifdef FS_SKIN_TRANS_LOCAL
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n);
+vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, float w, vec3 pos);
+vec3 fsSkinAlbedo(GBufferInfo gb);
+#endif
 
 // deferredUtil.glsl's clipProjectedLightVars, with the light's size and projection as arguments
 bool fsSpotClipProjectedLightVars(vec3 light_center, vec3 pos, float light_size, mat4 light_proj_mat, vec3 light_proj_n,
@@ -306,6 +311,13 @@ void main()
                 final_color += intensity * clampRadiance(nl * (diffPunc + specPunc));
                 lit = clamp(nl * dist_atten, 0.0, 1.0);
             }
+#ifdef FS_SKIN_TRANS_LOCAL
+            else if (fs_skin > 0.0) // skin: light through it from behind
+            {
+                final_color += fsSkinLocalTranslucency(baseColor, n, lv, fsSkinThickness(tc, pos, n), fs_skin, pos) *
+                               fsSpotProjectedLightDiffuseColor(l_dist, proj_tc.xy, fs_color, fs_proj_focus, fs_proj_range, fs_proj_lod) * dist_atten;
+            }
+#endif
 
             // Ambiance is scaled by proj_ambiance throughout, and most projectors leave it at zero:
             // skip the mipmapped cookie fetch then. The condition is uniform per light.
@@ -354,6 +366,16 @@ void main()
 
                 amb_da += (nl*0.5+0.5) * fs_proj_ambiance;
             }
+
+#ifdef FS_SKIN_TRANS_LOCAL
+            // Skin: light through it from behind. nl is floored above zero, so the facing test is
+            // on the raw dot product.
+            if (fs_skin > 0.0 && dot(n, l) <= 0.0)
+            {
+                final_color += fsSkinLocalTranslucency(diffuse, n, l, fsSkinThickness(tc, pos, n), fs_skin, pos) *
+                               fsSpotProjectedLightDiffuseColor(l_dist, proj_tc.xy, fs_color, fs_proj_focus, fs_proj_range, fs_proj_lod) * dist_atten;
+            }
+#endif
 
             // See the PBR branch: zero ambiance contributes exactly nothing here either (where lit
             // exceeds 1 and the clamp goes negative, nl > 0 and the facing factor is zero).

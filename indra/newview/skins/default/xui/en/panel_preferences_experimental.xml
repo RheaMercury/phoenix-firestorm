@@ -6621,7 +6621,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="927"
+                 height="955"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -6833,7 +6833,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength" />
+                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength,FSRenderSkinTranslucencyLocal" />
                     </button>
                     <check_box
                      control_name="FSRenderSkinSSS"
@@ -7102,6 +7102,18 @@
                      tool_tip="EXPERIMENTAL. How warm skin creases and shadow edges get. 0 leaves them grey, 1 is strongly red; 0.5 is subtle."
                      top="763"
                      width="100" />
+                    <check_box
+                     control_name="FSRenderSkinTranslucencyLocal"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Backlit translucency from local lights"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskintranslucencylocal"
+                     tool_tip="EXPERIMENTAL. Local lights (club lights, lamps, projectors) behind thin skin shine through it: ear rims and fingers glow red when a light is behind them. Point lights have no shadows, so how thin the skin is gets estimated from how strongly it curves; cheeks and the back of the head stay dark. Uses the backlit translucency strength above. Rebuilds shaders when changed."
+                     top="791"
+                     width="455" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -7109,7 +7121,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_hair_and_transparency"
-                     top="805"
+                     top="833"
                      width="340">
                         Hair and transparency
                     </text>
@@ -7121,7 +7133,7 @@
                      left="370"
                      name="reset_fs_heading_hair_and_transparency"
                      tool_tip="Set every option in &quot;Hair and transparency&quot; back to its default value."
-                     top="804"
+                     top="832"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7136,7 +7148,7 @@
                      left="15"
                      name="fs_fsrenderhairtwopass"
                      tool_tip="EXPERIMENTAL. Draws alpha-blended rigged mesh (hair, layered clothing) as a depth-sorted solid core and a blended soft fringe, so inner layers stop showing through outer ones. Costs roughly two extra draws of rigged alpha. Rebuilds shaders when changed."
-                     top="831"
+                     top="859"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7145,7 +7157,7 @@
                      left="35"
                      name="fs_fsrenderhairalphathreshold_label"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="859"
+                     top="887"
                      width="285">
                         Hair solid alpha threshold
                     </text>
@@ -7161,7 +7173,7 @@
                      min_val="0.5"
                      name="fs_fsrenderhairalphathreshold"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="857"
+                     top="885"
                      width="100" />
                     <check_box
                      control_name="FSRenderAlphaHybridOIT"
@@ -7172,7 +7184,7 @@
                      left="15"
                      name="fs_fsrenderalphahybridoit"
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
-                     top="885"
+                     top="913"
                      width="475" />
                 </panel>
             </scroll_container>

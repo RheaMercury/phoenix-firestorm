@@ -387,6 +387,7 @@ namespace
         { "FSRenderSkinSpecularMix", CL, VN },
         { "FSRenderSkinWarmShadows", CL, VM },
         { "FSRenderSkinWarmShadowStrength", CL, VN },
+        { "FSRenderSkinTranslucencyLocal", CL, VM },
         { "FSRenderHairTwoPass", CM, VL },
         { "FSRenderAlphaHybridOIT", CM, VL },
         { "FSRenderHairAlphaThreshold", CL, VM },

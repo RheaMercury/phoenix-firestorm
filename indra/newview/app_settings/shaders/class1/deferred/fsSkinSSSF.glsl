@@ -39,7 +39,9 @@
  * receiver (pushed slightly inside the surface) and the nearest caster in the sun's shadow map,
  * read as raw depth through the PCSS depth-fetch sampler (cascades 0 and 1, where close-ups
  * are); it goes through the skin profile's transmittance (red survives furthest) times the sun
- * colour, the albedo and max(0.3 + dot(-N, L), 0).
+ * colour, the albedo and max(0.3 + dot(-N, L), 0), times a forward scattering lobe (strongest
+ * looking into the light through the skin, gathered on rims), with the thickness scaled down
+ * toward silhouettes (fsSkinUtil.glsl).
  *
  * Pass 0 (horizontal): screen -> scratch. rgb = horizontally blurred clamped irradiance,
  *                      a = the centre's clamp factor (1 when nothing was clamped).
@@ -108,6 +110,9 @@ vec3 srgb_to_linear(vec3 cs);
 int fsSkinSurface(float flag);
 float fsSkinWeightRaw(int surface, vec4 base, vec4 spec, float env, out vec3 albedo);
 float fsSkinWeightParts(int surface, vec4 base, vec4 spec, float env, out vec3 albedo, out float material, out float tone);
+vec3 fsSkinTransmittance(float s);
+float fsSkinForwardScatter(vec3 n, vec3 v, vec3 l);
+float fsSkinRimThinning(vec3 n, vec3 v);
 
 #define FS_SKIN_TAPS 7              // per side
 #define FS_SKIN_RANGE_MM 6.0        // reach of the outermost tap at sss_radius 1
@@ -213,23 +218,12 @@ vec3 fsSkinClamp(vec3 e, float ceiling, out float f)
     return min(e * f, vec3(3.0 * ceiling));
 }
 
-// Transmittance of the skin profile through s mm (Jimenez et al. 2010): the same six Gaussians,
-// so red carries through far more skin than green and blue
-vec3 fsSkinTransmittance(float s)
-{
-    float d = -s * s;
-    return vec3(0.233, 0.455, 0.649) * exp(d / 0.0064) +
-           vec3(0.100, 0.336, 0.344) * exp(d / 0.0484) +
-           vec3(0.118, 0.198, 0.000) * exp(d / 0.187) +
-           vec3(0.113, 0.007, 0.007) * exp(d / 0.567) +
-           vec3(0.358, 0.004, 0.000) * exp(d / 1.99) +
-           vec3(0.078, 0.000, 0.000) * exp(d / 7.41);
-}
 
 // Transmittance through the skin between p (view space) and the sun along l, from one shadow
 // cascade read as raw depth: the depth difference to the nearest caster, over the map's depth
-// per metre along the light at p (right for warped maps too). Four taps half a texel apart
-// average out the map's stair steps. Zero when p is outside the cascade.
+// per metre along the light at p (right for warped maps too). A 3 x 3 tent of taps a texel apart
+// smooths the map's stair steps: a texel is a centimetre or two, about the size of an ear, so
+// fewer taps lit whole parts at once with hard edges. Zero when p is outside the cascade.
 vec3 fsSkinCascadeTransmittance(sampler2D depth_map, mat4 m, vec3 p, vec3 l, float scale)
 {
     vec4 sp = m * vec4(p, 1.0);
@@ -241,16 +235,19 @@ vec3 fsSkinCascadeTransmittance(sampler2D depth_map, mat4 m, vec3 p, vec3 l, flo
     vec4 sl = m * vec4(p + l * 0.1, 1.0);
     float z_per_m = max((c.z - sl.z / sl.w) / 0.1, 1e-6);
 
-    vec2 texel = 0.5 / vec2(textureSize(depth_map, 0));
+    vec2 texel = 1.0 / vec2(textureSize(depth_map, 0));
     vec3 t = vec3(0.0);
-    for (int i = 0; i < 4; ++i)
+    for (int y = -1; y <= 1; ++y)
     {
-        vec2 o = vec2((i == 0 || i == 2) ? -1.0 : 1.0, i < 2 ? -1.0 : 1.0) * texel;
-        float z_caster = textureLod(depth_map, c.xy + o, 0.0).r;
-        float thickness_mm = max(c.z - z_caster, 0.0) / z_per_m * 1000.0;
-        t += fsSkinTransmittance(thickness_mm * scale);
+        for (int x = -1; x <= 1; ++x)
+        {
+            float k = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0); // tent: 4 centre, 2 edges, 1 corners
+            float z_caster = textureLod(depth_map, c.xy + vec2(x, y) * texel, 0.0).r;
+            float thickness_mm = max(c.z - z_caster, 0.0) / z_per_m * 1000.0;
+            t += k * fsSkinTransmittance(thickness_mm * scale);
+        }
     }
-    return t * 0.25;
+    return t / 16.0;
 }
 
 // Sunlight transmitted through thin skin at this pixel, before albedo
@@ -269,9 +266,12 @@ vec3 fsSkinTranslucency(vec3 pos, vec3 n)
         return vec3(0.0);
     }
 
+    vec3 v = -pos * inversesqrt(max(dot(pos, pos), 1e-12));
+    wrap *= fsSkinForwardScatter(n, v, l);
+
     vec3 p = pos - n * FS_SKIN_TRANS_SHRINK;
     float z = -p.z;
-    float scale = 1.0 / (FS_SKIN_TRANS_MM * max(sss_radius, 0.05));
+    float scale = fsSkinRimThinning(n, v) / (FS_SKIN_TRANS_MM * max(sss_radius, 0.05));
     vec3 t = vec3(0.0);
     if (z < shadow_clip.x)
     {
