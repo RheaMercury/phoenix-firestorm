@@ -85,6 +85,15 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
                     out vec3 spec);
 
 GBufferInfo getGBuffer(vec2 screenpos);
+// <FS:Trish> Avatar skin lighting (fsSkinUtil.glsl)
+#ifdef FS_SKIN_LIGHTING
+float fsSkinWeightGB(GBufferInfo gb);
+#endif
+#ifdef FS_SKIN_DUAL_SPEC
+vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
+vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
+#endif
+// </FS:Trish>
 
 void main()
 {
@@ -102,6 +111,11 @@ void main()
         discard;
     }
     GBufferInfo gb = getGBuffer(tc);
+    // <FS:Trish> How much of this pixel is avatar skin (fsSkinUtil.glsl), 0 elsewhere
+#ifdef FS_SKIN_LIGHTING
+    float fs_skin = fsSkinWeightGB(gb);
+#endif
+    // </FS:Trish>
 
     vec3 n = gb.normal;
     if (dot(n, lv) <= 0.0)
@@ -138,6 +152,14 @@ void main()
         vec3 specPunc = vec3(0);
 
         pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, normalize(lv), nl, diffPunc, specPunc);
+        // <FS:Trish> Skin: the two-lobe specular in place of the single lobe (FSRenderSkinDualSpecular)
+#ifdef FS_SKIN_DUAL_SPEC
+        if (fs_skin > 0.0)
+        {
+            specPunc = mix(specPunc, fsSkinDualLobe(n, v, normalize(lv), perceptualRoughness), fs_skin);
+        }
+#endif
+        // </FS:Trish>
         intensity *= fsMicroShadow(nl, orm.r);
 
         final_color += intensity* clampRadiance(nl * (diffPunc + specPunc));
@@ -175,9 +197,23 @@ void main()
             if (nh > 0.0)
             {
                 float scol = fres*blinnPhongLobe(nh, spec.a)*gt/(nh*max(nl, 1e-6));
+                // <FS:Trish> Skin takes the two-lobe specular instead (FSRenderSkinDualSpecular)
+#ifdef FS_SKIN_DUAL_SPEC
+                final_color += lit*scol*color.rgb*spec.rgb * (1.0 - fs_skin);
+#else
                 final_color += lit*scol*color.rgb*spec.rgb;
+#endif
+                // </FS:Trish>
             }
         }
+        // <FS:Trish> Skin: the two-lobe specular, also where the legacy material has none
+#ifdef FS_SKIN_DUAL_SPEC
+        if (fs_skin > 0.0)
+        {
+            final_color += fsSkinLegacySpecular(n, v, l, spec) * color.rgb * (dist_atten * fs_skin);
+        }
+#endif
+        // </FS:Trish>
 
         // Bounded the same way the PBR branch above is. The specular term divides by two
         // cosines that calcHalfVectors only floors at 1e-6, and the Blinn-Phong LUT carries a

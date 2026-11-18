@@ -79,6 +79,14 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
                     out vec3 spec);
 
 GBufferInfo getGBuffer(vec2 screenpos);
+// Avatar skin lighting (fsSkinUtil.glsl)
+#ifdef FS_SKIN_LIGHTING
+float fsSkinWeightGB(GBufferInfo gb);
+#endif
+#ifdef FS_SKIN_DUAL_SPEC
+vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
+vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
+#endif
 
 // deferredUtil.glsl's clipProjectedLightVars, with the light's size and projection as arguments
 bool fsSpotClipProjectedLightVars(vec3 light_center, vec3 pos, float light_size, mat4 light_proj_mat, vec3 light_proj_n,
@@ -230,6 +238,9 @@ void main()
     // No shadow slot: spotLightF's shadow is 1 (proj_shadow_idx -1), the factor is left out below.
 
     GBufferInfo gb = getGBuffer(tc);
+#ifdef FS_SKIN_LIGHTING
+    float fs_skin = fsSkinWeightGB(gb); // how much of this pixel is avatar skin, 0 elsewhere
+#endif
 
     vec3 n = gb.normal;
 
@@ -278,6 +289,12 @@ void main()
             if (dot(n.xyz, lv) > 0.0)
             {
                 pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, lv, nl, diffPunc, specPunc);
+#ifdef FS_SKIN_DUAL_SPEC
+                if (fs_skin > 0.0)
+                {
+                    specPunc = mix(specPunc, fsSkinDualLobe(n, v, lv, perceptualRoughness), fs_skin); // skin: two lobes
+                }
+#endif
 
                 amb_da += (nl*0.5 + 0.5) * fs_proj_ambiance;
 
@@ -328,6 +345,12 @@ void main()
                 dlit = fsSpotProjectedLightDiffuseColor( l_dist, proj_tc.xy, fs_color, fs_proj_focus, fs_proj_range, fs_proj_lod );
 
                 final_color = dlit*lit*diffuse;
+#ifdef FS_SKIN_DUAL_SPEC
+                if (fs_skin > 0.0) // skin: the two-lobe specular, also where legacy has none
+                {
+                    final_color += fsSkinLegacySpecular(n, v, l, spec) * dlit * (dist_atten * fs_skin);
+                }
+#endif
 
                 amb_da += (nl*0.5+0.5) * fs_proj_ambiance;
             }
@@ -355,7 +378,11 @@ void main()
             if (nh > 0.0)
             {
                 float scol = fres*blinnPhongLobe(nh, spec.a)*gt/(nh*max(nl, 1e-6));
+#ifdef FS_SKIN_DUAL_SPEC
+                vec3 speccol = dlit*scol*spec.rgb * (1.0 - fs_skin); // skin takes the two-lobe specular instead
+#else
                 vec3 speccol = dlit*scol*spec.rgb;
+#endif
                 speccol = clamp(speccol, vec3(0), vec3(1));
                 final_color += speccol;
             }

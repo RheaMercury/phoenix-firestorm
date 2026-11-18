@@ -74,6 +74,14 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
                     out vec3 spec);
 
 GBufferInfo getGBuffer(vec2 screenpos);
+// Avatar skin lighting (fsSkinUtil.glsl)
+#ifdef FS_SKIN_LIGHTING
+float fsSkinWeightGB(GBufferInfo gb);
+#endif
+#ifdef FS_SKIN_DUAL_SPEC
+vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
+vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec);
+#endif
 
 // The cluster of a pixel, as fsclusteredlights.cpp bins them
 int clusterOf(vec2 tc, float depth)
@@ -110,6 +118,9 @@ void main()
     vec3 heat = fs_cl_debug != 0 ? heatColor(float(count) / 32.0) * 0.25 : vec3(0.0);
 
     GBufferInfo gb = getGBuffer(tc);
+#ifdef FS_SKIN_LIGHTING
+    float fs_skin = fsSkinWeightGB(gb); // how much of this pixel is avatar skin, 0 elsewhere
+#endif
 
     vec3 n = gb.normal;
 
@@ -157,6 +168,12 @@ void main()
                 vec3 diff = vec3(0);
                 vec3 specPunc = vec3(0);
                 pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, lv, nl, diff, specPunc);
+#ifdef FS_SKIN_DUAL_SPEC
+                if (fs_skin > 0.0)
+                {
+                    specPunc = mix(specPunc, fsSkinDualLobe(n, v, lv, perceptualRoughness), fs_skin); // skin: two lobes
+                }
+#endif
                 intensity *= fsMicroShadow(nl, orm.r);
                 final_color += intensity * clampRadiance(nl * (diff + specPunc));
             }
@@ -204,9 +221,19 @@ void main()
                         if (nh > 0.0)
                         {
                             float scol = fres * blinnPhongLobe(nh, spec.a) * gt / (nh * max(nl, 1e-6));
+#ifdef FS_SKIN_DUAL_SPEC
+                            col += lit * scol * light_col.rgb * spec.rgb * (1.0 - fs_skin); // skin takes the two-lobe specular instead
+#else
                             col += lit * scol * light_col.rgb * spec.rgb;
+#endif
                         }
                     }
+#ifdef FS_SKIN_DUAL_SPEC
+                    if (fs_skin > 0.0) // skin: the two-lobe specular, also where legacy has none
+                    {
+                        col += fsSkinLegacySpecular(n, v, l, spec) * light_col.rgb * (dist_atten * fs_skin);
+                    }
+#endif
 
                     // Bounded per light, as the stock passes do
                     final_color += clampRadiance(col);

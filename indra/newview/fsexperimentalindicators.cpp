@@ -383,6 +383,8 @@ namespace
         { "FSRenderSkinDetectMaterial", CL, VM },
         { "FSRenderSkinToneRange", CL, VM },
         { "FSRenderSkinDebug", CL, VN },
+        { "FSRenderSkinDualSpecular", CL, VM },
+        { "FSRenderSkinSpecularMix", CL, VN },
         { "FSRenderHairTwoPass", CM, VL },
         { "FSRenderAlphaHybridOIT", CM, VL },
         { "FSRenderHairAlphaThreshold", CL, VM },

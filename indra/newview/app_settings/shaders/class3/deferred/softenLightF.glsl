@@ -92,6 +92,29 @@ uniform float fs_foliage; // strength of the sunlight seen through backlit leave
 #ifdef FS_WET_SHORE
 float fsWetShore(vec3 pos, vec3 norm, vec4 water_plane);
 #endif
+// <FS:Trish> Avatar skin lighting (fsSkinUtil.glsl)
+#ifdef FS_SKIN_LIGHTING
+float fsSkinWeightGB(GBufferInfo gb);
+
+// The sun's light per unit of specular BRDF on this pixel, N.L and shadow included, the way
+// pbrBaseLight applies it in the mode the sky is in
+vec3 fsSkinSunScale(float nl, float scol, vec3 sunlit, float micro)
+{
+    nl = clamp(nl, 0.0, 1.0);
+    if (classic_mode > 0)
+    {
+        return srgb_to_linear(linear_to_srgb(vec3(min(pow(nl, 1.2), scol))) * sunlit * 0.7) * (M_PI * scol * micro);
+    }
+    return sunlit * (PUNCTUAL_LIGHT_SCALE * nl * scol * micro);
+}
+#endif
+#ifdef FS_SKIN_DUAL_SPEC
+vec3 fsSkinGGX(vec3 n, vec3 v, vec3 l, float perceptualRoughness, vec3 f0);
+vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
+float fsSkinLegacyRoughness(vec4 spec);
+float sunDiscRoughness(float perceptualRoughness);
+#endif
+// </FS:Trish>
 
 uniform int cube_snapshot;
 
@@ -344,6 +367,11 @@ void main()
     vec4  pos          = getPositionWithDepth(tc, depth);
 
     GBufferInfo gb = getGBuffer(tc);
+    // <FS:Trish> How much of this pixel is avatar skin (fsSkinUtil.glsl), 0 elsewhere
+#ifdef FS_SKIN_LIGHTING
+    float fs_skin = fsSkinWeightGB(gb);
+#endif
+    // </FS:Trish>
 
     vec3 colorEmissive = gb.emissive.rgb;
     float envIntensity = gb.envIntensity;
@@ -513,6 +541,18 @@ void main()
         // occlusion; SSAO measures larger scale geometry, not the bumps the normal map draws.
         float micro = fsMicroShadow(dot(gb.normal, light_dir), ao);
         color = pbrBaseLight(diffuseColor, specularColor, metallic, v, gb.normal, perceptualRoughness, light_dir, sunlit_linear, scol, radiance, irradiance, colorEmissive, visibility, additive, atten, micro);
+        // <FS:Trish> Skin: swap the sun's single lobe pbrBaseLight gave it for the sharp and broad
+        // pair at skin's F0 (FSRenderSkinDualSpecular), at the sun disc's widened roughness as there
+#ifdef FS_SKIN_DUAL_SPEC
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_l = normalize(light_dir);
+            float fs_r = sunDiscRoughness(max(perceptualRoughness, 0.045)); // MIN_PBR_ROUGHNESS, as pbrBaseLight
+            vec3 fs_delta = fsSkinDualLobe(gb.normal, v, fs_l, fs_r) - fsSkinGGX(gb.normal, v, fs_l, fs_r, specularColor);
+            color = max(color + fs_delta * fsSkinSunScale(dot(gb.normal, fs_l), scol, sunlit_linear, micro) * fs_skin, vec3(0.0));
+        }
+#endif
+        // </FS:Trish>
         // Light through the leaf takes its colour twice, so it comes out more saturated
         color += fs_leaf_light * diffuseColor * diffuseColor / max(dot(diffuseColor, vec3(0.3333)), 0.05);
         // Light bounced from nearby surfaces, on the diffuse albedo like the ambient light
@@ -607,6 +647,11 @@ void main()
         color.rgb += fs_leaf_light * baseColor.rgb * baseColor.rgb / max(dot(baseColor.rgb, vec3(0.3333)), 0.05);
 
         vec3 refnormpersp = reflect(pos.xyz, gb.normal);
+        // <FS:Trish> The sun shadow, before the specular below reuses scol
+#ifdef FS_SKIN_DUAL_SPEC
+        float fs_scol = scol;
+#endif
+        // </FS:Trish>
 
         if (spec.a > 0.0)
         {
@@ -628,13 +673,33 @@ void main()
                 float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 
                 scol *= fres*blinnPhongLobe(nh, spec.a)*gt/(nh*max(nl, 1e-6));
+                // <FS:Trish> Skin takes the two-lobe specular instead (FSRenderSkinDualSpecular)
+#ifdef FS_SKIN_DUAL_SPEC
+                color.rgb += lit*scol*sunlit_linear.rgb*spec.rgb * (1.0 - fs_skin);
+#else
                 color.rgb += lit*scol*sunlit_linear.rgb*spec.rgb;
+#endif
+                // </FS:Trish>
             }
 
             // add radiance map
             applyGlossEnv(color, glossenv, spec, pos.xyz, gb.normal);
 
         }
+
+        // <FS:Trish> Skin: the sun's two-lobe specular, also where the legacy material has none
+        // (system avatar bakes), scaled as the PBR branch scales its lobe (FSRenderSkinDualSpecular)
+#ifdef FS_SKIN_DUAL_SPEC
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_l = normalize(light_dir);
+            vec3 fs_v = -normalize(pos.xyz);
+            float fs_nl = clamp(dot(gb.normal, fs_l), 0.0, 1.0);
+            color.rgb += fsSkinDualLobe(gb.normal, fs_v, fs_l, sunDiscRoughness(fsSkinLegacyRoughness(spec))) *
+                         sunlit_linear * (PUNCTUAL_LIGHT_SCALE * fs_nl * fs_scol * fs_skin);
+        }
+#endif
+        // </FS:Trish>
 
         color.rgb = mix(color.rgb, baseColor.rgb, baseColor.a);
 

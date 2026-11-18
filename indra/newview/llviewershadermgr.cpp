@@ -502,6 +502,38 @@ static void add_common_permutations(LLGLSLShader* shader)
     }
 }
 
+// <FS:Trish> Avatar skin lighting in the deferred light passes (fsSkinUtil.glsl), on the avatar
+// marking of FSRenderSkinSSS. sun: the sun light program (softenLightF.glsl); otherwise a local
+// light program. Each takes the options it implements; with none of them on, the program is
+// built exactly as before. Tunables are uniforms (fs_bind_skin_lighting in pipeline.cpp).
+static void fs_add_skin_lighting(LLGLSLShader& shader, bool sun)
+{
+    static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
+    static LLCachedControl<bool> detect_material(gSavedSettings, "FSRenderSkinDetectMaterial", false);
+    if (!LLGLSLShader::sGlobalDefines.count("FS_SKIN_SSS"))
+    {
+        return;
+    }
+
+    bool any = false;
+    if (dual_spec)
+    {
+        shader.addPermutation("FS_SKIN_DUAL_SPEC", "1"); // sun and local lights
+        any = true;
+    }
+    if (!any)
+    {
+        return;
+    }
+    shader.addPermutation("FS_SKIN_LIGHTING", "1");
+    if (detect_material)
+    {
+        shader.addPermutation("FS_SKIN_DETECT_MATERIAL", "1");
+    }
+    shader.mShaderFiles.push_back(make_pair("deferred/fsSkinUtil.glsl", GL_FRAGMENT_SHADER));
+}
+// </FS:Trish>
+
 // <FS:Trish> Projector shadow slots past the first two (FSRenderSpotShadowCount above 2) are
 // sampled by the projector programs themselves, see fsSpotShadowExtraF.glsl. At the stock two the
 // programs are built exactly as before.
@@ -2377,6 +2409,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredLightProgram.clearPermutations();
 
         add_common_permutations(&gDeferredLightProgram);
+        fs_add_skin_lighting(gDeferredLightProgram, false); // <FS:Trish/>
 
         success = gDeferredLightProgram.createShader();
         llassert(success);
@@ -2402,6 +2435,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSBatchedPointLightProgram.addPermutation("FS_BATCHED_LIGHTS", "1");
 
         add_common_permutations(&gFSBatchedPointLightProgram);
+        fs_add_skin_lighting(gFSBatchedPointLightProgram, false);
 
         // Built outside the parallel compile batch: a failure there loads the whole deferred
         // phase again (about 30 s on AMD), and setupProgram needs the linked program
@@ -2439,6 +2473,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gDeferredMultiLightProgram[i].addPermutation("LIGHT_COUNT", llformat("%d", i+1));
 
             add_common_permutations(&gDeferredMultiLightProgram[i]);
+            fs_add_skin_lighting(gDeferredMultiLightProgram[i], false); // <FS:Trish/>
 
             success = gDeferredMultiLightProgram[i].createShader();
             llassert(success);
@@ -2462,6 +2497,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSClusteredLightProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
 
         add_common_permutations(&gFSClusteredLightProgram);
+        fs_add_skin_lighting(gFSClusteredLightProgram, false);
 
         // Built outside the parallel compile batch, like the batched point lights: a failure
         // there would load the whole deferred phase again
@@ -2493,6 +2529,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         add_common_permutations(&gDeferredSpotLightProgram);
         fs_add_spot_shadow_extra(gDeferredSpotLightProgram); // <FS:Trish/>
+        fs_add_skin_lighting(gDeferredSpotLightProgram, false); // <FS:Trish/>
 
         success = gDeferredSpotLightProgram.createShader();
         llassert(success);
@@ -2515,6 +2552,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         add_common_permutations(&gDeferredMultiSpotLightProgram);
         fs_add_spot_shadow_extra(gDeferredMultiSpotLightProgram); // <FS:Trish/>
+        fs_add_skin_lighting(gDeferredMultiSpotLightProgram, false); // <FS:Trish/>
 
         success = gDeferredMultiSpotLightProgram.createShader();
         llassert(success);
@@ -2539,6 +2577,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSBatchedSpotLightProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
 
         add_common_permutations(&gFSBatchedSpotLightProgram);
+        fs_add_skin_lighting(gFSBatchedSpotLightProgram, false);
 
         // Outside the parallel compile batch, as the batched point lights: setupProgram needs
         // the linked program, and a failure there would load the whole phase again
@@ -3181,6 +3220,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 gFSIndirectTemporalProgram.unload();
             }
         }
+        // </FS:Trish>
+
+        // <FS:Trish> Avatar skin lighting, before the coloured shadow file, which the fallback below pops
+        fs_add_skin_lighting(gDeferredSoftenProgram, true);
         // </FS:Trish>
 
         // Coloured shadows: sunlight through translucent casters

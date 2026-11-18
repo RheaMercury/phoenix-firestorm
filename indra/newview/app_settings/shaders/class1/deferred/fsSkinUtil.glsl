@@ -185,3 +185,67 @@ float fsSkinWeightGB(GBufferInfo gb)
     vec3 albedo;
     return clamp(fsSkinWeightRaw(surface, gb.albedo, gb.specular, gb.envIntensity, albedo), 0.0, 1.0);
 }
+
+#ifdef FS_SKIN_DUAL_SPEC
+// Two-lobe skin specular (FSRenderSkinDualSpecular). Skin's oily surface film gives a sharp
+// highlight, its fine wrinkles and pores a broad sheen around it; one GGX lobe can show only one
+// of them. After Jimenez et al. / Activision's character shading: a sharp lobe at 0.75 x the
+// material's roughness and a broad one at 1.75 x, mixed fs_skin_spec_mix (0.85) to the rest.
+// Each GGX lobe is normalised, so the mix reflects the same energy as one lobe would, at skin's
+// measured F0 of 0.028 (index of refraction about 1.4) in place of the generic dielectric 0.04.
+uniform float fs_skin_spec_mix;     // share of the sharp lobe
+#define FS_SKIN_F0 0.028
+
+// F * Vis * D of one GGX lobe, term for term pbrPunctual's (deferredUtil.glsl): Schlick Fresnel
+// to 1 at grazing, height-correlated Smith visibility, Trowbridge-Reitz distribution. Same
+// clamps, so the stock lobe it stands for comes out the same.
+vec3 fsSkinGGX(vec3 n, vec3 v, vec3 l, float perceptualRoughness, vec3 f0)
+{
+    float r = max(perceptualRoughness, 0.045); // MIN_PBR_ROUGHNESS
+    float a = r * r;
+    float a2 = a * a;
+    vec3 h = normalize(l + v);
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    float nv = clamp(abs(dot(n, v)), 0.001, 1.0);
+    float nh = clamp(dot(n, h), 0.0, 1.0);
+    float vh = clamp(dot(v, h), 0.0, 1.0);
+
+    float f = clamp(1.0 - vh, 0.0, 1.0);
+    float f2 = f * f;
+    vec3 fresnel = f0 + (vec3(1.0) - f0) * (f2 * f2 * f);
+
+    float lambda_v = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    float lambda_l = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    float lambda = lambda_v + lambda_l;
+    float vis = lambda > 0.0 ? 0.5 / lambda : 0.0;
+
+    float d = (nh * a2 - nh) * nh + 1.0;
+    float dist = a2 / (3.14159265 * d * d);
+    return fresnel * (vis * dist);
+}
+
+// The two-lobe skin specular BRDF (no N.L) for a material roughness
+vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness)
+{
+    float r = clamp(perceptualRoughness, 0.0, 1.0);
+    float m = clamp(fs_skin_spec_mix, 0.0, 1.0);
+    vec3 f0 = vec3(FS_SKIN_F0);
+    return m * fsSkinGGX(n, v, l, r * 0.75, f0) + (1.0 - m) * fsSkinGGX(n, v, l, min(r * 1.75, 1.0), f0);
+}
+
+// Roughness for legacy skin: from the glossiness where the material has one, otherwise (system
+// avatar bakes, legacy mesh without a material) a typical skin value
+float fsSkinLegacyRoughness(vec4 spec)
+{
+    return spec.a > 0.0 ? clamp(1.0 - spec.a, 0.3, 0.9) : 0.55;
+}
+
+// Skin specular on a legacy-shaded pixel from one light, per unit of the light's colour times its
+// attenuation, scaled as the PBR path scales its lobe (N.L, PUNCTUAL_LIGHT_SCALE), so legacy and
+// PBR skin shine alike. Replaces the Blinn-Phong lobe, which the caller scales by 1 - weight.
+vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec)
+{
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    return fsSkinDualLobe(n, v, l, fsSkinLegacyRoughness(spec)) * (nl * PUNCTUAL_LIGHT_SCALE);
+}
+#endif

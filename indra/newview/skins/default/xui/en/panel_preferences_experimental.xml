@@ -6621,7 +6621,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="815"
+                 height="871"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -6833,7 +6833,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug" />
+                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix" />
                     </button>
                     <check_box
                      control_name="FSRenderSkinSSS"
@@ -7026,6 +7026,44 @@
                      tool_tip="EXPERIMENTAL. Debug view: avatar surfaces are tinted green as far as they count as skin, red where the colour test turns them down and blue where the material test does. Replaces the scattering while on."
                      top="651"
                      width="455" />
+                    <check_box
+                     control_name="FSRenderSkinDualSpecular"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Two-lobe skin highlights"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskindualspecular"
+                     tool_tip="EXPERIMENTAL. Skin shines with two highlights in one: a sharp one from its oily surface and a broad, soft one from fine wrinkles and pores, as film and game character shading does. Applies to the sun and local lights, at skin&apos;s own reflectance and with the same total brightness as one highlight. Legacy skins without a specular map get a skin highlight too. Rebuilds shaders when changed."
+                     top="679"
+                     width="455" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskinspecularmix_label"
+                     tool_tip="EXPERIMENTAL. How much of the skin&apos;s highlight is the sharp lobe; the broad, soft lobe gets the rest. 0.85 is the usual split; lower looks softer and more matte."
+                     top="709"
+                     width="285">
+                        Sharp highlight share
+                    </text>
+                    <spinner
+                     control_name="FSRenderSkinSpecularMix"
+                     decimal_digits="2"
+                     enabled_control="FSRenderSkinDualSpecular"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderskinspecularmix"
+                     tool_tip="EXPERIMENTAL. How much of the skin&apos;s highlight is the sharp lobe; the broad, soft lobe gets the rest. 0.85 is the usual split; lower looks softer and more matte."
+                     top="707"
+                     width="100" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -7033,7 +7071,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_hair_and_transparency"
-                     top="693"
+                     top="749"
                      width="340">
                         Hair and transparency
                     </text>
@@ -7045,7 +7083,7 @@
                      left="370"
                      name="reset_fs_heading_hair_and_transparency"
                      tool_tip="Set every option in &quot;Hair and transparency&quot; back to its default value."
-                     top="692"
+                     top="748"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7060,7 +7098,7 @@
                      left="15"
                      name="fs_fsrenderhairtwopass"
                      tool_tip="EXPERIMENTAL. Draws alpha-blended rigged mesh (hair, layered clothing) as a depth-sorted solid core and a blended soft fringe, so inner layers stop showing through outer ones. Costs roughly two extra draws of rigged alpha. Rebuilds shaders when changed."
-                     top="719"
+                     top="775"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7069,7 +7107,7 @@
                      left="35"
                      name="fs_fsrenderhairalphathreshold_label"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="747"
+                     top="803"
                      width="285">
                         Hair solid alpha threshold
                     </text>
@@ -7085,7 +7123,7 @@
                      min_val="0.5"
                      name="fs_fsrenderhairalphathreshold"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="745"
+                     top="801"
                      width="100" />
                     <check_box
                      control_name="FSRenderAlphaHybridOIT"
@@ -7096,7 +7134,7 @@
                      left="15"
                      name="fs_fsrenderalphahybridoit"
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
-                     top="773"
+                     top="829"
                      width="475" />
                 </panel>
             </scroll_container>

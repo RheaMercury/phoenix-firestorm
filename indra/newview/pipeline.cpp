@@ -10852,6 +10852,31 @@ void LLPipeline::bindDeferredShaderFast(LLGLSLShader& shader, bool fs_uniforms_s
     }
 }
 
+// <FS:Trish> Avatar skin lighting in the sun and local light passes (fsSkinUtil.glsl): the skin
+// weight's and the options' tunables, for the programs built with them (FS_SKIN_LIGHTING, see
+// fs_add_skin_lighting in llviewershadermgr.cpp). Values are cached per program, so an unchanged
+// one costs a lookup.
+static void fs_bind_skin_lighting(LLGLSLShader& shader)
+{
+    static LLCachedControl<bool> skin_sss(gSavedSettings, "FSRenderSkinSSS", false);
+    static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
+    if (!skin_sss || !dual_spec || !shader.mDefines.count("FS_SKIN_LIGHTING"))
+    {
+        return;
+    }
+
+    static LLCachedControl<F32> tone_match(gSavedSettings, "FSRenderSkinSSSToneMatch", 0.8f);
+    static LLCachedControl<F32> tone_range(gSavedSettings, "FSRenderSkinToneRange", 0.5f);
+    static LLCachedControl<F32> spec_mix(gSavedSettings, "FSRenderSkinSpecularMix", 0.85f);
+    static LLStaticHashedString s_tone_match("sss_tone_match");
+    static LLStaticHashedString s_tone_range("fs_skin_tone_range");
+    static LLStaticHashedString s_spec_mix("fs_skin_spec_mix");
+    shader.uniform1f(s_tone_match, llclamp((F32)tone_match, 0.f, 1.f));
+    shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
+    shader.uniform1f(s_spec_mix, llclamp((F32)spec_mix, 0.f, 1.f));
+}
+// </FS:Trish>
+
 void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_target, LLRenderTarget* depth_target)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
@@ -11097,6 +11122,8 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
     shader.uniform3fv(LLShaderMgr::MOONLIGHT_COLOR, 1, mMoonDiffuse.mV);
 
     shader.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mReflectionMapManager.mMaxProbeLOD);
+
+    fs_bind_skin_lighting(shader); // <FS:Trish/>
 }
 
 
