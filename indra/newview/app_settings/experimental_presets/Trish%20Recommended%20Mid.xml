@@ -28,10 +28,14 @@
     <real>1.0</real>
     <key>FSColorGradeVibrance</key>
     <real>0.2</real>
+    <key>FSDecodedTextureCache</key>
+    <boolean>1</boolean>
     <key>FSFastSelfRez</key>
     <boolean>1</boolean>
     <key>FSImpostorMinInterval</key>
     <real>1.0</real>
+    <key>FSImpostorUpdateBudget</key>
+    <integer>1</integer>
     <key>FSPerfAlphaGlowSkip</key>
     <boolean>1</boolean>
     <key>FSPerfAlphaResortOnly</key>
@@ -48,7 +52,11 @@
     <boolean>1</boolean>
     <key>FSPerfBatchedLocalLights</key>
     <boolean>1</boolean>
+    <key>FSPerfBatchedSpotLights</key>
+    <boolean>1</boolean>
     <key>FSPerfDiskThread</key>
+    <boolean>1</boolean>
+    <key>FSPerfGPUDrivenAlpha</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenDraws</key>
     <boolean>1</boolean>
@@ -69,6 +77,8 @@
     <key>FSPerfGPUDrivenPBRBindless</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenPBRGroupRuns</key>
+    <boolean>1</boolean>
+    <key>FSPerfGPUDrivenRigged</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenShadowAlpha</key>
     <boolean>1</boolean>
@@ -110,6 +120,8 @@
     <boolean>1</boolean>
     <key>FSPerfRepresentativeFragmentTest</key>
     <boolean>1</boolean>
+    <key>FSPerfRiggedPaletteBuffer</key>
+    <boolean>1</boolean>
     <key>FSPerfRiggedPaletteCache</key>
     <boolean>1</boolean>
     <key>FSPerfShadowMergedBatches</key>
@@ -127,6 +139,10 @@
     <key>FSPerfSpotShadowSplit</key>
     <boolean>1</boolean>
     <key>FSPerfTextureUploadPBO</key>
+    <boolean>1</boolean>
+    <key>FSPerfThreadedGeometry</key>
+    <boolean>1</boolean>
+    <key>FSPerfThreadedObjectUpdates</key>
     <boolean>1</boolean>
     <key>FSPerfVertexArrayObjects</key>
     <boolean>1</boolean>
@@ -150,6 +166,8 @@
     <boolean>1</boolean>
     <key>FSRenderCloudSilverLining</key>
     <real>0.2</real>
+    <key>FSRenderClusteredLights</key>
+    <boolean>1</boolean>
     <key>FSRenderContactShadowLength</key>
     <real>1.0</real>
     <key>FSRenderContactShadowStrength</key>
@@ -174,6 +192,8 @@
     <boolean>1</boolean>
     <key>FSRenderGTAOHalfRes</key>
     <boolean>1</boolean>
+    <key>FSRenderHairAlphaThreshold</key>
+    <real>0.86</real>
     <key>FSRenderHeightFog</key>
     <boolean>1</boolean>
     <key>FSRenderHeightFogAnisotropy</key>
@@ -190,6 +210,8 @@
     <boolean>1</boolean>
     <key>FSRenderMoonCorona</key>
     <real>0.1</real>
+    <key>FSRenderShadowAlphaCascades</key>
+    <integer>2</integer>
     <key>FSRenderShadowFarCascadeInterval</key>
     <integer>8</integer>
     <key>FSRenderShadowFarCascadeMinCasterScale</key>
@@ -206,7 +228,15 @@
     <boolean>1</boolean>
     <key>FSRenderShadowTexelSnap</key>
     <boolean>1</boolean>
+    <key>FSRenderSkinDetectMaterial</key>
+    <boolean>1</boolean>
+    <key>FSRenderSkinDualSpecular</key>
+    <boolean>1</boolean>
     <key>FSRenderSkinSSS</key>
+    <boolean>1</boolean>
+    <key>FSRenderSkinSheen</key>
+    <boolean>1</boolean>
+    <key>FSRenderSkinWarmShadows</key>
     <boolean>1</boolean>
     <key>FSRenderSpecularAA</key>
     <boolean>1</boolean>
