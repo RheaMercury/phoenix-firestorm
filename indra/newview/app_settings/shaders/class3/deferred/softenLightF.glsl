@@ -108,6 +108,10 @@ vec3 fsSkinSunScale(float nl, float scol, vec3 sunlit, float micro)
     return sunlit * (PUNCTUAL_LIGHT_SCALE * nl * scol * micro);
 }
 #endif
+#ifdef FS_SKIN_WARM_SHADOWS
+vec3 fsSkinWarmVisibility(vec3 v, float w);
+vec3 gtaoMultiBounce(float visibility, vec3 albedo);
+#endif
 #ifdef FS_SKIN_DUAL_SPEC
 vec3 fsSkinGGX(vec3 n, vec3 v, vec3 l, float perceptualRoughness, vec3 f0);
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
@@ -553,6 +557,21 @@ void main()
         }
 #endif
         // </FS:Trish>
+        // <FS:Trish> Skin: warm ambient occlusion and sun shadow edges (FSRenderSkinWarmShadows). The
+        // ambient pbrIbl took away, and the sunlight the penumbra took away, come back red first.
+#ifdef FS_SKIN_WARM_SHADOWS
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_amb_vis = gtaoMultiBounce(visibility, diffuseColor); // what pbrIbl gave the diffuse ambient
+            vec3 fs_irr = classic_mode > 0 ? srgb_to_linear(irradiance * 0.9) : irradiance; // as pbrBaseLight
+            vec3 fs_warm = fs_irr * diffuseColor * (fsSkinWarmVisibility(fs_amb_vis, fs_skin) - fs_amb_vis);
+            vec3 fs_l = normalize(light_dir);
+            fs_warm += diffuseColor * (1.0 / M_PI) * fsSkinSunScale(dot(gb.normal, fs_l), 1.0, sunlit_linear, micro) *
+                       (fsSkinWarmVisibility(vec3(scol), fs_skin) - vec3(scol));
+            color += fs_warm;
+        }
+#endif
+        // </FS:Trish>
         // Light through the leaf takes its colour twice, so it comes out more saturated
         color += fs_leaf_light * diffuseColor * diffuseColor / max(dot(diffuseColor, vec3(0.3333)), 0.05);
         // Light bounced from nearby surfaces, on the diffuse albedo like the ambient light
@@ -607,6 +626,15 @@ void main()
 #endif
 
         adjustIrradiance(irradiance, ambocc);
+        // <FS:Trish> Skin: the occluded ambient comes back red first (FSRenderSkinWarmShadows)
+#ifdef FS_SKIN_WARM_SHADOWS
+        if (fs_skin > 0.0)
+        {
+            float fs_vis = max(ssaoVisibility(ambocc), 0.02);
+            irradiance *= fsSkinWarmVisibility(vec3(fs_vis), fs_skin) / fs_vis;
+        }
+#endif
+        // </FS:Trish>
         irradiance += fs_gi; // light bounced from nearby surfaces (FSRenderSSGI)
 
         // The environment lobes get the same ambient visibility the diffuse one does.
@@ -641,6 +669,15 @@ void main()
             vec3 sun_contrib = min(da, scol) * sunlit_linear;
             color.rgb += sun_contrib;
         }
+
+        // <FS:Trish> Skin: the sun shadow's penumbra goes warm (FSRenderSkinWarmShadows)
+#ifdef FS_SKIN_WARM_SHADOWS
+        if (fs_skin > 0.0)
+        {
+            color.rgb += sunlit_linear * (min(vec3(da), fsSkinWarmVisibility(vec3(scol), fs_skin)) - vec3(min(da, scol)));
+        }
+#endif
+        // </FS:Trish>
 
         color.rgb *= baseColor.rgb;
         // Backlit foliage, more saturated as in the PBR branch

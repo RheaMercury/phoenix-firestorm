@@ -28065,6 +28065,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.85</real>
     </map>
+    <key>FSRenderSkinWarmShadows</key>
+    <map>
+      <key>Comment</key>
+      <string>Avatar skin: ambient occlusion (SSAO/GTAO and the material's own) and the penumbra of the sun's shadow go warm red on skin instead of grey, as light scattered under the skin fills them red first. Per channel: visibility v becomes v^e with e below 1, lowest for red; fully lit and fully dark stay. In the sun light pass only, on skin pixels only. Needs FSRenderSkinSSS; rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSkinWarmShadowStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>Avatar skin, with FSRenderSkinWarmShadows on: how warm occlusion and shadow edges get (0 grey as before, 1 strongly red).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
     <key>FSRenderColoredShadowsProjectors</key>
     <map>
       <key>Comment</key>

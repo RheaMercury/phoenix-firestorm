@@ -10860,7 +10860,8 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
 {
     static LLCachedControl<bool> skin_sss(gSavedSettings, "FSRenderSkinSSS", false);
     static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
-    if (!skin_sss || !dual_spec || !shader.mDefines.count("FS_SKIN_LIGHTING"))
+    static LLCachedControl<bool> warm_shadows(gSavedSettings, "FSRenderSkinWarmShadows", false);
+    if (!skin_sss || !(dual_spec || warm_shadows) || !shader.mDefines.count("FS_SKIN_LIGHTING"))
     {
         return;
     }
@@ -10868,12 +10869,15 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLCachedControl<F32> tone_match(gSavedSettings, "FSRenderSkinSSSToneMatch", 0.8f);
     static LLCachedControl<F32> tone_range(gSavedSettings, "FSRenderSkinToneRange", 0.5f);
     static LLCachedControl<F32> spec_mix(gSavedSettings, "FSRenderSkinSpecularMix", 0.85f);
+    static LLCachedControl<F32> warm(gSavedSettings, "FSRenderSkinWarmShadowStrength", 0.5f);
     static LLStaticHashedString s_tone_match("sss_tone_match");
     static LLStaticHashedString s_tone_range("fs_skin_tone_range");
     static LLStaticHashedString s_spec_mix("fs_skin_spec_mix");
+    static LLStaticHashedString s_warm("fs_skin_warm");
     shader.uniform1f(s_tone_match, llclamp((F32)tone_match, 0.f, 1.f));
     shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
     shader.uniform1f(s_spec_mix, llclamp((F32)spec_mix, 0.f, 1.f));
+    shader.uniform1f(s_warm, llclamp((F32)warm, 0.f, 1.f));
 }
 // </FS:Trish>
 

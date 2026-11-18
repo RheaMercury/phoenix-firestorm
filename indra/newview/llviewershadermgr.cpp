@@ -509,6 +509,7 @@ static void add_common_permutations(LLGLSLShader* shader)
 static void fs_add_skin_lighting(LLGLSLShader& shader, bool sun)
 {
     static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
+    static LLCachedControl<bool> warm_shadows(gSavedSettings, "FSRenderSkinWarmShadows", false);
     static LLCachedControl<bool> detect_material(gSavedSettings, "FSRenderSkinDetectMaterial", false);
     if (!LLGLSLShader::sGlobalDefines.count("FS_SKIN_SSS"))
     {
@@ -519,6 +520,11 @@ static void fs_add_skin_lighting(LLGLSLShader& shader, bool sun)
     if (dual_spec)
     {
         shader.addPermutation("FS_SKIN_DUAL_SPEC", "1"); // sun and local lights
+        any = true;
+    }
+    if (warm_shadows && sun)
+    {
+        shader.addPermutation("FS_SKIN_WARM_SHADOWS", "1"); // ambient occlusion and the sun's shadow
         any = true;
     }
     if (!any)

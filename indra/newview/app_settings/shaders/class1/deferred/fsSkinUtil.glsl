@@ -249,3 +249,22 @@ vec3 fsSkinLegacySpecular(vec3 n, vec3 v, vec3 l, vec4 spec)
     return fsSkinDualLobe(n, v, l, fsSkinLegacyRoughness(spec)) * (nl * PUNCTUAL_LIGHT_SCALE);
 }
 #endif
+
+#ifdef FS_SKIN_WARM_SHADOWS
+// Warm occlusion and shadow edges on skin (FSRenderSkinWarmShadows). Light that enters skin
+// travels under it before it leaves, red furthest, so a crease, an eye socket or the edge of a
+// shadow still receives red light from the lit skin around it: on skin they go warm, not grey.
+// A visibility v in [0, 1] (ambient occlusion, or the sun shadow in its penumbra) becomes v^e
+// per channel, e below 1 and lowest for red, following how far each channel reaches in the skin
+// profile. Fully lit (1) and fully dark (0) stay as they are; only the range in between is
+// lifted, red the most. The coloured multi-bounce occlusion of Jimenez et al. 2016 ("Practical
+// Real-Time Strategies for Accurate Indirect Occlusion"), taken toward skin's subsurface colour,
+// and the per channel shadow softening used for skin penumbrae.
+uniform float fs_skin_warm;         // strength: 0 grey as without the option, 1 strongly warm
+
+vec3 fsSkinWarmVisibility(vec3 v, float w)
+{
+    vec3 e = vec3(1.0) - clamp(fs_skin_warm, 0.0, 1.0) * clamp(w, 0.0, 1.0) * vec3(0.6, 0.25, 0.1);
+    return pow(clamp(v, vec3(0.0), vec3(1.0)), e);
+}
+#endif
