@@ -232,6 +232,7 @@ set(viewer_SOURCE_FILES
     fsssrbuffer.cpp
     fsssrhiz.cpp
     fsspotlightbatch.cpp
+    fstoolhudmove.cpp
     fstoolmeasure.cpp
     fsvirtualtrackpad.cpp
     fsvolumeprebuild.cpp
@@ -1154,6 +1155,7 @@ set(viewer_HEADER_FILES
     fsssrbuffer.h
     fsssrhiz.h
     fsspotlightbatch.h
+    fstoolhudmove.h
     fstoolmeasure.h
     fsvirtualtrackpad.h
     fsvolumeprebuild.h
