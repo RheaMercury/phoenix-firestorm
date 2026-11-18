@@ -511,6 +511,7 @@ static void fs_add_skin_lighting(LLGLSLShader& shader, bool sun)
     static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
     static LLCachedControl<bool> warm_shadows(gSavedSettings, "FSRenderSkinWarmShadows", false);
     static LLCachedControl<bool> trans_local(gSavedSettings, "FSRenderSkinTranslucencyLocal", false);
+    static LLCachedControl<bool> sheen(gSavedSettings, "FSRenderSkinSheen", false);
     static LLCachedControl<bool> detect_material(gSavedSettings, "FSRenderSkinDetectMaterial", false);
     if (!LLGLSLShader::sGlobalDefines.count("FS_SKIN_SSS"))
     {
@@ -531,6 +532,11 @@ static void fs_add_skin_lighting(LLGLSLShader& shader, bool sun)
     if (trans_local && !sun)
     {
         shader.addPermutation("FS_SKIN_TRANS_LOCAL", "1"); // light through thin skin from behind
+        any = true;
+    }
+    if (sheen && sun)
+    {
+        shader.addPermutation("FS_SKIN_SHEEN", "1"); // rim sheen from the sun and the ambient light
         any = true;
     }
     if (!any)

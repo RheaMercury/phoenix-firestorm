@@ -375,3 +375,42 @@ vec3 fsSkinAlbedo(GBufferInfo gb)
     return GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR) ? gb.albedo.rgb : srgb_to_linear(gb.albedo.rgb);
 }
 #endif
+
+#ifdef FS_SKIN_SHEEN
+// Soft rim sheen (FSRenderSkinSheen): the fine vellus hair on skin (peach fuzz) catches light at
+// grazing angles, a faint soft glow along the silhouette. The sun's part is the Charlie sheen
+// lobe (Estevez and Kulla 2017, "Production Friendly Microfacet Sheen BRDF") with Neubelt's
+// visibility, as glTF's KHR_materials_sheen has it; the ambient part a rim, rising toward
+// grazing, on the ambient light. Its colour is the skin's own hue, lightened, times
+// fs_skin_sheen.
+uniform float fs_skin_sheen;        // strength
+#define FS_SKIN_SHEEN_ALPHA 0.25    // sheen roughness 0.5, squared
+
+vec3 fsSkinSheenColor(vec3 albedo)
+{
+    float mx = max(albedo.r, max(albedo.g, albedo.b));
+    return mix(vec3(1.0), albedo / max(mx, 1e-3), 0.5) * clamp(fs_skin_sheen, 0.0, 1.0);
+}
+
+// Charlie distribution times Neubelt visibility (no N.L)
+float fsSkinSheenBRDF(vec3 n, vec3 v, vec3 l)
+{
+    vec3 h = normalize(l + v);
+    float nh = clamp(dot(n, h), 0.0, 1.0);
+    float nl = clamp(dot(n, l), 0.0, 1.0);
+    float nv = clamp(abs(dot(n, v)), 0.001, 1.0);
+    float inv_a = 1.0 / FS_SKIN_SHEEN_ALPHA;
+    float sin2h = max(1.0 - nh * nh, 0.0078125);
+    float d = (2.0 + inv_a) * pow(sin2h, inv_a * 0.5) / (2.0 * 3.14159265);
+    float vis = 1.0 / (4.0 * (nl + nv - nl * nv));
+    return d * vis;
+}
+
+// How much of the ambient light the sheen returns at view angle nv: about nothing face on, a
+// quarter at grazing
+float fsSkinSheenRim(float nv)
+{
+    float f = 1.0 - clamp(nv, 0.0, 1.0);
+    return 0.25 * f * f * f;
+}
+#endif

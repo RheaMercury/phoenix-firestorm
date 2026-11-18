@@ -108,6 +108,11 @@ vec3 fsSkinSunScale(float nl, float scol, vec3 sunlit, float micro)
     return sunlit * (PUNCTUAL_LIGHT_SCALE * nl * scol * micro);
 }
 #endif
+#ifdef FS_SKIN_SHEEN
+vec3 fsSkinSheenColor(vec3 albedo);
+float fsSkinSheenBRDF(vec3 n, vec3 v, vec3 l);
+float fsSkinSheenRim(float nv);
+#endif
 #ifdef FS_SKIN_WARM_SHADOWS
 vec3 fsSkinWarmVisibility(vec3 v, float w);
 vec3 gtaoMultiBounce(float visibility, vec3 albedo);
@@ -572,6 +577,19 @@ void main()
         }
 #endif
         // </FS:Trish>
+        // <FS:Trish> Skin: soft rim sheen of its fine hair, from the sun and the ambient light
+        // (FSRenderSkinSheen)
+#ifdef FS_SKIN_SHEEN
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_l = normalize(light_dir);
+            vec3 fs_irr = classic_mode > 0 ? srgb_to_linear(irradiance * 0.9) : irradiance; // as pbrBaseLight
+            color += fsSkinSheenColor(baseColor.rgb) * fs_skin *
+                     (fsSkinSheenBRDF(gb.normal, v, fs_l) * fsSkinSunScale(dot(gb.normal, fs_l), scol, sunlit_linear, micro) +
+                      fs_irr * (visibility * fsSkinSheenRim(dot(gb.normal, v))));
+        }
+#endif
+        // </FS:Trish>
         // Light through the leaf takes its colour twice, so it comes out more saturated
         color += fs_leaf_light * diffuseColor * diffuseColor / max(dot(diffuseColor, vec3(0.3333)), 0.05);
         // Light bounced from nearby surfaces, on the diffuse albedo like the ambient light
@@ -685,7 +703,7 @@ void main()
 
         vec3 refnormpersp = reflect(pos.xyz, gb.normal);
         // <FS:Trish> The sun shadow, before the specular below reuses scol
-#ifdef FS_SKIN_DUAL_SPEC
+#ifdef FS_SKIN_LIGHTING
         float fs_scol = scol;
 #endif
         // </FS:Trish>
@@ -734,6 +752,20 @@ void main()
             float fs_nl = clamp(dot(gb.normal, fs_l), 0.0, 1.0);
             color.rgb += fsSkinDualLobe(gb.normal, fs_v, fs_l, sunDiscRoughness(fsSkinLegacyRoughness(spec))) *
                          sunlit_linear * (PUNCTUAL_LIGHT_SCALE * fs_nl * fs_scol * fs_skin);
+        }
+#endif
+        // </FS:Trish>
+        // <FS:Trish> Skin: soft rim sheen of its fine hair, from the sun and the ambient light
+        // (FSRenderSkinSheen); irradiance already carries the occlusion here
+#ifdef FS_SKIN_SHEEN
+        if (fs_skin > 0.0)
+        {
+            vec3 fs_l = normalize(light_dir);
+            vec3 fs_v = -normalize(pos.xyz);
+            float fs_nl = clamp(dot(gb.normal, fs_l), 0.0, 1.0);
+            color.rgb += fsSkinSheenColor(baseColor.rgb) * fs_skin *
+                         (fsSkinSheenBRDF(gb.normal, fs_v, fs_l) * sunlit_linear * (PUNCTUAL_LIGHT_SCALE * fs_nl * fs_scol) +
+                          irradiance * fsSkinSheenRim(dot(gb.normal, fs_v)));
         }
 #endif
         // </FS:Trish>

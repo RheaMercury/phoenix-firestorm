@@ -10862,7 +10862,8 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLCachedControl<bool> dual_spec(gSavedSettings, "FSRenderSkinDualSpecular", false);
     static LLCachedControl<bool> warm_shadows(gSavedSettings, "FSRenderSkinWarmShadows", false);
     static LLCachedControl<bool> trans_local(gSavedSettings, "FSRenderSkinTranslucencyLocal", false);
-    if (!skin_sss || !(dual_spec || warm_shadows || trans_local) || !shader.mDefines.count("FS_SKIN_LIGHTING"))
+    static LLCachedControl<bool> sheen(gSavedSettings, "FSRenderSkinSheen", false);
+    if (!skin_sss || !(dual_spec || warm_shadows || trans_local || sheen) || !shader.mDefines.count("FS_SKIN_LIGHTING"))
     {
         return;
     }
@@ -10874,6 +10875,7 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLCachedControl<F32> radius(gSavedSettings, "FSRenderSkinSSSRadius", 1.5f);
     static LLCachedControl<F32> tint(gSavedSettings, "FSRenderSkinSSSTint", 1.0f);
     static LLCachedControl<F32> translucency(gSavedSettings, "FSRenderSkinSSSTranslucency", 1.0f);
+    static LLCachedControl<F32> sheen_strength(gSavedSettings, "FSRenderSkinSheenStrength", 0.2f);
     static LLStaticHashedString s_tone_match("sss_tone_match");
     static LLStaticHashedString s_tone_range("fs_skin_tone_range");
     static LLStaticHashedString s_spec_mix("fs_skin_spec_mix");
@@ -10881,6 +10883,7 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLStaticHashedString s_radius("sss_radius");
     static LLStaticHashedString s_tint("sss_tint");
     static LLStaticHashedString s_translucency("sss_translucency");
+    static LLStaticHashedString s_sheen("fs_skin_sheen");
     shader.uniform1f(s_tone_match, llclamp((F32)tone_match, 0.f, 1.f));
     shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
     shader.uniform1f(s_spec_mix, llclamp((F32)spec_mix, 0.f, 1.f));
@@ -10889,6 +10892,7 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     shader.uniform1f(s_radius, llclamp((F32)radius, 0.f, 4.f));
     shader.uniform1f(s_tint, llclamp((F32)tint, 0.f, 1.f));
     shader.uniform1f(s_translucency, llclamp((F32)translucency, 0.f, 4.f));
+    shader.uniform1f(s_sheen, llclamp((F32)sheen_strength, 0.f, 1.f));
 }
 // </FS:Trish>
 
