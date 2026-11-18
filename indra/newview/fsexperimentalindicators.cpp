@@ -453,6 +453,8 @@ namespace
         { "FSPerfRebuildNearestFirst", CS, VN },
         { "FSPerfThreadedObjectUpdates", CS, VN },
         { "FSPerfThreadedGeometry", CS, VN },
+        { "FSPerfTextureUpdateSlice", CS, VN },
+        { "FSPerfTextureUpdateSlicePasses", CS, VN },
         { "RenderReflectionProbeSharedShadows", CS, VN },
         { "RenderReflectionProbeRefreshFrameInterval", CS, VN },
         { "RenderReflectionProbeMinRefresh", CS, VN },

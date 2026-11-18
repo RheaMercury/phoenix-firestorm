@@ -7247,7 +7247,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2091"
+                 height="2147"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -8269,7 +8269,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfVertexArrayObjects,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod,FSPerfThreadedObjectUpdates,FSPerfThreadedGeometry" />
+                         parameter="FSPerfVertexArrayObjects,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod,FSPerfThreadedObjectUpdates,FSPerfThreadedGeometry,FSPerfTextureUpdateSlice,FSPerfTextureUpdateSlicePasses" />
                     </button>
                     <check_box
                      control_name="FSPerfVertexArrayObjects"
@@ -8401,6 +8401,45 @@
                      tool_tip="EXPERIMENTAL. When a prim switches to a level of detail whose shape hasn&apos;t been built yet (arriving somewhere, moving the camera through a build), the shape is built on a worker thread instead of the main thread, and the prim keeps its current detail for one more frame meanwhile. Sculpts, meshes, flexible prims, HUDs and what you are editing are handled as before. Off: the standard path."
                      top="2053"
                      width="475" />
+                    <!-- <FS:Trish> FSPerfTextureUpdateSlice -->
+                    <check_box
+                     control_name="FSPerfTextureUpdateSlice"
+                     follows="left|top"
+                     height="20"
+                     label="Re-check settled textures less often while the camera is still"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperftextureupdateslice"
+                     tool_tip="EXPERIMENTAL. While the camera stands still, a texture that is already loaded at the sharpness it needs and isn&apos;t on anything moving has its priority worked out on one pass of the texture sweep out of every few instead of on every pass. Textures still loading, sharpening or shrinking, avatar, UI and sculpt textures, projector textures and textures on moving objects keep the normal rate, and so does everything while the camera moves or turns, during a teleport and after the texture memory limit tightens. Saves main thread time in a still scene with many textures."
+                     top="2083"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsperftextureupdateslicepasses_label"
+                     tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
+                     top="2111"
+                     width="285">
+                        Texture sweeps per settled texture check
+                    </text>
+                    <spinner
+                     control_name="FSPerfTextureUpdateSlicePasses"
+                     decimal_digits="0"
+                     enabled_control="FSPerfTextureUpdateSlice"
+                     follows="left|top"
+                     height="20"
+                     increment="1"
+                     layout="topleft"
+                     left="330"
+                     max_val="16"
+                     min_val="1"
+                     name="fs_fsperftextureupdateslicepasses"
+                     tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
+                     top="2109"
+                     width="100" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>

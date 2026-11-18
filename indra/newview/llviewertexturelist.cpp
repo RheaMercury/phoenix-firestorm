@@ -69,6 +69,7 @@
 #include "fstextureupload.h" // <FS:Trish/> FSPerfTextureUploadPBO
 #include "fsparalleltexture.h" // <FS:Trish/> FSPerfParallelTexturePriority
 #include <atomic> // <FS:Trish/> upload encode settings
+#include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval
 
 ////////////////////////////////////////////////////////////////////////////
 
@@ -81,6 +82,54 @@ bool LLViewerTextureList::sTrackFetching = true; // <FS:Trish/>
 U32 LLViewerTextureList::sNumFastCacheReads = 0;
 
 LLViewerTextureList gTextureList;
+
+// <FS:Trish> FSPerfProfileLogInterval: the parts of FS Render Update Images
+static LLTrace::BlockTimerStatHandle FTM_FS_TEX_FETCH_LANES("FS Texture Fetch Lanes");
+static LLTrace::BlockTimerStatHandle FTM_FS_TEX_SWEEP("FS Texture Priority Sweep");
+static LLTrace::BlockTimerStatHandle FTM_FS_TEX_CREATE("FS Texture Create");
+static LLTrace::BlockTimerStatHandle FTM_FS_TEX_CALLBACKS("FS Texture Callbacks");
+
+// FSPerfTextureUpdateSlice: a texture whose priority pass would only confirm what it already has.
+// It is loaded at exactly the level it wants (nothing to fetch, sharpen or shrink), isn't being
+// fetched, created or loaded from the fast cache, waits for no callback, isn't boosted (avatar
+// bakes, UI, sculpts, selections) and lights no projector. None of its first faces is on a moving
+// or animated object, whose screen size changes while the camera stands still.
+static bool fs_texture_settled(LLViewerFetchedTexture* imagep)
+{
+    if (imagep->getType() != LLViewerTexture::LOD_TEXTURE ||
+        imagep->getBoostLevel() != LLGLTexture::BOOST_NONE ||
+        !imagep->hasGLTexture() ||
+        imagep->isFetching() ||
+        imagep->mCreatePending ||
+        imagep->mDownScalePending ||
+        imagep->isInFastCacheList() ||
+        imagep->hasCallbacks() ||
+        imagep->forSculpt() ||
+        imagep->isMissingAsset() ||
+        imagep->getDiscardLevel() < 0 ||
+        imagep->getDiscardLevel() != imagep->getDesiredDiscardLevel() ||
+        imagep->getNumVolumes(LLRender::LIGHT_TEX) > 0 ||
+        imagep->getTotalNumFaces() == 0)
+    {
+        return false;
+    }
+    U32 checked = 0;
+    for (U32 ch = 0; ch < LLRender::NUM_TEXTURE_CHANNELS && checked < 8; ++ch)
+    {
+        const S32 count = imagep->getNumFaces(ch);
+        for (S32 fi = 0; fi < count && checked < 8; ++fi, ++checked)
+        {
+            LLFace* face = (*imagep->getFaceList(ch))[fi];
+            LLDrawable* drawable = face ? face->getDrawable() : nullptr;
+            if (!drawable || drawable->isActive())
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+// </FS:Trish>
 
 extern LLGLSLShader gCopyProgram;
 
@@ -919,7 +968,14 @@ void LLViewerTextureList::updateImages(F32 max_time)
     remaining_time = llmax(remaining_time, min_time);
 
     //handle results from decode threads
-    updateImagesCreateTextures(remaining_time);
+    // <FS:Trish> FSPerfProfileLogInterval
+    //updateImagesCreateTextures(remaining_time);
+    {
+        FS_RECORD_BLOCK_TIME(FTM_FS_TEX_CREATE);
+        updateImagesCreateTextures(remaining_time);
+    }
+    FS_RECORD_BLOCK_TIME(FTM_FS_TEX_CALLBACKS); // the loaded callbacks below, and the stats
+    // </FS:Trish>
 
     bool didone = false;
     for (image_list_t::iterator iter = mCallbackList.begin();
@@ -1616,6 +1672,7 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // over to the next frame rather than being dropped.
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vtluift - ready requests");
+        FS_RECORD_BLOCK_TIME(FTM_FS_TEX_FETCH_LANES); // <FS:Trish/> FSPerfProfileLogInterval
         std::vector<LLUUID> ready;
         LLAppViewer::getTextureFetch()->takeReadyRequests(ready);
         std::vector<LLUUID> recheck;
@@ -1694,6 +1751,7 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
    const U32 scan_count = llmin((U32)mUUIDMap.size(), 2048U);
     auto urgent_iter = mUUIDMap.upper_bound(mLastUrgentUpdateKey);
     //for (U32 scanned = 0; scanned < scan_count && urgent_updates.size() < 32 && !mUUIDMap.empty(); ++scanned)
+    { FS_RECORD_BLOCK_TIME(FTM_FS_TEX_FETCH_LANES); // <FS:Trish/> FSPerfProfileLogInterval
     for (U32 scanned = 0; run_urgent_lane && scanned < scan_count && urgent_updates.size() < 32 && !mUUIDMap.empty(); ++scanned) // <FS:Trish/>
     {
         if (timer.getElapsedTimeF32() >= max_time * 0.25f)
@@ -1740,6 +1798,7 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
         // Updating can erase map entries. Reacquire the iterator by key.
         urgent_iter = mUUIDMap.upper_bound(mLastUrgentUpdateKey);
     }
+    } // <FS:Trish/> FSPerfProfileLogInterval
 
     // <FS:Trish> Fetch priority refresh lane
     // Keep the fetcher's priorities current for the textures it is actually working on. A
@@ -1751,6 +1810,7 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // own round-robin refreshes every live request within a fraction of a second.
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vtluift - fetch priorities");
+        FS_RECORD_BLOCK_TIME(FTM_FS_TEX_FETCH_LANES); // FSPerfProfileLogInterval
         //static constexpr U32 FETCH_REFRESH_SCAN_COUNT = 2048;
         const F32 refresh_deadline = timer.getElapsedTimeF32() + max_time * 0.15f;
         // <FS:Trish> Walk the set of fetching textures instead of scanning the map for them
@@ -1832,6 +1892,22 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
 
     //update MIN_UPDATE_COUNT or 5% of other textures, whichever is greater
     update_count = llmax((U32) MIN_UPDATE_COUNT, (U32) mUUIDMap.size()/20);
+    // <FS:Trish> FSPerfTextureUpdateSlice: with the camera still for a second, a settled texture
+    // (see fs_texture_settled) is looked at on one sweep out of every FSPerfTextureUpdateSlicePasses
+    // instead of on every sweep (a sweep goes round in 10 to 20 frames). Everything else keeps the
+    // full rate, and so does every texture while the camera moves or turns, during a teleport, and
+    // in the faster pass after the texture memory bias rises, which has to reach every texture.
+    static LLCachedControl<bool> fs_slice(gSavedSettings, "FSPerfTextureUpdateSlice", false);
+    static LLCachedControl<U32> fs_slice_passes(gSavedSettings, "FSPerfTextureUpdateSlicePasses", 4);
+    static U32 s_fs_sweep_pass = 0;
+    const U32 fs_passes = llclamp((U32)fs_slice_passes, 1U, 16U);
+    const bool fs_bias_pass = LLViewerTexture::sDesiredDiscardBias > 1.f &&
+                              LLViewerTexture::sBiasTexturesUpdated < (U32)mUUIDMap.size();
+    const bool fs_thin = fs_slice && fs_passes > 1 && !fs_bias_pass && !gTeleportDisplay &&
+                         gFrameTimeSeconds - last_cam_move_time > 1.f && gFrameTimeSeconds >= last_cam_move_time;
+    bool fs_scanned = false;
+    LLTextureKey fs_scan_end;
+    // </FS:Trish>
     if (LLViewerTexture::sDesiredDiscardBias > 1.f
         && LLViewerTexture::sBiasTexturesUpdated < (U32)mUUIDMap.size())
     {
@@ -1857,18 +1933,31 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
             if (iter == mUUIDMap.end())
             {
                 iter = mUUIDMap.begin();
+                ++s_fs_sweep_pass; // <FS:Trish/> FSPerfTextureUpdateSlice
             }
 
             if (iter->second->getGLTexture())
             {
-                entries.push_back(iter->second);
+                // <FS:Trish> FSPerfTextureUpdateSlice: a settled texture only on its own sweep of every fs_passes
+                //entries.push_back(iter->second);
+                if (!fs_thin || (iter->first.textureId.mData[0] + s_fs_sweep_pass) % fs_passes == 0 ||
+                    !fs_texture_settled(iter->second.get()))
+                {
+                    entries.push_back(iter->second);
+                }
+                // </FS:Trish>
             }
+            // <FS:Trish> FSPerfTextureUpdateSlice
+            fs_scan_end = iter->first;
+            fs_scanned = true;
+            // </FS:Trish>
             ++iter;
         }
     }
 
     // <FS:Trish> FSPerfParallelTexturePriority: face pass of the whole sweep on workers
     LL_PROFILE_ZONE_NAMED_CATEGORY_TEXTURE("vtluift - sweep");
+    FS_RECORD_BLOCK_TIME(FTM_FS_TEX_SWEEP); // FSPerfProfileLogInterval
     // The loop below stops at max_time and the next sweep resumes at mLastUpdateKey, so entries it
     // won't reach are only wasted work for the face pass, which does all of them up front (under
     // memory pressure update_count grows with the bias, to thousands). When the last sweep ran out
@@ -1881,6 +1970,7 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
         if (entries.size() > cap)
         {
             entries.resize(cap);
+            fs_scanned = false; // FSPerfTextureUpdateSlice: resume after the last one done, as before
         }
     }
     s_fs_last_limited = false;
@@ -1921,10 +2011,19 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
         if (timer.getElapsedTimeF32() > max_time)
         {
             s_fs_last_limited = true; // <FS:Trish/>
+            fs_scanned = false; // <FS:Trish/> FSPerfTextureUpdateSlice: resume after the last one done
             break;
         }
     }
     s_fs_last_done = fs_index; // <FS:Trish/>
+    // <FS:Trish> FSPerfTextureUpdateSlice: the sweep got through all it scanned, the textures it let
+    // pass included, so it resumes after the last of those. Resuming after the last one done would
+    // scan a stretch of passed textures again every frame and stall the sweep there.
+    if (fs_thin && fs_scanned)
+    {
+        mLastUpdateKey = fs_scan_end;
+    }
+    // </FS:Trish>
     FSParallelTexture::finish(); // <FS:Trish/> FSPerfParallelTexturePriority
 
     return timer.getElapsedTimeF32();
