@@ -67,33 +67,10 @@ uniform sampler2D altDiffuseMap;    // lookup table, size*size wide and size hig
 uniform float grade_lut_size;       // 0 = none
 uniform float grade_lut_strength;
 
-// Local tone mapping
-uniform sampler2D lightMap;         // log2 luminance at a quarter size, with mips
-uniform vec4 local_tm_params;       // x on, y strength, z detail boost
-uniform vec2 local_tm_lods;         // fine and coarse base levels
-
 uniform float fs_night_vision;      // strength times how dark the sky is, 0 by day or when off
 uniform float exposure;             // tonemapUtilF.glsl's, for how bright a pixel will be on screen
 uniform sampler2D exposureMap;
 uniform float fs_halation;          // share of the bloom that comes back as halation, 0 is off
-
-// Compresses the large scale contrast toward the frame's average and keeps (or boosts) the
-// detail on top of it. The base is the coarse level where it agrees with the fine one and the
-// fine one across strong edges, so a bright window doesn't leave a dark halo around it.
-vec3 localTonemap(vec3 c)
-{
-    float L = log2(max(dot(max(c, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722)), 1.0e-4));
-    float fine = textureLod(lightMap, vary_fragcoord, local_tm_lods.x).r;
-    float coarse = textureLod(lightMap, vary_fragcoord, local_tm_lods.y).r;
-    float key = textureLod(lightMap, vary_fragcoord, 16.0).r;    // the last level, the average
-
-    float d = coarse - fine;
-    float base = mix(fine, coarse, exp(-0.5 * d * d));   // a stop of difference keeps most of coarse
-
-    float detail = clamp(L - base, -4.0, 4.0);
-    float stops = (key - base) * local_tm_params.y + detail * (local_tm_params.z - 1.0);
-    return c * exp2(clamp(stops, -6.0, 6.0));
-}
 
 // Night vision: in the dark the eye's rods take over from the cones. They can't tell colours
 // apart and are most sensitive to blue-green light, so dark parts of a night scene lose their
@@ -222,11 +199,6 @@ void main()
     if (fs_night_vision > 0.0)
     {
         diff.rgb = fsNightSoften(diff.rgb, vary_fragcoord);
-    }
-
-    if (local_tm_params.x > 0.0)
-    {
-        diff.rgb = localTonemap(diff.rgb);
     }
 
     if (grade_enabled != 0)

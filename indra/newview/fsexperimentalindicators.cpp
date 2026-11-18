@@ -212,13 +212,10 @@ namespace
         // Effects: lens dirt, exposure and tone mapping, output
         { "FSRenderBloomLensDirt", CL, VM },
         { "FSRenderBloomLensDirtStrength", CL, VM },
-        { "FSRenderLocalTonemap", CL, VL },
         { "FSRenderExposureSpeedToBright", CL, VM },
         { "FSRenderExposureSpeedToDark", CL, VM },
         { "FSRenderExposureCenterWeight", CL, VM },
         { "FSRenderExposureRangeLimit", CL, VM },
-        { "FSRenderLocalTonemapStrength", CL, VM },
-        { "FSRenderLocalTonemapDetail", CL, VM },
         { "FSRenderDeband", CL, VM },
         { "FSRenderDebandStrength", CL, VM },
 

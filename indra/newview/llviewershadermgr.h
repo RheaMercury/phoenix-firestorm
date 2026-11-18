@@ -286,7 +286,6 @@ extern LLGLSLShader         gFSAvatarMatteProgram;
 extern LLGLSLShader         gFSDynResUpscaleProgram; // <FS:Trish/> Dynamic resolution
 extern LLGLSLShader         gFSNISUpscaleProgram; // <FS:Trish/> NVIDIA Image Scaling
 // </FS:Trish>
-extern LLGLSLShader         gFSLocalTonemapLumProgram; // <FS:Trish/> Local tone mapping
 extern LLGLSLShader         gFSSkinSSSProgram; // <FS:Trish/>
 extern LLGLSLShader         gFSGTAOHalfProgram; // <FS:Trish/> Half-resolution GTAO
 extern LLGLSLShader         gScreenSpaceReflTraceProgram; // <FS:Trish/> SSR buffer (fsssrbuffer.cpp)

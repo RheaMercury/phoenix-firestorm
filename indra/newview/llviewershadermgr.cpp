@@ -232,7 +232,6 @@ LLGLSLShader            gFSAvatarMatteProgram;
 LLGLSLShader            gFSDynResUpscaleProgram; // <FS:Trish/> Dynamic resolution
 LLGLSLShader            gFSNISUpscaleProgram; // <FS:Trish/> NVIDIA Image Scaling
 // </FS:Trish>
-LLGLSLShader            gFSLocalTonemapLumProgram; // <FS:Trish/> Local tone mapping
 LLGLSLShader            gFSSkinSSSProgram; // <FS:Trish/>
 LLGLSLShader            gFSGTAOHalfProgram; // <FS:Trish/> Half-resolution GTAO
 LLGLSLShader            gScreenSpaceReflTraceProgram; // <FS:Trish/> SSR buffer (fsssrbuffer.cpp)
@@ -1824,7 +1823,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSDynResUpscaleProgram.unload(); // <FS:Trish/> Dynamic resolution
         gFSNISUpscaleProgram.unload(); // <FS:Trish/> NVIDIA Image Scaling
         // </FS:Trish>
-        gFSLocalTonemapLumProgram.unload(); // <FS:Trish/> Local tone mapping
         gFSSkinSSSProgram.unload(); // <FS:Trish/>
         gFSGTAOHalfProgram.unload(); // <FS:Trish/> Half-resolution GTAO
         gScreenSpaceReflTraceProgram.unload(); // <FS:Trish/> SSR buffer
@@ -3721,7 +3719,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSLensDirtProgram,         "FS Lens Dirt",          "deferred/fsLensDirtF.glsl",         false },
             { &gFSLensEffectsProgram,      "FS Lens Effects",       "deferred/fsLensEffectsF.glsl",      false },
             { &gFSAvatarMatteProgram,      "FS Avatar Matte",       "deferred/fsAvatarMatteF.glsl",      false },
-            { &gFSLocalTonemapLumProgram,  "FS Local Tonemap Base", "deferred/fsLocalTonemapLumF.glsl",  false },
             { &gFSDynResUpscaleProgram,    "FS Dynamic Resolution Upscale", "deferred/fsDynResUpscaleF.glsl", false }, // <FS:Trish/>
         };
         for (const FSPostShader& post : fs_post_shaders)

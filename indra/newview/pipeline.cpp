@@ -9307,79 +9307,6 @@ void LLPipeline::setExposureAdaptation(LLGLSLShader* shader, F32& exp_min, F32& 
                       llclamp((F32)centre_weight, 0.f, 1.f),
                       0.f);
 }
-
-// Local tone mapping, base layer: the log luminance of the frame at a quarter of its size, with
-// mips the tonemap pass reads as the large scale lighting. False when off, which leaves the
-// tonemap pass as it was.
-bool LLPipeline::renderLocalTonemapBase(LLRenderTarget* src)
-{
-    static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderLocalTonemap", false);
-    static LLCachedControl<F32> strength(gSavedSettings, "FSRenderLocalTonemapStrength", 0.5f);
-    static LLCachedControl<F32> detail(gSavedSettings, "FSRenderLocalTonemapDetail", 1.1f);
-    static LLStaticHashedString s_src_texel("src_texel");
-
-    // Skipped too when the tonemap pass runs the no-post programs (they don't read it) and for
-    // avatars only renders, whose mostly empty frame would wreck the key
-    if (!enabled || gSnapshotNoPost || mFSNoPost || isAvatarOnlyRender() || !gFSLocalTonemapLumProgram.isComplete() ||
-        (strength <= 0.f && detail == 1.f))
-    {
-        if (!enabled && mLocalTonemapMap.isComplete())
-        {
-            mLocalTonemapMap.release();
-        }
-        return false;
-    }
-
-    const U32 width = llmax(src->getWidth() / 4, 1U);
-    const U32 height = llmax(src->getHeight() / 4, 1U);
-    if (!mLocalTonemapMap.isComplete() || mLocalTonemapMap.getWidth() != width || mLocalTonemapMap.getHeight() != height)
-    {
-        mLocalTonemapMap.release();
-        if (!mLocalTonemapMap.allocate(width, height, GL_R16F, false, LLTexUnit::TT_TEXTURE, LLTexUnit::TMG_AUTO))
-        {
-            return false;
-        }
-    }
-
-    LL_PROFILE_GPU_ZONE("local tonemap base");
-    LLGLDepthTest depth(GL_FALSE, GL_FALSE);
-    LLGLDisable blend(GL_BLEND);
-
-    // Mips are generated when the target is flushed
-    mLocalTonemapMap.bindTarget();
-    gFSLocalTonemapLumProgram.bind();
-    gFSLocalTonemapLumProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_BILINEAR);
-    gFSLocalTonemapLumProgram.uniform2f(s_src_texel, 1.f / (F32)src->getWidth(), 1.f / (F32)src->getHeight());
-    mScreenTriangleVB->setBuffer();
-    mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-    gFSLocalTonemapLumProgram.unbind();
-    mLocalTonemapMap.flush();
-    return true;
-}
-
-// Local tone mapping, in the tonemap pass. The coarse and fine levels picked here are about a
-// sixteenth and a hundred and twenty eighth of the screen height across, whatever the resolution.
-void LLPipeline::bindLocalTonemap(LLGLSLShader* shader, bool enabled)
-{
-    static LLCachedControl<F32> strength(gSavedSettings, "FSRenderLocalTonemapStrength", 0.5f);
-    static LLCachedControl<F32> detail(gSavedSettings, "FSRenderLocalTonemapDetail", 1.1f);
-    static LLStaticHashedString s_local_tm_params("local_tm_params");
-    static LLStaticHashedString s_local_tm_lods("local_tm_lods");
-
-    if (!enabled)
-    {
-        shader->uniform4f(s_local_tm_params, 0.f, 0.f, 0.f, 0.f);
-        return;
-    }
-
-    const F32 height = (F32)llmax(mLocalTonemapMap.getHeight(), 1U);
-    const F32 coarse = llmax(log2f(height / 16.f), 0.f);
-    const F32 fine = llmax(coarse - 3.f, 0.f);
-
-    shader->bindTexture(LLShaderMgr::DEFERRED_LIGHT, &mLocalTonemapMap, false, LLTexUnit::TFO_TRILINEAR);
-    shader->uniform4f(s_local_tm_params, 1.f, llclamp((F32)strength, 0.f, 1.f), llclamp((F32)detail, 0.f, 4.f), 0.f);
-    shader->uniform2f(s_local_tm_lods, fine, coarse);
-}
 // </FS:Trish>
 
 extern LLPointer<LLImageGL> gEXRImage;
@@ -9409,7 +9336,7 @@ static void fs_set_deband(LLGLSLShader& shader, bool writes_8bit)
     shader.uniform1f(s_deband, amplitude);
 }
 
-// Whether the tonemap pass runs the no-post programs, which read neither bloom nor local tone mapping
+// Whether the tonemap pass runs the no-post programs, which don't read the bloom
 static bool fs_tonemap_no_post()
 {
     static LLCachedControl<bool> buildNoPost(gSavedSettings, "RenderDisablePostProcessing", false);
@@ -9423,7 +9350,6 @@ void LLPipeline::tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_co
 {
     LL_PROFILE_GPU_ZONE("tonemap");
 
-    const bool local_tonemap = renderLocalTonemapBase(src); // <FS:Trish/>
     dst->bindTarget();
     // gamma correct lighting
     {
@@ -9504,7 +9430,6 @@ void LLPipeline::tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_co
             }
 
             bindColorGrading(shader);
-            bindLocalTonemap(shader, local_tonemap);
 
             // Night vision: fades in through twilight, from the sun a little above the horizon
             // to about six degrees below it, or wherever the sky gives little light (night
@@ -10546,7 +10471,7 @@ void LLPipeline::renderFinalize()
     bool hdr = gGLManager.mGLVersion > 4.05f && has_hdr();
 
     mLensDoF.mActive = false; // <FS:Trish/> renderDoF sets it again when depth of field runs
-    mFSNoPost = fs_tonemap_no_post(); // <FS:Trish/> bloom and local tone mapping are skipped when tonemap won't read them
+    mFSNoPost = fs_tonemap_no_post(); // <FS:Trish/> bloom is skipped when tonemap won't read it
 
     // <FS:Trish> Avatars only snapshot. These passes reuse the exposure and the SSR history of the
     // full scene render taken just before them, so the avatars are exposed and reflect as they do
@@ -15646,7 +15571,6 @@ void LLPipeline::releaseFSPostTargets()
     mFSSpotVolumeHistory[1].release();
     mFSSpotVolumeHistoryFrame = 0;
     // </FS:Trish>
-    mLocalTonemapMap.release(); // <FS:Trish/> Local tone mapping
     for (LLRenderTarget& level : mBloomLevels)
     {
         level.release();
