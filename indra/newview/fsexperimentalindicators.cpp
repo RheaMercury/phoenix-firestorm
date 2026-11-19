@@ -451,6 +451,7 @@ namespace
         { "FSPerfInventoryIdleThrottle", CS, VN },
         { "FSPerfHoverPickThrottle", CS, VN },
         { "FSPerfVertexArrayObjects", CS, VN },
+        { "FSPerfDSATextureBinds", CS, VN },
         { "FSPerfRebuildNearestFirst", CS, VN },
         { "FSPerfThreadedObjectUpdates", CS, VN },
         { "FSPerfThreadedGeometry", CS, VN },

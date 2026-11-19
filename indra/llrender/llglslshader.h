@@ -339,6 +339,16 @@ public:
         std::vector<Entry> mEntries;
     };
     uniform_value_map_t mValue; //last known value of each uniform location
+    // <FS:Trish> Last value of each single 3x3 or 4x4 matrix uniform (uniformMatrix3fv/4fv): model and texture
+    // matrices are set for every draw, mostly to what the program already holds
+    struct FSMatrixValue
+    {
+        F32 mV[16];
+        U8 mSize = 0;   // floats held, 0: not known
+    };
+    std::vector<FSMatrixValue> mFSMatValue;
+    bool fsMatrixUnchanged(GLint location, U32 count, GLboolean transpose, const GLfloat* v, U8 size);
+    // </FS:Trish>
     std::vector<GLint> mTexture;
     S32 mTotalUniformSize;
     S32 mActiveTextureChannels;

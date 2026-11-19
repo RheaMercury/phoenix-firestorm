@@ -66,6 +66,10 @@ class LLTexUnit
     friend class LLRender;
 public:
     static U32 sWhiteTexture;
+    // <FS:Trish> FSPerfDSATextureBinds (GL 4.5 only): bindFast binds with glBindTextureUnit, which needs no
+    // glActiveTexture first
+    static bool sFSDSABinds;
+    // </FS:Trish>
 
     typedef enum
     {

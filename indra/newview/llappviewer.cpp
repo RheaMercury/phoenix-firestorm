@@ -1893,6 +1893,8 @@ bool LLAppViewer::doFrame()
         }
         static LLCachedControl<bool> vaos(gSavedSettings, "FSPerfVertexArrayObjects", false);
         LLVertexBuffer::fsSetVAOEnabled(vaos);
+        static LLCachedControl<bool> dsa_binds(gSavedSettings, "FSPerfDSATextureBinds", false);
+        LLTexUnit::sFSDSABinds = dsa_binds && gGLManager.mHasDSA && glBindTextureUnit != nullptr;
     }
     // </FS:Trish>
     resumeMainloopTimeout("Main:doFrameStart");

@@ -83,6 +83,7 @@ S32 gGLViewport[4];
 U32 LLRender::sUICalls = 0;
 U32 LLRender::sUIVerts = 0;
 U32 LLTexUnit::sWhiteTexture = 0;
+bool LLTexUnit::sFSDSABinds = false; // <FS:Trish/>
 F32 LLRender::sAnisotropicFilteringLevel = 0.f;
 bool LLRender::sGLCoreProfile = false;
 bool LLRender::sNsightDebugSupport = false;
@@ -250,8 +251,16 @@ void LLTexUnit::bindFast(LLTexture* texture)
     //glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
     if (mCurrTexture == 0 || mCurrTexture != mFastBoundTex || mCurrTexType != mFastBoundType || gGL.mDirty)
     {
-        activate_unit();
-        glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+        // FSPerfDSATextureBinds: straight to this unit, whichever is active (a texture's target is its own)
+        if (sFSDSABinds && mCurrTexture != 0 && !gGL.mDirty)
+        {
+            glBindTextureUnit(mIndex, mCurrTexture);
+        }
+        else
+        {
+            activate_unit();
+            glBindTexture(sGLTextureType[gl_tex->getTarget()], mCurrTexture);
+        }
         // the missing texture path above may have rebound through bind(), so only trust a real name
         mFastBoundTex = (gl_tex->getTexName() != 0) ? mCurrTexture : 0;
         mFastBoundType = mCurrTexType;

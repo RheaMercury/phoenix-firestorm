@@ -7258,7 +7258,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2147"
+                 height="2173"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -8280,7 +8280,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfVertexArrayObjects,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod,FSPerfThreadedObjectUpdates,FSPerfThreadedGeometry,FSPerfTextureUpdateSlice,FSPerfTextureUpdateSlicePasses" />
+                         parameter="FSPerfVertexArrayObjects,FSPerfDSATextureBinds,FSPerfRebuildNearestFirst,RenderReflectionProbeSharedShadows,RenderReflectionProbeRefreshFrameInterval,RenderReflectionProbeMinRefresh,RenderHiddenAvatarUpdatePeriod,FSPerfThreadedObjectUpdates,FSPerfThreadedGeometry,FSPerfTextureUpdateSlice,FSPerfTextureUpdateSlicePasses" />
                     </button>
                     <check_box
                      control_name="FSPerfVertexArrayObjects"
@@ -8294,6 +8294,17 @@
                      top="1863"
                      width="475" />
                     <check_box
+                     control_name="FSPerfDSATextureBinds"
+                     follows="left|top"
+                     height="20"
+                     label="Bind textures straight to their unit (OpenGL 4.5)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfdsatexturebinds"
+                     tool_tip="EXPERIMENTAL. Draws bind their textures with one call that names the texture unit, instead of switching the active unit first: about one OpenGL call fewer per texture bound. Only on OpenGL 4.5 (not macOS). Off: the standard path."
+                     top="1889"
+                     width="475" />
+                    <check_box
                      control_name="FSPerfRebuildNearestFirst"
                      follows="left|top"
                      height="20"
@@ -8302,7 +8313,7 @@
                      left="15"
                      name="fs_fsperfrebuildnearestfirst"
                      tool_tip="When geometry updates (level of detail changes, new objects) can't all be done in one frame, do the ones in view and nearest the camera first, so the objects around you sharpen before distant ones. Off: the standard order."
-                     top="1889"
+                     top="1915"
                      width="475" />
                     <check_box
                      control_name="RenderReflectionProbeSharedShadows"
@@ -8313,7 +8324,7 @@
                      left="15"
                      name="fs_renderreflectionprobesharedshadows"
                      tool_tip="Render the sun shadows once per reflection probe update and share them between its 12 face renders, instead of rendering them for every face. Off: the standard path."
-                     top="1915"
+                     top="1941"
                      width="475" />
                     <text
                      follows="left|top"
@@ -8322,7 +8333,7 @@
                      left="35"
                      name="fs_renderreflectionproberefreshframeinterval_label"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="1943"
+                     top="1969"
                      width="285">
                         Frames per face when refreshing a probe
                     </text>
@@ -8338,7 +8349,7 @@
                      min_val="1"
                      name="fs_renderreflectionproberefreshframeinterval"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="1941"
+                     top="1967"
                      width="100" />
                     <text
                      follows="left|top"
@@ -8347,7 +8358,7 @@
                      left="35"
                      name="fs_renderreflectionprobeminrefresh_label"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="1971"
+                     top="1997"
                      width="285">
                         Shortest time between probe refreshes (s)
                     </text>
@@ -8363,7 +8374,7 @@
                      min_val="0"
                      name="fs_renderreflectionprobeminrefresh"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="1969"
+                     top="1995"
                      width="100" />
                     <text
                      follows="left|top"
@@ -8372,7 +8383,7 @@
                      left="35"
                      name="fs_renderhiddenavatarupdateperiod_label"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="1999"
+                     top="2025"
                      width="285">
                         Frames between off-screen avatar updates
                     </text>
@@ -8388,7 +8399,7 @@
                      min_val="1"
                      name="fs_renderhiddenavatarupdateperiod"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="1997"
+                     top="2023"
                      width="100" />
                     <check_box
                      control_name="FSPerfThreadedObjectUpdates"
@@ -8399,7 +8410,7 @@
                      left="15"
                      name="fs_fsperfthreadedobjectupdates"
                      tool_tip="EXPERIMENTAL. While objects around you are created from the object cache (arriving somewhere, logging in, turning around), the ones coming up next are decoded on worker threads: their shape parameters and their texture faces. The main thread then only applies them, at the same moment and in the same order as before, and decodes anything the workers haven't reached yet itself. Updates sent straight from the region (movement, changes, removals) are handled as before. The result is identical; the gain is small."
-                     top="2027"
+                     top="2053"
                      width="475" />
                     <check_box
                      control_name="FSPerfThreadedGeometry"
@@ -8410,7 +8421,7 @@
                      left="15"
                      name="fs_fsperfthreadedgeometry"
                      tool_tip="EXPERIMENTAL. When a prim switches to a level of detail whose shape hasn&apos;t been built yet (arriving somewhere, moving the camera through a build), the shape is built on a worker thread instead of the main thread, and the prim keeps its current detail for one more frame meanwhile. Sculpts, meshes, flexible prims, HUDs and what you are editing are handled as before. Off: the standard path."
-                     top="2053"
+                     top="2079"
                      width="475" />
                     <!-- <FS:Trish> FSPerfTextureUpdateSlice -->
                     <check_box
@@ -8422,7 +8433,7 @@
                      left="15"
                      name="fs_fsperftextureupdateslice"
                      tool_tip="EXPERIMENTAL. While the camera stands still, a texture that is already loaded at the sharpness it needs and isn&apos;t on anything moving has its priority worked out on one pass of the texture sweep out of every few instead of on every pass. Textures still loading, sharpening or shrinking, avatar, UI and sculpt textures, projector textures and textures on moving objects keep the normal rate, and so does everything while the camera moves or turns, during a teleport and after the texture memory limit tightens. Saves main thread time in a still scene with many textures."
-                     top="2083"
+                     top="2109"
                      width="475" />
                     <text
                      follows="left|top"
@@ -8431,7 +8442,7 @@
                      left="35"
                      name="fs_fsperftextureupdateslicepasses_label"
                      tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
-                     top="2111"
+                     top="2137"
                      width="285">
                         Texture sweeps per settled texture check
                     </text>
@@ -8448,7 +8459,7 @@
                      min_val="1"
                      name="fs_fsperftextureupdateslicepasses"
                      tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
-                     top="2109"
+                     top="2135"
                      width="100" />
                     <!-- </FS:Trish> -->
                 </panel>

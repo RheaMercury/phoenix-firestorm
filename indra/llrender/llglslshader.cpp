@@ -981,6 +981,7 @@ bool LLGLSLShader::mapUniforms()
     mUniformMap.clear();
     mTexture.clear();
     mValue.clear();
+    mFSMatValue.clear(); // <FS:Trish/>
     //initialize arrays
     mUniform.resize(LLShaderMgr::instance()->mReservedUniforms.size(), -1);
     mTexture.resize(LLShaderMgr::instance()->mReservedUniforms.size(), -1);
@@ -1795,6 +1796,12 @@ void LLGLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, c
 
         if (mUniform[index] >= 0)
         {
+            // <FS:Trish> skip a matrix the program already holds
+            if (fsMatrixUnchanged(mUniform[index], count, transpose, v, 9))
+            {
+                return;
+            }
+            // </FS:Trish>
             glUniformMatrix3fv(mUniform[index], count, transpose, v);
         }
     }
@@ -1837,6 +1844,12 @@ void LLGLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, c
 
         if (mUniform[index] >= 0)
         {
+            // <FS:Trish> skip a matrix the program already holds
+            if (fsMatrixUnchanged(mUniform[index], count, transpose, v, 16))
+            {
+                return;
+            }
+            // </FS:Trish>
             glUniformMatrix4fv(mUniform[index], count, transpose, v);
         }
     }
@@ -2134,11 +2147,50 @@ void LLGLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 cou
 
     if (location >= 0)
     {
+        // <FS:Trish> the same cache as by index: both name the same locations
+        if (fsMatrixUnchanged(location, count, transpose, v, 16))
+        {
+            return;
+        }
+        // </FS:Trish>
         stop_glerror();
         glUniformMatrix4fv(location, count, transpose, v);
         stop_glerror();
     }
 }
+
+// <FS:Trish> True when the program already holds this single matrix at location (the call can be skipped);
+// otherwise remembers it. Arrays and transposed matrices aren't cached: they make what is known unknown.
+bool LLGLSLShader::fsMatrixUnchanged(GLint location, U32 count, GLboolean transpose, const GLfloat* v, U8 size)
+{
+    constexpr GLint MAX_CACHED_LOCATION = 4096;
+    if (location < 0 || location >= MAX_CACHED_LOCATION || !v)
+    {
+        return false;
+    }
+    if (count != 1 || transpose)
+    {
+        for (GLint loc = location; loc < location + (GLint)count && (size_t)loc < mFSMatValue.size(); ++loc)
+        {
+            mFSMatValue[loc].mSize = 0;
+        }
+        return false;
+    }
+    if ((size_t)location >= mFSMatValue.size())
+    {
+        mFSMatValue.resize((size_t)location + 1);
+    }
+    FSMatrixValue& held = mFSMatValue[location];
+    const size_t bytes = (size_t)size * sizeof(F32);
+    if (held.mSize == size && memcmp(held.mV, v, bytes) == 0)
+    {
+        return true;
+    }
+    memcpy(held.mV, v, bytes);
+    held.mSize = size;
+    return false;
+}
+// </FS:Trish>
 
 
 void LLGLSLShader::vertexAttrib4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
