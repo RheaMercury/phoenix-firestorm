@@ -184,6 +184,8 @@
     <boolean>1</boolean>
     <key>FSPerfShadowStaticCache</key>
     <boolean>1</boolean>
+    <key>FSPerfShadowStaticCacheStable</key>
+    <boolean>1</boolean>
     <key>FSPerfShadowStaticCacheSunAngle</key>
     <real>0.1</real>
     <key>FSPerfSpotShadowCache</key>

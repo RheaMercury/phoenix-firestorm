@@ -14375,6 +14375,44 @@ void LLPipeline::fsCountShadowDraws(U32 batches, U32 draws)
 // To make the match likely, the cached cascades build their light space from a sun direction that only
 // follows the real one once it moved more than FSPerfShadowStaticCacheSunAngle degrees, and their depth
 // range is widened onto a world anchored grid with some hysteresis.
+//
+// FSPerfShadowStaticCacheStable: even with all that, a busy view re-rendered the cache on every update:
+//  - the split distances follow what is in view (the visible receivers, FSRenderShadowFitDepth's depth
+//    read back), so with avatars moving in front of the camera the far slice slides a little along the
+//    view axis every update, and the snapped map window moved with it by a texel or more;
+//  - every rebuild of a static group was reported as a change, and changed the hash (new draw infos and
+//    vertex buffers), though a colour, texture or material change (light shows, texture changing
+//    signs, textures loading) moves no vertex and leaves the depth as it was.
+// With it on, a far cascade's map window stays where it is on the world anchored texel grid while the
+// slice still fits inside it with its own radius; it is placed again, centred, only when the slice leaves
+// it or the texel size steps (fsShadowCacheSnapWindow). The texel grid, texel size and depth range are the
+// same either way, and the whole slice is inside the map either way, so the shadows are the same. Rebuilds
+// that moved no vertex (no drawable of the group had a volume or position change, and the group's bounds
+// didn't change) don't invalidate the sun cache (the projector cache still sees them), and the static
+// draw list is hashed by its index count per region matrix instead of by draw info and buffer pointers:
+// that doesn't change when a rebuild only re-batches the same triangles, and does when faces leave the
+// opaque passes (turning alpha) or the culled set changes. Added, removed and moved static objects
+// (moving objects turn active, which removes them from the static octree), shape and detail changes all
+// still invalidate the cache through fsNoteShadowStaticChange.
+// FSPerfShadowBatchStats logs why each re-render happened.
+
+namespace
+{
+    // FSShadowCache::mChanges: what stepped since the target was stored
+    enum : U32 { FS_SC_SUN = 1, FS_SC_DEPTH = 2, FS_SC_WINDOW = 4 };
+    // FSShadowCache::mInvalidReason, and the miss reasons logged
+    enum : U32 { FS_SC_MISS_NEW = 0, FS_SC_MISS_DIRTY, FS_SC_MISS_TEXTURE, FS_SC_MISS_SUN, FS_SC_MISS_DEPTH,
+                 FS_SC_MISS_WINDOW, FS_SC_MISS_VIEW, FS_SC_MISS_LIST_SIZE, FS_SC_MISS_LIST_SAME_SIZE, FS_SC_MISS_COUNT };
+    const char* const FS_SC_MISS_NAMES[FS_SC_MISS_COUNT] = { "new or reallocated", "static geometry changed in it",
+        "map texture changed", "sun stepped", "depth range stepped", "map window moved or resized",
+        "projection changed otherwise", "static casters changed (count)", "static casters changed (same count)" };
+
+    bool fs_shadow_cache_stable()
+    {
+        static LLCachedControl<bool> stable(gSavedSettings, "FSPerfShadowStaticCacheStable", false);
+        return stable;
+    }
+}
 
 void LLPipeline::fsReleaseShadowCache()
 {
@@ -14385,8 +14423,12 @@ void LLPipeline::fsReleaseShadowCache()
         cache.mMatch = false;
         cache.mLightSet = false;
         cache.mDepthSet = false;
+        cache.mWindowSet = false;
+        cache.mChanges = 0;
+        cache.mInvalidReason = FS_SC_MISS_NEW;
     }
     mFSShadowDirty.clear();
+    mFSShadowDirtyChurn.clear();
     mFSShadowDirtyAll = false;
     mFSShadowCacheInUse = false;
 }
@@ -14410,10 +14452,12 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
             fsReleaseShadowCache();
         }
         mFSShadowDirty.clear();
+        mFSShadowDirtyChurn.clear();
         mFSShadowDirtyAll = false;
         return;
     }
     mFSShadowCacheInUse = true;
+    const bool stable = fs_shadow_cache_stable(); // FSPerfShadowStaticCacheStable: rebuilds that moved no vertex don't count
 
     // drop the caches whose cascade bounds saw static geometry change since the last update
     for (FSShadowCache& cache : mFSShadowCache)
@@ -14425,10 +14469,15 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
         if (mFSShadowDirtyAll)
         {
             cache.mValid = false;
+            cache.mInvalidReason = FS_SC_MISS_DIRTY;
             continue;
         }
         for (size_t i = 0; i + 1 < mFSShadowDirty.size(); i += 2)
         {
+            if (stable && i / 2 < mFSShadowDirtyChurn.size() && mFSShadowDirtyChurn[i / 2])
+            {
+                continue;
+            }
             const LLVector4a& lo = mFSShadowDirty[i];
             const LLVector4a& hi = mFSShadowDirty[i + 1];
             glm::vec2 mn(FLT_MAX, FLT_MAX);
@@ -14446,11 +14495,13 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
             if (mx.x >= -1.f && mn.x <= 1.f && mx.y >= -1.f && mn.y <= 1.f)
             {
                 cache.mValid = false;
+                cache.mInvalidReason = FS_SC_MISS_DIRTY;
                 break;
             }
         }
     }
     mFSShadowDirty.clear();
+    mFSShadowDirtyChurn.clear();
     mFSShadowDirtyAll = false;
 }
 
@@ -14465,6 +14516,7 @@ LLVector3 LLPipeline::fsShadowCacheLightDir(S32 cascade, const LLVector3& light_
     FSShadowCache& cache = mFSShadowCache[cascade - 2];
     if (!cache.mLightSet || cache.mLight * light_dir < cos_angle)
     {
+        cache.mChanges |= cache.mLightSet ? FS_SC_SUN : 0U;
         cache.mLight = light_dir;
         cache.mLightSet = true;
     }
@@ -14486,12 +14538,73 @@ void LLPipeline::fsShadowCacheSnapDepth(S32 cascade, F32 grid_z, F32& znear, F32
         range < (cache.mDepthFar - cache.mDepthNear) * 0.8f)
     {
         const F32 step = powf(2.f, ceilf(log2f(llmax(range / 32.f, 0.001f))));
+        cache.mChanges |= cache.mDepthSet ? FS_SC_DEPTH : 0U;
         cache.mDepthNear = floorf(world_near / step) * step - step;
         cache.mDepthFar = ceilf(world_far / step) * step + step;
         cache.mDepthSet = true;
     }
     znear = cache.mDepthNear - grid_z;
     zfar = cache.mDepthFar - grid_z;
+}
+
+// generateSunShadow, FSRenderShadowTexelSnap: left and bottom come in placed around the slice's bounding
+// sphere (center, with the cascade's snapped radius) on whole texels of the world anchored grid. For a
+// cached cascade with FSPerfShadowStaticCacheStable, the last window is kept instead while the sphere
+// with the slice's own radius (slice_radius) still fits inside it and the texel size is the same. Without
+// the option, only notes whether the window moved (the miss reasons of FSPerfShadowBatchStats).
+void LLPipeline::fsShadowCacheSnapWindow(S32 cascade, const glm::vec3& center, F32 slice_radius, F32 texel_x, F32 texel_y,
+                                         const glm::vec3& grid_origin, F32& left, F32& bottom)
+{
+    if (!mFSShadowCacheInUse || gCubeSnapshot || cascade < 2 || cascade > 3 || !(texel_x > 0.f) || !(texel_y > 0.f))
+    {
+        return;
+    }
+    FSShadowCache& cache = mFSShadowCache[cascade - 2];
+    const LLRenderTarget& shadow = mRT->shadow[cascade];
+    const F64 width = (F64)llmax(shadow.getWidth(), 1U);
+    const F64 height = (F64)llmax(shadow.getHeight(), 1U);
+
+    // in texels of the grid, which is fixed in the world (its origin is the agent frame origin)
+    const F64 tx = (F64)texel_x;
+    const F64 ty = (F64)texel_y;
+    const F64 placed_x = floor(((F64)left - (F64)grid_origin.x) / tx + 0.5);   // already whole texels
+    const F64 placed_y = floor(((F64)bottom - (F64)grid_origin.y) / ty + 0.5);
+    const bool same_texel = cache.mWindowSet && cache.mWindowTexelX == texel_x && cache.mWindowTexelY == texel_y;
+
+    if (fs_shadow_cache_stable())
+    {
+        const F64 cx = ((F64)center.x - (F64)grid_origin.x) / tx;
+        const F64 cy = ((F64)center.y - (F64)grid_origin.y) / ty;
+        const F64 rx = (F64)slice_radius / tx;
+        const F64 ry = (F64)slice_radius / ty;
+        // the map spans width texels from the window's corner; one texel of margin on the far side as
+        // the placement below leaves at least
+        const bool fits = same_texel &&
+                          cx - rx >= cache.mWindowX && cx + rx <= cache.mWindowX + width - 1.0 &&
+                          cy - ry >= cache.mWindowY && cy + ry <= cache.mWindowY + height - 1.0;
+        if (!fits)
+        {   // placed again as without the option: around the slice, with the margin of the snapped radius
+            cache.mChanges |= cache.mWindowSet ? FS_SC_WINDOW : 0U;
+            cache.mWindowX = placed_x;
+            cache.mWindowY = placed_y;
+            cache.mWindowTexelX = texel_x;
+            cache.mWindowTexelY = texel_y;
+            cache.mWindowSet = true;
+        }
+        left = (F32)(cache.mWindowX * tx + (F64)grid_origin.x);
+        bottom = (F32)(cache.mWindowY * ty + (F64)grid_origin.y);
+        return;
+    }
+
+    if (!same_texel || placed_x != cache.mWindowX || placed_y != cache.mWindowY)
+    {
+        cache.mChanges |= cache.mWindowSet ? FS_SC_WINDOW : 0U;
+    }
+    cache.mWindowX = placed_x;
+    cache.mWindowY = placed_y;
+    cache.mWindowTexelX = texel_x;
+    cache.mWindowTexelY = texel_y;
+    cache.mWindowSet = true;
 }
 
 void LLPipeline::fsShadowCacheBeginCascade(S32 cascade, const glm::mat4& proj, const glm::mat4& view)
@@ -14514,6 +14627,7 @@ void LLPipeline::fsShadowCacheBeginCascade(S32 cascade, const glm::mat4& proj, c
     if (cache.mTarget.getWidth() != width || cache.mTarget.getHeight() != height || !cache.mTarget.getDepth())
     {
         cache.mValid = false;
+        cache.mInvalidReason = FS_SC_MISS_NEW; // FSPerfShadowBatchStats
         if (!cache.mTarget.allocate(width, height, 0, true))
         {
             cache.mTarget.release();
@@ -14593,7 +14707,8 @@ bool LLPipeline::fsShadowPoolAllowed(U32 pool_type) const
     }
 }
 
-void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents)
+// no_depth_change: a group rebuild that moved no vertex (FSPerfShadowStaticCacheStable), see llspatialpartition.cpp
+void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change)
 {
     if ((!mFSShadowCacheInUse && !mFSSpotCacheInUse) || !extents)
     {
@@ -14606,6 +14721,8 @@ void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents)
     }
     mFSShadowDirty.push_back(extents[0]);
     mFSShadowDirty.push_back(extents[1]);
+    mFSShadowDirtyChurn.resize(mFSShadowDirty.size() / 2 - 1, 0); // one per pair
+    mFSShadowDirtyChurn.push_back(no_depth_change ? 1 : 0);
 }
 
 // Called from renderShadow once the cascade's render map is sorted and its matrices are loaded, with the
@@ -14635,8 +14752,12 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
     // While the cascade moves (camera moving), the cached depth can't match and storing it is wasted:
     // no hash and no copy into the cache until the projection holds still for an update.
     const bool keep = cache.mMatch || cache.mStill;
+    // FSPerfShadowStaticCacheStable: by the index count per region matrix, which a rebuild that only
+    // re-batches the same triangles (new draw infos and buffers) leaves as it was
+    const bool stable = fs_shadow_cache_stable();
     U64 hash = 0;
     U64 items = 0;
+    U64 indices = 0; // FSPerfShadowBatchStats
     for (U32 t = 0; keep && t < type_count; ++t)
     {
         for (LLCullResult::drawinfo_iterator i = beginRenderMap(types[t]), end = endRenderMap(types[t]); i != end; ++i)
@@ -14644,10 +14765,18 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
             const LLDrawInfo* params = *i;
             if (params && params->mCount && params->mVertexBuffer.notNull() && fsIsStaticShadowBatch(params))
             {
-                hash += mix((U64)(uintptr_t)params ^ mix((U64)(uintptr_t)params->mVertexBuffer.get()) ^
-                            mix(((U64)params->mOffset << 32) | params->mCount) ^
-                            mix(((U64)params->mStart << 16) | params->mEnd) ^ mix((U64)(uintptr_t)params->mModelMatrix));
-                ++items;
+                if (stable)
+                {
+                    hash += mix((U64)(uintptr_t)params->mModelMatrix) * (U64)params->mCount;
+                }
+                else
+                {
+                    hash += mix((U64)(uintptr_t)params ^ mix((U64)(uintptr_t)params->mVertexBuffer.get()) ^
+                                mix(((U64)params->mOffset << 32) | params->mCount) ^
+                                mix(((U64)params->mStart << 16) | params->mEnd) ^ mix((U64)(uintptr_t)params->mModelMatrix));
+                    ++items;
+                }
+                indices += params->mCount;
             }
         }
     }
@@ -14666,6 +14795,7 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
                     hash += mix((U64)(uintptr_t)face ^ mix((U64)(uintptr_t)face->getVertexBuffer()) ^
                                 mix(((U64)(U32)face->getIndicesStart() << 32) | face->getIndicesCount()));
                     ++items;
+                    indices += face->getIndicesCount();
                 }
             }
         }
@@ -14688,6 +14818,8 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
     static U32 hits = 0;
     static U32 misses = 0;
     static LLFrameTimer stats_timer;
+    static U32 miss_reasons[FS_SC_MISS_COUNT] = {}; // why it was re-rendered
+    static U32 not_kept = 0;                        // and how often it then couldn't be stored
 
     const S32 width = (S32)shadow.getWidth();
     const S32 height = (S32)shadow.getHeight();
@@ -14698,6 +14830,29 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
     }
     else
     {
+        // FSPerfShadowBatchStats: the first of these that applies
+        U32 reason = FS_SC_MISS_VIEW;
+        if (!cache.mValid)
+        {
+            reason = cache.mInvalidReason;
+        }
+        else if (cache.mTex != shadow.getDepth())
+        {
+            reason = FS_SC_MISS_TEXTURE;
+        }
+        else if (!cache.mMatch)
+        {
+            reason = (cache.mChanges & FS_SC_SUN) ? FS_SC_MISS_SUN :
+                     (cache.mChanges & FS_SC_DEPTH) ? FS_SC_MISS_DEPTH :
+                     (cache.mChanges & FS_SC_WINDOW) ? FS_SC_MISS_WINDOW : FS_SC_MISS_VIEW;
+        }
+        else
+        {
+            reason = cache.mItems != indices ? FS_SC_MISS_LIST_SIZE : FS_SC_MISS_LIST_SAME_SIZE;
+        }
+        ++miss_reasons[llmin(reason, (U32)FS_SC_MISS_COUNT - 1)];
+        not_kept += keep ? 0 : 1;
+
         mFSShadowCasterFilter = FS_SHADOW_STATIC;
 
         gDeferredShadowProgram.bind(false);
@@ -14719,6 +14874,9 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
             cache.mHash = hash;
             cache.mTex = shadow.getDepth();
             cache.mValid = true;
+            cache.mItems = indices;                 // FSPerfShadowBatchStats
+            cache.mChanges = 0;
+            cache.mInvalidReason = FS_SC_MISS_NEW;
         }
         ++misses;
     }
@@ -14729,7 +14887,23 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
 
     if (batch_stats && stats_timer.getElapsedTimeF32() >= 10.f)
     {
-        LL_INFOS("FSShadowBatches") << "Static shadow cache: " << hits << " reused, " << misses << " re-rendered far cascade updates" << LL_ENDL;
+        //LL_INFOS("FSShadowBatches") << "Static shadow cache: " << hits << " reused, " << misses << " re-rendered far cascade updates" << LL_ENDL;
+        std::string why;
+        for (U32 r = 0; r < FS_SC_MISS_COUNT; ++r)
+        {
+            if (miss_reasons[r])
+            {
+                why += llformat("%s%s %u", why.empty() ? "" : ", ", FS_SC_MISS_NAMES[r], miss_reasons[r]);
+            }
+            miss_reasons[r] = 0;
+        }
+        if (misses)
+        {
+            why = llformat("; re-rendered because: %s; %u of them not stored, the projection moved since the last update", why.c_str(), not_kept);
+        }
+        LL_INFOS("FSShadowBatches") << "Static shadow cache: " << hits << " reused, " << misses << " re-rendered far cascade updates"
+                                    << why << " (stable windows " << (stable ? "on" : "off") << ")" << LL_ENDL;
+        not_kept = 0;
         hits = 0;
         misses = 0;
         stats_timer.reset();
@@ -18779,6 +18953,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 // The split distances still follow the visible receivers. Keep each cascade's size while
                 // they drift, and only step it when the slice outgrows it or shrinks well inside it.
                 static F32 snap_radius[4] = { 0.f, 0.f, 0.f, 0.f };
+                const F32 slice_radius = radius; // FSPerfShadowStaticCacheStable
                 if (radius > snap_radius[j] || radius < snap_radius[j] * 0.7f)
                 {
                     const F32 step = powf(2.f, floorf(log2f(radius)) - 4.f);
@@ -18793,8 +18968,10 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 // light space position of the agent frame origin, the fixed point of the texel grid
                 const glm::vec3 grid_origin = mul_mat4_vec3(view[j], glm::vec3(0.f, 0.f, 0.f));
                 const glm::vec3 snap_center = mul_mat4_vec3(view[j], glm::vec3(sphere_center));
-                const F32 left = floorf((snap_center.x - radius - grid_origin.x) / texel_x) * texel_x + grid_origin.x;
-                const F32 bottom = floorf((snap_center.y - radius - grid_origin.y) / texel_y) * texel_y + grid_origin.y;
+                F32 left = floorf((snap_center.x - radius - grid_origin.x) / texel_x) * texel_x + grid_origin.x;
+                F32 bottom = floorf((snap_center.y - radius - grid_origin.y) / texel_y) * texel_y + grid_origin.y;
+                // FSPerfShadowStaticCacheStable: a cached far cascade keeps its window while the slice fits in it
+                fsShadowCacheSnapWindow(j, snap_center, slice_radius, texel_x, texel_y, grid_origin, left, bottom);
 
                 // depth range from the receivers as before, so the shadow bias means the same; casters
                 // outside it are depth clamped

@@ -315,7 +315,8 @@ void LLSpatialGroup::expandExtents(const LLVector4a* addingExtents, const LLXfor
 // <FS:Trish> FSPerfShadowStaticCache: report static geometry changes (agent space extents) to the
 // far sun cascade cache and the projector shadow cache (FSPerfSpotShadowCache). Bridged partitions
 // are skipped: their batches are always drawn as dynamic.
-static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a* extents)
+// no_depth_change: a rebuild that moved no vertex (FSPerfShadowStaticCacheStable, see fs_group_moves_vertices)
+static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a* extents, bool no_depth_change = false)
 {
     if ((!gPipeline.mFSShadowCacheInUse && !gPipeline.mFSSpotCacheInUse) || !group || !extents)
     {
@@ -327,7 +328,28 @@ static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a
     {
         return;
     }
-    gPipeline.fsNoteShadowStaticChange(extents);
+    gPipeline.fsNoteShadowStaticChange(extents, no_depth_change);
+}
+
+// FSPerfShadowStaticCacheStable: whether a rebuild of the group can move vertices, read before the rebuild
+// clears the flags. Only a drawable whose volume (shape, detail, sculpt or mesh) or vertex positions changed
+// can; colour, texture coordinate and material changes rebuild the same triangles in the same places.
+// Faces that change pass (turning alpha) are seen by the far shadow cache's draw list hash instead.
+static bool fs_group_moves_vertices(LLSpatialGroup* group)
+{
+    if (!gPipeline.mFSShadowCacheInUse)
+    {
+        return true; // nobody asks
+    }
+    for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
+    {
+        LLDrawable* drawablep = (LLDrawable*)(*i)->getDrawable();
+        if (!drawablep || drawablep->isState(LLDrawable::REBUILD_VOLUME | LLDrawable::REBUILD_POSITION))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 // </FS:Trish>
 
@@ -364,10 +386,12 @@ void LLSpatialGroup::rebuildGeom()
         // shrank in place would keep its old, larger shadow in the cache
         const bool fs_geom_dirty = hasState(LLSpatialGroup::GEOM_DIRTY);
         LLVector4a fs_before[2];
+        bool fs_moves = true; // FSPerfShadowStaticCacheStable
         if (fs_geom_dirty)
         {
             fs_before[0] = getObjectExtents()[0];
             fs_before[1] = getObjectExtents()[1];
+            fs_moves = fs_group_moves_vertices(this);
         }
         // </FS:Trish>
         getSpatialPartition()->rebuildGeom(this);
@@ -376,12 +400,16 @@ void LLSpatialGroup::rebuildGeom()
         {
             //fs_note_static_shadow_change(this, getObjectExtents());
             LLVector4a fs_changed[2] = { getObjectExtents()[0], getObjectExtents()[1] };
+            // FSPerfShadowStaticCacheStable: no vertex moved, and the bounds are the same
+            const bool fs_no_depth_change = !fs_moves && !fs_before[0].equals3(fs_before[1]) &&
+                                            fs_before[0].equals3(fs_changed[0]) && fs_before[1].equals3(fs_changed[1]);
             if (!fs_before[0].equals3(fs_before[1]))    // a group never built has empty extents
             {
                 fs_changed[0].setMin(fs_before[0], fs_changed[0]);
                 fs_changed[1].setMax(fs_before[1], fs_changed[1]);
             }
-            fs_note_static_shadow_change(this, fs_changed);
+            //fs_note_static_shadow_change(this, fs_changed);
+            fs_note_static_shadow_change(this, fs_changed, fs_no_depth_change);
         }
         // </FS:Trish>
 
@@ -399,7 +427,8 @@ void LLSpatialGroup::rebuildMesh()
         // <FS:Trish> FSPerfShadowStaticCache
         if (hasState(LLSpatialGroup::MESH_DIRTY))
         {
-            fs_note_static_shadow_change(this, getObjectExtents());
+            //fs_note_static_shadow_change(this, getObjectExtents());
+            fs_note_static_shadow_change(this, getObjectExtents(), !fs_group_moves_vertices(this)); // FSPerfShadowStaticCacheStable
         }
         // </FS:Trish>
         getSpatialPartition()->rebuildMesh(this);

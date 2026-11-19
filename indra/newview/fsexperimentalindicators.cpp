@@ -357,6 +357,7 @@ namespace
         { "FSPerfShadowMergedBatches", CS, VN },
         { "FSPerfShadowStaticCache", CS, VN },
         { "FSPerfShadowStaticCacheSunAngle", CS, VN },
+        { "FSPerfShadowStaticCacheStable", CS, VN },
         { "FSPerfShadowSinglePass", CS, VN },
         { "FSPerfSpotShadowCache", CS, VN },
         { "FSPerfSpotShadowSplit", CS, VN },

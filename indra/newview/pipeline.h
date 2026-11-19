@@ -301,9 +301,20 @@ public:
         F32             mDepthNear = 0.f;           // world anchored, snapped light space depth range
         F32             mDepthFar = 0.f;
         bool            mDepthSet = false;
+        // FSPerfShadowStaticCacheStable: where the map window is on the world anchored texel grid, in texels
+        F64             mWindowX = 0.0;
+        F64             mWindowY = 0.0;
+        F32             mWindowTexelX = 0.f;        // texel size it was placed with
+        F32             mWindowTexelY = 0.f;
+        bool            mWindowSet = false;
+        // FSPerfShadowBatchStats: why the target can't be reused (miss reasons)
+        U32             mChanges = 0;               // projection steps since the target was stored
+        U32             mInvalidReason = 0;         // what dropped it, while not valid
+        U64             mItems = 0;                 // index count of the static casters it holds
     };
     FSShadowCache           mFSShadowCache[2];      // sun cascades 2 and 3
     std::vector<LLVector4a> mFSShadowDirty;         // agent space extents (min, max) of changed static geometry
+    std::vector<U8>         mFSShadowDirtyChurn;    // per extents pair: a rebuild that moved no vertex (colour, texture)
     std::vector<const LLMatrix4*> mFSShadowStaticMatrices; // region render matrices: model matrix of static batches
     bool                    mFSShadowDirtyAll = false;
     bool                    mFSShadowCacheInUse = false;
@@ -312,12 +323,14 @@ public:
     void fsShadowCacheBeginFrame(bool texel_snap);
     LLVector3 fsShadowCacheLightDir(S32 cascade, const LLVector3& light_dir);
     void fsShadowCacheSnapDepth(S32 cascade, F32 grid_z, F32& znear, F32& zfar);
+    void fsShadowCacheSnapWindow(S32 cascade, const glm::vec3& center, F32 slice_radius, F32 texel_x, F32 texel_y,
+                                 const glm::vec3& grid_origin, F32& left, F32& bottom);
     void fsShadowCacheBeginCascade(S32 cascade, const glm::mat4& proj, const glm::mat4& view);
     void fsShadowCacheEndCascade();
     void fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* types, U32 type_count);
     bool fsIsStaticShadowBatch(const LLDrawInfo* params) const;
     bool fsShadowPoolAllowed(U32 pool_type) const;
-    void fsNoteShadowStaticChange(const LLVector4a* extents);
+    void fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change = false);
     void fsReleaseShadowCache();
     // </FS:Trish>
     // <FS:Trish> FSPerfShadowSinglePass (fsshadowsinglepass.cpp): the sun cascades record their opaque and
