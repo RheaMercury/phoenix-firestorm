@@ -34,7 +34,33 @@
 #include <unordered_set>
 #include <vector>
 
+class LLFace;
+class LLTextureEntry;
 class LLViewerFetchedTexture;
+
+// Two corrections both face loops (updateImageDecodePriority and FSParallelTexture's) make to a face's
+// virtual size. Read on the main thread once per sweep or call (current()); the checks only read.
+//  - FSTexturePriorityHiddenFaces: a face in a group the main camera's occlusion test has found hidden for
+//    FSTexturePriorityHiddenGrace seconds counts as off screen (its textures take the texture bias, and
+//    get no camera boost), like a face outside the view. The grace keeps a texture sharp behind something
+//    passing in front of it, and the results being a frame or more late; a face that comes back into view
+//    counts as on screen again at once.
+//  - FSTexturePriorityGLTFScale: on a face with a GLTF material, its PBR textures use the repeats of the
+//    material's texture transform for their channel (which is what draws them), not the face's legacy
+//    texture repeats (which GLTF materials don't use).
+struct FSTextureFaceBias
+{
+    bool mHidden = false;
+    bool mGLTFScale = false;
+    F32 mGrace = 0.f;
+    F64 mNow = 0.0;
+
+    static FSTextureFaceBias current();
+    // face->mInFrustum, unless hidden as above
+    bool inView(const LLFace* face) const;
+    // the smaller of the face's texture repeats in S and T for a texture in channel (LLRender::eTexIndex)
+    F32 repeats(const LLTextureEntry* te, U32 channel) const;
+};
 
 // What the face loop of LLViewerTextureList::updateImageDecodePriority produces for one texture:
 // the largest biased face virtual size, whether any face was in the frustum, and the number of

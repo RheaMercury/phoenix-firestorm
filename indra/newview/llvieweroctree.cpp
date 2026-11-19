@@ -944,6 +944,13 @@ void LLOcclusionCullingGroup::setOcclusionState(U32 state, S32 mode /* = STATE_M
         {
             add(sNumObjectsOccluded, 1);
         }
+        // <FS:Trish> FSTexturePriorityHiddenFaces: when the main camera's test started finding it hidden
+        if ((state & OCCLUDED) && LLViewerCamera::sCurCameraID == LLViewerCamera::CAMERA_WORLD &&
+            !(mOcclusionState[LLViewerCamera::CAMERA_WORLD] & OCCLUDED))
+        {
+            mFSOccludedSince = LLFrameTimer::getElapsedSeconds();
+        }
+        // </FS:Trish>
         mOcclusionState[LLViewerCamera::sCurCameraID] |= state;
         if ((state & DISCARD_QUERY) && mOcclusionQuery[LLViewerCamera::sCurCameraID])
         {
@@ -969,6 +976,12 @@ void LLOcclusionCullingGroup::setOcclusionState(U32 state, S32 mode /* = STATE_M
         break;
 
     case STATE_MODE_ALL_CAMERAS:
+        // <FS:Trish> FSTexturePriorityHiddenFaces
+        if ((state & OCCLUDED) && !(mOcclusionState[LLViewerCamera::CAMERA_WORLD] & OCCLUDED))
+        {
+            mFSOccludedSince = LLFrameTimer::getElapsedSeconds();
+        }
+        // </FS:Trish>
         for (U32 i = 0; i < LLViewerCamera::NUM_CAMERAS; i++)
         {
             mOcclusionState[i] |= state;

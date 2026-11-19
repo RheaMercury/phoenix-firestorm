@@ -69,7 +69,11 @@
 #include "fsparalleltexture.h"
 
 #include "llappviewer.h"
+#include "lldrawable.h"
 #include "llface.h"
+#include "llgltfmaterial.h"
+#include "llspatialpartition.h"
+#include "pipeline.h"
 #include "llimagegl.h"
 #include "llrender.h"
 #include "lltextureentry.h"
@@ -349,6 +353,56 @@ namespace
 
 }
 
+//static
+FSTextureFaceBias FSTextureFaceBias::current()
+{
+    static LLCachedControl<bool> hidden_faces(gSavedSettings, "FSTexturePriorityHiddenFaces", false);
+    static LLCachedControl<F32> hidden_grace(gSavedSettings, "FSTexturePriorityHiddenGrace", 3.f);
+    static LLCachedControl<bool> gltf_scale(gSavedSettings, "FSTexturePriorityGLTFScale", false);
+    FSTextureFaceBias bias;
+    bias.mHidden = hidden_faces && LLPipeline::sUseOcclusion > 1;
+    bias.mGLTFScale = gltf_scale;
+    bias.mGrace = llmax((F32)hidden_grace, 0.f);
+    bias.mNow = LLFrameTimer::getElapsedSeconds();
+    return bias;
+}
+
+bool FSTextureFaceBias::inView(const LLFace* face) const
+{
+    if (!face->mInFrustum)
+    {
+        return false;
+    }
+    if (!mHidden)
+    {
+        return true;
+    }
+    // the group of the face's drawable (for a moving object, a group of its bridge's own tree)
+    const LLDrawable* drawable = face->getDrawable();
+    const LLSpatialGroup* group = drawable ? drawable->getSpatialGroup() : nullptr;
+    return !(group && group->fsHiddenFor(mNow, mGrace));
+}
+
+F32 FSTextureFaceBias::repeats(const LLTextureEntry* te, U32 channel) const
+{
+    if (mGLTFScale && channel >= LLRender::BASECOLOR_MAP && channel <= LLRender::EMISSIVE_MAP)
+    {
+        const LLGLTFMaterial* mat = te->getGLTFRenderMaterial();
+        if (mat)
+        {
+            static const LLGLTFMaterial::TextureInfo info[] = {
+                LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR,           // BASECOLOR_MAP
+                LLGLTFMaterial::GLTF_TEXTURE_INFO_METALLIC_ROUGHNESS,   // METALLIC_ROUGHNESS_MAP
+                LLGLTFMaterial::GLTF_TEXTURE_INFO_NORMAL,               // GLTF_NORMAL_MAP
+                LLGLTFMaterial::GLTF_TEXTURE_INFO_EMISSIVE,             // EMISSIVE_MAP
+            };
+            const LLVector2& scale = mat->mTextureTransform[info[channel - LLRender::BASECOLOR_MAP]].mScale;
+            return llmin(fabsf(scale.mV[VX]), fabsf(scale.mV[VY]));
+        }
+    }
+    return llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT()));
+}
+
 // Inputs of the face loop read once on the main thread.
 struct FSParallelTexture::Params
 {
@@ -357,6 +411,7 @@ struct FSParallelTexture::Params
     F32 mScaleMin;          // TextureScaleMinAreaFactor
     F32 mScaleMax;          // TextureScaleMaxAreaFactor
     F32 mCameraBoost;       // TextureCameraBoost
+    FSTextureFaceBias mFaceBias;
 };
 
 // Step 4: the face loop of LLViewerTextureList::updateImageDecodePriority without the
@@ -391,12 +446,16 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
             {
                 F32 vsize = face->getPixelArea();
 
-                on_screen |= face->mInFrustum;
+                // FSTexturePriorityHiddenFaces: as in updateImageDecodePriority
+                const bool in_view = p.mFaceBias.inView(face);
+                on_screen |= in_view;
 
                 S32 te_offset = face->getTEOffset();  // offset is -1 if not inited
                 LLViewerObject* objp = face->getViewerObject();
                 const LLTextureEntry* te = (te_offset < 0 || te_offset >= objp->getNumTEs()) ? nullptr : objp->getTE(te_offset);
-                F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
+                // FSTexturePriorityGLTFScale: as in updateImageDecodePriority
+                //F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
+                F32 min_scale = te ? p.mFaceBias.repeats(te, i) : 1.f;
                 if (te && objp->getPCode() == LL_PCODE_VOLUME)
                 {
                     const LLViewerTextureAnim* anim = static_cast<LLVOVolume*>(objp)->mTextureAnimp;
@@ -409,12 +468,12 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 min_scale = llclamp(min_scale * min_scale, p.mScaleMin, p.mScaleMax);
                 vsize /= min_scale;
 
-                if (!face->mInFrustum || p.mDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
+                if (!in_view || p.mDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
                 {
                     vsize /= bias;
                 }
 
-                if (face->mInFrustum)
+                if (in_view)
                 {
                     vsize *= llmax(face->mImportanceToCamera * p.mCameraBoost, 1.f);
                 }
@@ -623,6 +682,7 @@ bool FSParallelTexture::prepare(const entries_t& entries, const skip_set_t& skip
         params.mScaleMin = texture_scale_min();
         params.mScaleMax = texture_scale_max();
         params.mCameraBoost = texture_camera_boost();
+        params.mFaceBias = FSTextureFaceBias::current();
 
         std::function<void(U32)> job = [&params](U32 chunk)
         {

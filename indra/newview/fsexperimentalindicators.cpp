@@ -363,6 +363,9 @@ namespace
         { "RenderTextureMemoryUsageBias", CM, VM },
         { "TextureFetchPipelineDiagnostics", CL, VN },
         { "FSTextureFetchSelfHeal", CL, VN },
+        { "FSTexturePriorityHiddenFaces", CL, VM },
+        { "FSTexturePriorityHiddenGrace", CL, VN },
+        { "FSTexturePriorityGLTFScale", CL, VM },
 
         // Avatar
         { "FSExperimentalRepairAnimations", CL, VN },

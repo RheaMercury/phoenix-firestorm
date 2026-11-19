@@ -1087,6 +1087,11 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
         // convert bias into a vsize scaler
         bias = (F32) llroundf(powf(4, bias - 1.f));
 
+        // <FS:Trish> FSTexturePriorityHiddenFaces, FSTexturePriorityGLTFScale (the face loop of
+        // FSParallelTexture::reduceFaces makes the same corrections)
+        const FSTextureFaceBias face_bias = fs_pre ? FSTextureFaceBias() : FSTextureFaceBias::current();
+        // </FS:Trish>
+
         LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
         // <FS:Trish> FSPerfParallelTexturePriority
         //for (U32 i = 0; i < LLRender::NUM_TEXTURE_CHANNELS; ++i)
@@ -1115,7 +1120,12 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
 
                     F32 vsize = face->getPixelArea();
 
-                    on_screen |= face->mInFrustum;
+                    // <FS:Trish> FSTexturePriorityHiddenFaces: a face hidden by the occlusion test for a while
+                    // counts as off screen
+                    //on_screen |= face->mInFrustum;
+                    const bool in_view = face_bias.inView(face);
+                    on_screen |= in_view;
+                    // </FS:Trish>
 
                     // Scale desired texture resolution higher or lower depending on texture scale
                     //
@@ -1128,7 +1138,10 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                     S32 te_offset = face->getTEOffset();  // offset is -1 if not inited
                     LLViewerObject* objp = face->getViewerObject();
                     const LLTextureEntry* te = (te_offset < 0 || te_offset >= objp->getNumTEs()) ? nullptr : objp->getTE(te_offset);
-                    F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
+                    // <FS:Trish> FSTexturePriorityGLTFScale: the GLTF texture transform's repeats for PBR channels
+                    //F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
+                    F32 min_scale = te ? face_bias.repeats(te, i) : 1.f;
+                    // </FS:Trish>
                     // <FS:Trish> texture animation screw up their own resolution
                     if (te && objp->getPCode() == LL_PCODE_VOLUME)
                     {
@@ -1145,13 +1158,19 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
 
                     // apply bias to offscreen faces all the time, but only to onscreen faces when bias is large
                     // use mImportanceToCamera to make bias switch a bit more gradual
-                    if (!face->mInFrustum || LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
+                    // <FS:Trish> FSTexturePriorityHiddenFaces
+                    //if (!face->mInFrustum || LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
+                    if (!in_view || LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
+                    // </FS:Trish>
                     {
                         vsize /= bias;
                     }
 
                     // boost resolution of textures that are important to the camera
-                    if (face->mInFrustum)
+                    // <FS:Trish> FSTexturePriorityHiddenFaces
+                    //if (face->mInFrustum)
+                    if (in_view)
+                    // </FS:Trish>
                     {
                         static LLCachedControl<F32> texture_camera_boost(gSavedSettings, "TextureCameraBoost", 8.f);
                         vsize *= llmax(face->mImportanceToCamera*texture_camera_boost, 1.f);

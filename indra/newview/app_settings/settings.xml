@@ -27108,6 +27108,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSTexturePriorityHiddenFaces</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. In the texture priority pass, faces in groups the main view occlusion test has found hidden for FSTexturePriorityHiddenGrace seconds count as off screen: their textures take the texture bias and get no camera boost, like faces outside the view. Only matters while the bias is above 1.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSTexturePriorityHiddenGrace</key>
+    <map>
+      <key>Comment</key>
+      <string>FSTexturePriorityHiddenFaces: seconds (0 to 30) a face must stay hidden by the occlusion test before it counts as off screen.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>3.0</real>
+    </map>
+    <key>FSTexturePriorityGLTFScale</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. In the texture priority pass, the PBR textures of a face with a GLTF material use the repeats of the material texture transform of their channel instead of the face legacy texture repeats (which GLTF materials do not use).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfRebuildTimeBudget</key>
     <map>
       <key>Comment</key>

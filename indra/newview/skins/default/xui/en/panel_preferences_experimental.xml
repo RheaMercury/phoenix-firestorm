@@ -6280,7 +6280,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="567"
+                 height="645"
                  layout="topleft"
                  left="0"
                  name="experimental_textures_settings"
@@ -6608,6 +6608,55 @@
                      name="texture_fetch_self_heal"
                      tool_tip="EXPERIMENTAL. If textures sit waiting for a download slot while no texture downloads are actually running, give the slots back so loading continues. Logged under Texture."
                      top="525"
+                     width="475" />
+                    <check_box
+                     control_name="FSTexturePriorityHiddenFaces"
+                     follows="left|top"
+                     height="20"
+                     label="Reduce textures hidden behind other objects first"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstexturepriorityhiddenfaces"
+                     tool_tip="EXPERIMENTAL. Textures seen only on surfaces the occlusion test has found hidden behind other objects for a few seconds are treated like textures off screen: when video memory runs short they are reduced first, and they no longer get the close-up boost. Surfaces that come back into view count as visible again at once. Has an effect only while textures are being reduced to save memory."
+                     top="551"
+                     width="475" />
+                    <text
+                     enabled_control="FSTexturePriorityHiddenFaces"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fstexturepriorityhiddengrace_label"
+                     tool_tip="EXPERIMENTAL. How long, in seconds, a surface must stay hidden behind other objects before its textures are treated like textures off screen. Longer keeps textures sharp behind things passing in front of them."
+                     top="577"
+                     width="285">
+                        Seconds hidden before reducing
+                    </text>
+                    <spinner
+                     control_name="FSTexturePriorityHiddenGrace"
+                     decimal_digits="1"
+                     enabled_control="FSTexturePriorityHiddenFaces"
+                     follows="left|top"
+                     height="20"
+                     increment="0.5"
+                     layout="topleft"
+                     left="330"
+                     max_val="30"
+                     min_val="0"
+                     name="fs_fstexturepriorityhiddengrace"
+                     tool_tip="EXPERIMENTAL. How long, in seconds, a surface must stay hidden behind other objects before its textures are treated like textures off screen. Longer keeps textures sharp behind things passing in front of them."
+                     top="575"
+                     width="100" />
+                    <check_box
+                     control_name="FSTexturePriorityGLTFScale"
+                     follows="left|top"
+                     height="20"
+                     label="Choose PBR texture detail from the material's texture repeats"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstexturepriorityglftscale"
+                     tool_tip="EXPERIMENTAL. Choose the detail of PBR (GLTF) material textures from the repeats of the material's own texture transform, which is what draws them, instead of the face's legacy texture repeats, which PBR materials don't use. Textures repeated many times load less detail, stretched ones more."
+                     top="601"
                      width="475" />
                 </panel>
             </scroll_container>

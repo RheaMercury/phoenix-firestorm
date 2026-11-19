@@ -303,6 +303,13 @@ public:
     void doOcclusion(LLCamera* camera, const LLVector4a* shift = NULL); //issue occlusion query
     bool isOcclusionState(U32 state) const { return mOcclusionState[LLViewerCamera::sCurCameraID] & state; }
     U32  getOcclusionState() const { return mOcclusionState[LLViewerCamera::sCurCameraID];}
+    // <FS:Trish> FSTexturePriorityHiddenFaces: the main camera's occlusion test has found this group hidden,
+    // continuously for at least seconds (frame time, LLFrameTimer::getElapsedSeconds)
+    bool fsHiddenFor(F64 now, F32 seconds) const
+    {
+        return (mOcclusionState[LLViewerCamera::CAMERA_WORLD] & OCCLUDED) && now - mFSOccludedSince >= (F64)seconds;
+    }
+    // </FS:Trish>
 
     bool needsUpdate();
     U32  getLastOcclusionIssuedTime();
@@ -333,6 +340,7 @@ protected:
     U32                      mOcclusionQuery[LLViewerCamera::NUM_CAMERAS];
     U32                      mOcclusionCheckCount[LLViewerCamera::NUM_CAMERAS];
     U32                      mOcclusionCheckFrame[LLViewerCamera::NUM_CAMERAS]; // <FS:Trish/> frame of the last timeout count
+    F64                      mFSOccludedSince = 0.0; // <FS:Trish/> when the main camera's test last found it hidden after it wasn't
 
 public:
     static std::set<U32> sPendingQueries;
