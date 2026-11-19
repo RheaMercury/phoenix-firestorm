@@ -156,6 +156,11 @@ public:
     // their object's fade began (LLDrawable::mFSFadeStart); -1 for a batch that isn't fading
     F32 mFSFadeStart = -1.f;
     // </FS:Trish>
+    // <FS:Trish> Skin SSS (FSRenderSkinBakesOnly): the faces of this batch are textured with one of the
+    // avatar's bakes (Bakes on Mesh: an IMG_USE_BAKED_* diffuse, or PBR base colour), set by registerFace,
+    // which never puts bake and other faces in one batch
+    bool mFSSkinBake = false;
+    // </FS:Trish>
     // <FS:Trish> FSPerfShadowSinglePass: the sun shadow update that last recorded this batch, the list and
     // the index it went to there, so later cascades add their bit to that entry instead of a duplicate
     U32 mFSShadowSPStamp = 0;

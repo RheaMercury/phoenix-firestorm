@@ -7251,7 +7251,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1311"
+                 height="1339"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -7463,7 +7463,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength,FSRenderSkinTranslucencyLocal,FSRenderSkinSheen,FSRenderSkinSheenStrength,FSRenderSkinAlbedoSplit,FSRenderSkinAlbedoSplitAmount,FSRenderSkinEnergy,FSRenderSkinTapLOD" />
+                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinBakesOnly,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength,FSRenderSkinTranslucencyLocal,FSRenderSkinSheen,FSRenderSkinSheenStrength,FSRenderSkinAlbedoSplit,FSRenderSkinAlbedoSplitAmount,FSRenderSkinEnergy,FSRenderSkinTapLOD" />
                     </button>
                     <check_box
                      control_name="FSRenderSkinSSS"
@@ -7606,6 +7606,20 @@
                      tool_tip="EXPERIMENTAL. Sunlight shining through thin skin lit from behind: ears, fingers and nostrils glow red when the sun is behind the avatar. 1 is the physical amount, 0 is off. Needs sun shadows (thickness is measured in the sun shadow map); the radius above also scales how thick skin can be and still glow."
                      top="567"
                      width="100" />
+                    <!-- <FS:Trish> -->
+                    <check_box
+                     control_name="FSRenderSkinBakesOnly"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Only Bakes on Mesh is skin"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskinbakesonly"
+                     tool_tip="EXPERIMENTAL. Only rigged mesh faces that show your avatar&apos;s bakes (Bakes on Mesh) count as skin. Mesh clothing, hair, jewellery and animesh attachments (ears, tails) are never treated as skin, whatever their colour; the system avatar still is. Applier skins (textures put on the body directly, not Bakes on Mesh) need this off, and are then judged by colour as before."
+                     top="595"
+                     width="455" />
+                    <!-- </FS:Trish> -->
                     <check_box
                      control_name="FSRenderSkinDetectMaterial"
                      enabled_control="FSRenderSkinSSS"
@@ -7616,7 +7630,7 @@
                      left="35"
                      name="fs_fsrenderskindetectmaterial"
                      tool_tip="EXPERIMENTAL. Judge what is skin by its material as well as its colour: skin is non-metallic with medium roughness, while most cloth is rougher and jewellery metallic or very glossy. Keeps scattering off beige clothing and lets the colour test take in pale, very dark and fantasy skins. The system avatar&apos;s bakes have no material, so there colour still decides. Rebuilds shaders when changed."
-                     top="595"
+                     top="623"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7625,7 +7639,7 @@
                      left="35"
                      name="fs_fsrenderskintonerange_label"
                      tool_tip="EXPERIMENTAL. With material detection on: how far the skin colour test opens up. 0 is the human tone range, 1 takes any hue and very pale or very dark skin; the material test keeps clothing out instead."
-                     top="625"
+                     top="653"
                      width="285">
                         Skin colour range
                     </text>
@@ -7642,7 +7656,7 @@
                      min_val="0"
                      name="fs_fsrenderskintonerange"
                      tool_tip="EXPERIMENTAL. With material detection on: how far the skin colour test opens up. 0 is the human tone range, 1 takes any hue and very pale or very dark skin; the material test keeps clothing out instead."
-                     top="623"
+                     top="651"
                      width="100" />
                     <check_box
                      control_name="FSRenderSkinDebug"
@@ -7654,7 +7668,7 @@
                      left="35"
                      name="fs_fsrenderskindebug"
                      tool_tip="EXPERIMENTAL. Debug view: avatar surfaces are tinted green as far as they count as skin, red where the colour test turns them down and blue where the material test does. Replaces the scattering while on."
-                     top="651"
+                     top="679"
                      width="455" />
                     <check_box
                      control_name="FSRenderSkinDualSpecular"
@@ -7666,7 +7680,7 @@
                      left="35"
                      name="fs_fsrenderskindualspecular"
                      tool_tip="EXPERIMENTAL. Skin shines with two highlights in one: a sharp one from its oily surface and a broad, soft one from fine wrinkles and pores, as film and game character shading does. Applies to the sun and local lights, at skin&apos;s own reflectance and with the same total brightness as one highlight. Legacy skins without a specular map get a skin highlight too. Rebuilds shaders when changed."
-                     top="679"
+                     top="707"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7675,7 +7689,7 @@
                      left="35"
                      name="fs_fsrenderskinspecularmix_label"
                      tool_tip="EXPERIMENTAL. How much of the skin&apos;s highlight is the sharp lobe; the broad, soft lobe gets the rest. 0.85 is the usual split; lower looks softer and more matte."
-                     top="709"
+                     top="737"
                      width="285">
                         Sharp highlight share
                     </text>
@@ -7692,7 +7706,7 @@
                      min_val="0"
                      name="fs_fsrenderskinspecularmix"
                      tool_tip="EXPERIMENTAL. How much of the skin&apos;s highlight is the sharp lobe; the broad, soft lobe gets the rest. 0.85 is the usual split; lower looks softer and more matte."
-                     top="707"
+                     top="735"
                      width="100" />
                     <check_box
                      control_name="FSRenderSkinWarmShadows"
@@ -7704,7 +7718,7 @@
                      left="35"
                      name="fs_fsrenderskinwarmshadows"
                      tool_tip="EXPERIMENTAL. Creases, eye sockets and the soft edges of shadows on skin go warm red instead of grey, as light scattered under the skin fills them red first. Works on ambient occlusion and the sun&apos;s shadow. Rebuilds shaders when changed."
-                     top="735"
+                     top="763"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7713,7 +7727,7 @@
                      left="35"
                      name="fs_fsrenderskinwarmshadowstrength_label"
                      tool_tip="EXPERIMENTAL. How warm skin creases and shadow edges get. 0 leaves them grey, 1 is strongly red; 0.5 is subtle."
-                     top="765"
+                     top="793"
                      width="285">
                         Warmth
                     </text>
@@ -7730,7 +7744,7 @@
                      min_val="0"
                      name="fs_fsrenderskinwarmshadowstrength"
                      tool_tip="EXPERIMENTAL. How warm skin creases and shadow edges get. 0 leaves them grey, 1 is strongly red; 0.5 is subtle."
-                     top="763"
+                     top="791"
                      width="100" />
                     <check_box
                      control_name="FSRenderSkinTranslucencyLocal"
@@ -7742,7 +7756,7 @@
                      left="35"
                      name="fs_fsrenderskintranslucencylocal"
                      tool_tip="EXPERIMENTAL. Local lights (club lights, lamps, projectors) behind thin skin shine through it: ear rims and fingers glow red when a light is behind them. Point lights have no shadows, so how thin the skin is gets estimated from how strongly it curves; cheeks and the back of the head stay dark. Uses the backlit translucency strength above. Rebuilds shaders when changed."
-                     top="791"
+                     top="819"
                      width="455" />
                     <check_box
                      control_name="FSRenderSkinSheen"
@@ -7754,7 +7768,7 @@
                      left="35"
                      name="fs_fsrenderskinsheen"
                      tool_tip="EXPERIMENTAL. A faint soft glow along the edges of skin seen at a grazing angle, as the fine hair on skin (peach fuzz) catches the sun and the sky light. Rebuilds shaders when changed."
-                     top="819"
+                     top="847"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7763,7 +7777,7 @@
                      left="35"
                      name="fs_fsrenderskinsheenstrength_label"
                      tool_tip="EXPERIMENTAL. How strong the rim sheen on skin is. Low values read as soft skin, high ones as velvet."
-                     top="849"
+                     top="877"
                      width="285">
                         Sheen strength
                     </text>
@@ -7780,7 +7794,7 @@
                      min_val="0"
                      name="fs_fsrenderskinsheenstrength"
                      tool_tip="EXPERIMENTAL. How strong the rim sheen on skin is. Low values read as soft skin, high ones as velvet."
-                     top="847"
+                     top="875"
                      width="100" />
                     <check_box
                      control_name="FSRenderSkinAlbedoSplit"
@@ -7792,7 +7806,7 @@
                      left="35"
                      name="fs_fsrenderskinalbedosplit"
                      tool_tip="EXPERIMENTAL. Part of the skin colour goes into the scattering blur instead of all of it after: the colour of freckles, lips and makeup bleeds a little into the skin around them, as under real skin. Rebuilds shaders when changed."
-                     top="877"
+                     top="905"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7801,7 +7815,7 @@
                      left="35"
                      name="fs_fsrenderskinalbedosplitamount_label"
                      tool_tip="EXPERIMENTAL. How much of the skin colour goes in before the blur: 0 none (as without the option), 1 half of it (the square root, as GPU Gems 3 recommends)."
-                     top="907"
+                     top="935"
                      width="285">
                         Colour bleed amount
                     </text>
@@ -7818,7 +7832,7 @@
                      min_val="0"
                      name="fs_fsrenderskinalbedosplitamount"
                      tool_tip="EXPERIMENTAL. How much of the skin colour goes in before the blur: 0 none (as without the option), 1 half of it (the square root, as GPU Gems 3 recommends)."
-                     top="905"
+                     top="933"
                      width="100" />
                     <check_box
                      control_name="FSRenderSkinEnergy"
@@ -7830,7 +7844,7 @@
                      left="35"
                      name="fs_fsrenderskinenergy"
                      tool_tip="EXPERIMENTAL. Light the skin's oily surface reflects as highlight does not also enter the skin: scattered light and backlit translucency are dimmed toward the edges of the face, where the surface reflects most, so rims do not glow brighter than the light allows. Rebuilds shaders when changed."
-                     top="935"
+                     top="963"
                      width="455" />
                     <check_box
                      control_name="FSRenderSkinTapLOD"
@@ -7842,7 +7856,7 @@
                      left="35"
                      name="fs_fsrenderskintaplod"
                      tool_tip="EXPERIMENTAL. Faces more than a metre or two away use a shorter blur (3 samples a side instead of 7) with the same overall spread. Saves about half of the skin scattering cost in crowds with no visible difference at that size. Rebuilds shaders when changed."
-                     top="963"
+                     top="991"
                      width="455" />
                     <text
                      follows="left|top"
@@ -7851,7 +7865,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_hair_and_transparency"
-                     top="1005"
+                     top="1033"
                      width="340">
                         Hair and transparency
                     </text>
@@ -7863,7 +7877,7 @@
                      left="370"
                      name="reset_fs_heading_hair_and_transparency"
                      tool_tip="Set every option in &quot;Hair and transparency&quot; back to its default value."
-                     top="1004"
+                     top="1032"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7878,7 +7892,7 @@
                      left="15"
                      name="fs_fsrenderhairtwopass"
                      tool_tip="EXPERIMENTAL. Draws alpha-blended rigged mesh (hair, layered clothing) as a depth-sorted solid core and a blended soft fringe, so inner layers stop showing through outer ones. Costs roughly two extra draws of rigged alpha. Rebuilds shaders when changed."
-                     top="1031"
+                     top="1059"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7887,7 +7901,7 @@
                      left="35"
                      name="fs_fsrenderhairalphathreshold_label"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="1059"
+                     top="1087"
                      width="285">
                         Hair solid alpha threshold
                     </text>
@@ -7903,7 +7917,7 @@
                      min_val="0.5"
                      name="fs_fsrenderhairalphathreshold"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="1057"
+                     top="1085"
                      width="100" />
                     <check_box
                      control_name="FSRenderAlphaHybridOIT"
@@ -7914,7 +7928,7 @@
                      left="15"
                      name="fs_fsrenderalphahybridoit"
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
-                     top="1085"
+                     top="1113"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7923,7 +7937,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_avatar_occlusion"
-                     top="1127"
+                     top="1155"
                      width="340">
                         Soft occlusion around avatars
                     </text>
@@ -7935,7 +7949,7 @@
                      left="370"
                      name="reset_fs_heading_avatar_occlusion"
                      tool_tip="Set every option in &quot;Soft occlusion around avatars&quot; back to its default value."
-                     top="1126"
+                     top="1154"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7950,7 +7964,7 @@
                      left="15"
                      name="fs_fsrenderavatarocclusion"
                      tool_tip="EXPERIMENTAL. Avatars darken the ambient light around them: the ground under their feet, a wall they stand by, the sofa they sit on, the avatar next to them. Each frame a few rounded shapes are fitted to the skeletons of the nearest avatars and their shade is worked out exactly, so it also works at night, indoors and with ambient occlusion or shadows off. Rebuilds shaders."
-                     top="1153"
+                     top="1181"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7959,7 +7973,7 @@
                      left="35"
                      name="fs_fsrenderavatarocclusionstrength_label"
                      tool_tip="EXPERIMENTAL. How dark the occlusion around avatars gets, 0-1."
-                     top="1181"
+                     top="1209"
                      width="285">
                         Strength
                     </text>
@@ -7976,7 +7990,7 @@
                      min_val="0"
                      name="fs_fsrenderavatarocclusionstrength"
                      tool_tip="EXPERIMENTAL. How dark the occlusion around avatars gets, 0-1."
-                     top="1179"
+                     top="1207"
                      width="100" />
                     <text
                      follows="left|top"
@@ -7985,7 +7999,7 @@
                      left="35"
                      name="fs_fsrenderavatarocclusionshadow_label"
                      tool_tip="EXPERIMENTAL. A broad soft shadow each avatar casts against the open sky above it, on the ambient light only (so mostly seen in shade, indoors and at night). 0 keeps only the occlusion close around the avatar."
-                     top="1209"
+                     top="1237"
                      width="285">
                         Shadow from the sky above
                     </text>
@@ -8002,7 +8016,7 @@
                      min_val="0"
                      name="fs_fsrenderavatarocclusionshadow"
                      tool_tip="EXPERIMENTAL. A broad soft shadow each avatar casts against the open sky above it, on the ambient light only (so mostly seen in shade, indoors and at night). 0 keeps only the occlusion close around the avatar."
-                     top="1207"
+                     top="1235"
                      width="100" />
                     <text
                      follows="left|top"
@@ -8011,7 +8025,7 @@
                      left="35"
                      name="fs_fsrenderavatarocclusionmaxavatars_label"
                      tool_tip="EXPERIMENTAL. How many of the nearest avatars get it. Each one costs GPU time on the pixels around it."
-                     top="1237"
+                     top="1265"
                      width="285">
                         Avatars with occlusion
                     </text>
@@ -8028,7 +8042,7 @@
                      min_val="1"
                      name="fs_fsrenderavatarocclusionmaxavatars"
                      tool_tip="EXPERIMENTAL. How many of the nearest avatars get it. Each one costs GPU time on the pixels around it."
-                     top="1235"
+                     top="1263"
                      width="100" />
                     <text
                      follows="left|top"
@@ -8037,7 +8051,7 @@
                      left="35"
                      name="fs_fsrenderavatarocclusiondistance_label"
                      tool_tip="EXPERIMENTAL. Only avatars within this distance of the camera, in meters."
-                     top="1265"
+                     top="1293"
                      width="285">
                         Up to distance (m)
                     </text>
@@ -8054,7 +8068,7 @@
                      min_val="4"
                      name="fs_fsrenderavatarocclusiondistance"
                      tool_tip="EXPERIMENTAL. Only avatars within this distance of the camera, in meters."
-                     top="1263"
+                     top="1291"
                      width="100" />
                 </panel>
             </scroll_container>

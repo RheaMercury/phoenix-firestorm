@@ -359,10 +359,12 @@ public:
     // which applyModelMatrix(params) does for every batch
     static F32 fsFadeInHidden(const LLDrawInfo& params);
     static void fsApplyFadeIn(const LLDrawInfo& params);
-    // Skin SSS (FSRenderSkinSSS): whether a rigged batch of this avatar is kept out of the skin marking
-    // (an animesh: attached ears, tails, wings), set per batch through fs_skin_exclude, so GPU-driven
-    // rigged passes draw such batches the stock way
-    static bool fsSkinExcluded(const LLVOAvatar* avatar);
+    // Skin SSS (FSRenderSkinSSS): whether a rigged batch is kept out of the skin marking (an animesh, or with
+    // FSRenderSkinBakesOnly a face that doesn't show one of the avatar's bakes), and its upload to the bound
+    // program's fs_skin_exclude uniform, which applyModelMatrix(params) does for every rigged batch. GPU-driven
+    // rigged passes carry it in their draw records instead (FS_GDD_SKIN_EXCLUDE_BIT, fsskinpalettebuffer.h).
+    static bool fsSkinExcluded(const LLDrawInfo& params);
+    static void fsApplySkinExclude(const LLDrawInfo& params);
     // </FS:Trish>
     void pushBatches(U32 type, bool texture = true, bool batch_textures = false);
     void pushUntexturedBatches(U32 type);

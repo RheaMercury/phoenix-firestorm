@@ -414,6 +414,7 @@ namespace
         { "FSRenderSkinSSSTint", CL, VM },
         { "FSRenderSkinSSSToneMatch", CL, VM },
         { "FSRenderSkinSSSTranslucency", CL, VM },
+        { "FSRenderSkinBakesOnly", CL, VM },
         { "FSRenderSkinDetectMaterial", CL, VM },
         { "FSRenderSkinToneRange", CL, VM },
         { "FSRenderSkinDebug", CL, VN },

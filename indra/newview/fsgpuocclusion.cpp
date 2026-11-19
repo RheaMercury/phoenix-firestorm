@@ -1302,7 +1302,8 @@ bool FSGPUOcclusion::refreshPalettes(S32 pass, const std::vector<LLDrawInfo*>& p
     }
     for (size_t c = 0; c < params.size(); ++c)
     {
-        records[c * stride + field] = offsets[c];
+        // the top bit is no part of the offset: skin SSS's exclusion (FS_GDD_SKIN_EXCLUDE_BIT), kept
+        records[c * stride + field] = (records[c * stride + field] & FS_GDD_SKIN_EXCLUDE_BIT) | offsets[c];
     }
     glBindBuffer(GL_COPY_WRITE_BUFFER, sPasses[pass].mRecords.mName);
     glBufferSubData(GL_COPY_WRITE_BUFFER, 0, (GLsizeiptr)(records.size() * sizeof(U32)), records.data());

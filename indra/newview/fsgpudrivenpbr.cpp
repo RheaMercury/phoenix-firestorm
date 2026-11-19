@@ -1566,8 +1566,8 @@ namespace
             {
                 reason = R_EMPTY;
             }
-            else if (LLRenderPass::fsFadeInHidden(params) > 0.f || (sRiggedPass && LLRenderPass::fsSkinExcluded(params.mAvatar.get())))
-            {   // <FS:Trish/> fade-in (fs_fade_hide) and animesh skin marking (fs_skin_exclude) are set per batch, the stock way
+            else if (LLRenderPass::fsFadeInHidden(params) > 0.f)
+            {   // <FS:Trish/> fade-in: its fs_fade_hide uniform is set per batch, the stock way
                 reason = R_FADING;
             }
             else
@@ -1625,7 +1625,9 @@ namespace
             const bool double_sided = mat->mDoubleSided;
             fsGDDLap(FS_GDD_STAGE_TEXTURES);
             const U32 model_matrix = sMatrices.modelIndex(params.mModelMatrix, proj, view);
-            const Record record = { model_matrix, sMatrices.textureIndex(params.mTextureMatrix.get()), info.mIndex, 0 };
+            // skin SSS: the skin exclusion rides in the palette offset's top bit (assign_palettes keeps it)
+            const U32 skin_exclude = sRiggedPass && LLRenderPass::fsSkinExcluded(params) ? FS_GDD_SKIN_EXCLUDE_BIT : 0;
+            const Record record = { model_matrix, sMatrices.textureIndex(params.mTextureMatrix.get()), info.mIndex, skin_exclude };
             fsGDDLap(FS_GDD_STAGE_MATRICES);
 
             if (group_runs)
@@ -1808,7 +1810,7 @@ namespace
         }
         for (size_t c = 0; c < sRecords.size(); ++c)
         {
-            sRecords[c].mSkin = sPaletteOffsets[c];
+            sRecords[c].mSkin = (sRecords[c].mSkin & FS_GDD_SKIN_EXCLUDE_BIT) | sPaletteOffsets[c];
         }
         return true;
     }

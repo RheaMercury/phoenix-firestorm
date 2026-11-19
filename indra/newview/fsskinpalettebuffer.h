@@ -48,6 +48,12 @@ class LLVector3;
 // offset in vec4s. Offsets hold only while the storage does: it is orphaned at the first palette of a frame
 // and when it fills up (all offsets start over in the new storage), which generation() counts; a multi-draw
 // must not use offsets taken under another generation.
+// Skin SSS (FSRenderSkinSSS): the top bit of a multi-draw record's palette offset is set for a batch that doesn't
+// mark its pixels as avatar skin (LLRenderPass::fsSkinExcluded), which the GPU-driven rigged programs read in place
+// of the stock programs' fs_skin_exclude uniform; objectSkinV.glsl masks it off the offset. Offsets are in vec4s,
+// far below 2^31.
+constexpr U32 FS_GDD_SKIN_EXCLUDE_BIT = 0x80000000u;
+
 namespace FSSkinPaletteBuffer
 {
     // FSPerfRiggedPaletteBuffer is on; the shaders are built for it while this holds

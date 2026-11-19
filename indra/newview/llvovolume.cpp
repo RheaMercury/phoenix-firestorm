@@ -6054,6 +6054,17 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         }
     }
 
+    // <FS:Trish> Skin SSS (FSRenderSkinBakesOnly): whether this rigged face shows one of the avatar's bakes
+    // (Bakes on Mesh). The texture entry keeps the IMG_USE_BAKED_* id while the face draws the avatar's
+    // composited bake (LLViewerObject::refreshBakeTexture swaps only the image); PBR uses its base colour.
+    bool skin_bake = false;
+    if (rigged)
+    {
+        const LLUUID& bake_id = gltf_mat ? gltf_mat->mTextureId[LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR] : te->getID();
+        skin_bake = LLAvatarAppearanceDefines::LLAvatarAppearanceDictionary::isBakedImageId(bake_id);
+    }
+    // </FS:Trish>
+
     bool batchable = false;
 
     U32 shader_mask = 0xFFFFFFFF; //no shader
@@ -6119,7 +6130,8 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         info->mShaderMask == shader_mask &&
         info->mAvatar == facep->mAvatar &&
         info->getSkinHash() == facep->getSkinHash() &&
-        info->mFSFadeStart == fade_start) // <FS:Trish/> fade-in
+        info->mFSFadeStart == fade_start && // <FS:Trish/> fade-in
+        info->mFSSkinBake == skin_bake) // <FS:Trish/> skin SSS: bake faces apart, whatever texture batching allows
     {
         info->mCount += facep->getIndicesCount();
         info->mEnd += facep->getGeomCount();
@@ -6155,6 +6167,7 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         draw_info->mShiny = shiny;
         draw_info->mFSGlowFree = glow_free; // <FS:Trish/>
         draw_info->mFSFadeStart = fade_start; // <FS:Trish/> fade-in
+        draw_info->mFSSkinBake = skin_bake; // <FS:Trish/> skin SSS
 
         static const float alpha[4] =
         {

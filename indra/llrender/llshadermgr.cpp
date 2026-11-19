@@ -703,14 +703,22 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     // (HAS_SKIN) and the system avatar (AVATAR_CLOTH is only defined for it), bias their flag by
     // 0.05 so fsSkinSSSF.glsl can find avatar pixels. GET_GBUFFER_FLAG's 0.1 tolerance still
     // matches, so every other reader is unaffected.
-    // Rigged mesh of an animesh (attached ears, tails, wings) is no avatar skin: its draws set
-    // fs_skin_exclude to 1 (LLRenderPass::uploadMatrixPalette), which takes the bias back off.
+    // Rigged batches that are no avatar skin (an animesh's ears, tails, wings, and with FSRenderSkinBakesOnly
+    // everything but Bakes on Mesh faces) take the bias back off with FS_SKIN_EXCLUDE_VALUE at 1: the
+    // fs_skin_exclude uniform, set per batch (LLRenderPass::fsApplySkinExclude), or in the GPU-driven
+    // programs (FS_GDD, FS_GDD_MATERIAL, FS_GDD_LEGACY) the draw record's bit their vertex shader passes on.
     if (type == GL_FRAGMENT_SHADER && LLGLSLShader::sGlobalDefines.count("FS_SKIN_SSS"))
     {
         extra_code_text[extra_code_count++] = strdup("#if defined(HAS_SKIN)\n"
+                                                     "#if defined(FS_GDD) || defined(FS_GDD_MATERIAL) || defined(FS_GDD_LEGACY)\n"
+                                                     "flat in float fs_gdd_skin_exclude;\n"
+                                                     "#define FS_SKIN_EXCLUDE_VALUE fs_gdd_skin_exclude\n"
+                                                     "#else\n"
                                                      "uniform float fs_skin_exclude;\n"
-                                                     "#undef GBUFFER_FLAG_HAS_ATMOS\n#define GBUFFER_FLAG_HAS_ATMOS (0.39 - 0.05 * fs_skin_exclude)\n"
-                                                     "#undef GBUFFER_FLAG_HAS_PBR\n#define GBUFFER_FLAG_HAS_PBR (0.72 - 0.05 * fs_skin_exclude)\n"
+                                                     "#define FS_SKIN_EXCLUDE_VALUE fs_skin_exclude\n"
+                                                     "#endif\n"
+                                                     "#undef GBUFFER_FLAG_HAS_ATMOS\n#define GBUFFER_FLAG_HAS_ATMOS (0.39 - 0.05 * FS_SKIN_EXCLUDE_VALUE)\n"
+                                                     "#undef GBUFFER_FLAG_HAS_PBR\n#define GBUFFER_FLAG_HAS_PBR (0.72 - 0.05 * FS_SKIN_EXCLUDE_VALUE)\n"
                                                      "#elif defined(AVATAR_CLOTH)\n"
                                                      "#undef GBUFFER_FLAG_HAS_ATMOS\n#define GBUFFER_FLAG_HAS_ATMOS 0.39\n"
                                                      "#undef GBUFFER_FLAG_HAS_PBR\n#define GBUFFER_FLAG_HAS_PBR 0.72\n"

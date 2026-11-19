@@ -410,6 +410,8 @@
     <boolean>1</boolean>
     <key>FSRenderSkinAlbedoSplitAmount</key>
     <real>1.0</real>
+    <key>FSRenderSkinBakesOnly</key>
+    <boolean>1</boolean>
     <key>FSRenderSkinDetectMaterial</key>
     <boolean>1</boolean>
     <key>FSRenderSkinDualSpecular</key>

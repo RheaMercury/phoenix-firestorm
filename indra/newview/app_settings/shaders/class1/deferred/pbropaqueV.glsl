@@ -76,6 +76,10 @@ uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's f
 {
     return fs_gdd_draw.w;
 }
+// <FS:Trish> Skin SSS: the record's top bit (FS_GDD_SKIN_EXCLUDE_BIT), 1 for a batch that doesn't mark its
+// pixels as avatar skin; the fragment shader reads it in place of fs_skin_exclude (LLShaderMgr::loadShaderFile)
+flat out float fs_gdd_skin_exclude;
+// </FS:Trish>
 #endif
 
 // the material's constants (and textures) for the fragment shader, which reads them in place of its uniforms
@@ -143,6 +147,9 @@ void main()
 #ifdef FS_GDD_BINDLESS
     fs_gdd_tex01 = fs_mat.tex01;
     fs_gdd_tex23 = fs_mat.tex23;
+#endif
+#ifdef HAS_SKIN
+    fs_gdd_skin_exclude = float(fs_gdd_draw.w >> 31u); // <FS:Trish/> skin SSS
 #endif
 #endif
 

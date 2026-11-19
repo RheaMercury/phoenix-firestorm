@@ -208,6 +208,8 @@
     <boolean>1</boolean>
     <key>FSRenderShadowReduceWhileMoving</key>
     <boolean>1</boolean>
+    <key>FSRenderSkinBakesOnly</key>
+    <boolean>1</boolean>
     <key>FSRenderSkinTapLOD</key>
     <boolean>1</boolean>
     <key>FSRenderSpotShadowUpdateInterval</key>

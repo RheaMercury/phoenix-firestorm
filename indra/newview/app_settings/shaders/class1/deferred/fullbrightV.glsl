@@ -58,6 +58,10 @@ uint fsGDDSkinBase()        // objectSkinV.glsl (FS_GDD_RIGGED): the palette's f
 {
     return fs_gdd_draw.w;
 }
+// <FS:Trish> Skin SSS: the record's top bit (FS_GDD_SKIN_EXCLUDE_BIT), 1 for a batch that doesn't mark its
+// pixels as avatar skin; the fragment shader reads it in place of fs_skin_exclude (LLShaderMgr::loadShaderFile)
+flat out float fs_gdd_skin_exclude;
+// </FS:Trish>
 #endif
 
 flat out uvec2 fs_gdd_diffuse;
@@ -101,6 +105,9 @@ void main()
     uint fs_gdd_index = min(uint(max(texture_index, 0)), max(fs_gdd_head.y, 1u) - 1u); // <FS:Trish/> a count of 0 (never sent) can't wrap past the list
     fs_gdd_diffuse = fs_gdd_tex[fs_gdd_draw.z + 1u + fs_gdd_index];
     fs_gdd_minimum_alpha = uintBitsToFloat(fs_gdd_head.x);
+#ifdef HAS_SKIN
+    fs_gdd_skin_exclude = float(fs_gdd_draw.w >> 31u); // <FS:Trish/> skin SSS
+#endif
 #endif
 
     //transform vertex

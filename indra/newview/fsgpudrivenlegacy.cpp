@@ -734,8 +734,8 @@ namespace
             {   // pushBatch draws nothing for these; it may still bind, so it gets them
                 reason = R_EMPTY;
             }
-            else if (LLRenderPass::fsFadeInHidden(params) > 0.f || (sRiggedPass && LLRenderPass::fsSkinExcluded(params.mAvatar.get())))
-            {   // <FS:Trish/> fade-in (fs_fade_hide) and animesh skin marking (fs_skin_exclude) are set per batch, the stock way
+            else if (LLRenderPass::fsFadeInHidden(params) > 0.f)
+            {   // <FS:Trish/> fade-in: its fs_fade_hide uniform is set per batch, the stock way
                 reason = R_FADING;
             }
             else
@@ -832,7 +832,9 @@ namespace
             ++sStatDrawn;
             const U32 command = (U32)sCommands.size();
             sCommands.push_back({ params.mCount, 1, entry->mIndex + params.mOffset, (GLint)entry->mVertex, command });
-            sRecords.push_back({ model_matrix, tex_matrix, tex_first, 0 });
+            // skin SSS: the skin exclusion rides in the palette offset's top bit (assign_palettes keeps it)
+            sRecords.push_back({ model_matrix, tex_matrix, tex_first,
+                                 sRiggedPass && LLRenderPass::fsSkinExcluded(params) ? FS_GDD_SKIN_EXCLUDE_BIT : 0 });
             sCommandParams.push_back(&params);
             if (cache)
             {
@@ -1020,7 +1022,7 @@ namespace
         }
         for (size_t c = 0; c < sRecords.size(); ++c)
         {
-            sRecords[c].mSkin = sPaletteOffsets[c];
+            sRecords[c].mSkin = (sRecords[c].mSkin & FS_GDD_SKIN_EXCLUDE_BIT) | sPaletteOffsets[c];
         }
         return true;
     }

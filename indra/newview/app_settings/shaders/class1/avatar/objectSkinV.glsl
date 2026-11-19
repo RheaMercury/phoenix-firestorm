@@ -41,15 +41,17 @@ layout(std430) readonly buffer FSGDDSkinPalettes
     vec4 fs_gdd_skin[];
 };
 uint fsGDDSkinBase();   // the program's vertex shader: its draw record's palette offset
+// The record's top bit is skin SSS's exclusion (FS_GDD_SKIN_EXCLUDE_BIT, fsskinpalettebuffer.h), not offset
+#define FS_GDD_SKIN_BASE (fsGDDSkinBase() & 0x7FFFFFFFu)
 
 mat3x4 fsGDDSkinJoint(int i)
 {
-    uint at = fsGDDSkinBase() + 1u + 3u * uint(i);
+    uint at = FS_GDD_SKIN_BASE + 1u + 3u * uint(i);
     return mat3x4(fs_gdd_skin[at], fs_gdd_skin[at + 1u], fs_gdd_skin[at + 2u]);
 }
 #define FS_SKIN_JOINT(i) fsGDDSkinJoint(i)
-#define matrixPaletteSize int(fs_gdd_skin[fsGDDSkinBase()].w)
-#define skin_origin (fs_gdd_skin[fsGDDSkinBase()].xyz)
+#define matrixPaletteSize int(fs_gdd_skin[FS_GDD_SKIN_BASE].w)
+#define skin_origin (fs_gdd_skin[FS_GDD_SKIN_BASE].xyz)
 // </FS:Trish>
 #elif defined(FS_SKIN_PALETTE_BUFFER)
 // <FS:Trish> FSPerfRiggedPaletteBuffer: the palette is a range of one buffer written once a frame
