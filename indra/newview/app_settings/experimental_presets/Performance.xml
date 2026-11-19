@@ -46,6 +46,8 @@
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenAlpha</key>
     <boolean>1</boolean>
+    <key>FSPerfGPUDrivenBuildCache</key>
+    <boolean>1</boolean>
     <key>FSPerfGPUDrivenDraws</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenDrawsArenaMB</key>

@@ -78,6 +78,10 @@
 // GL_SAMPLES_PASSED query; it also reads back a couple of arena entries per pass, checks for GL errors and
 // logs statistics every 10 seconds (FSPerfGPUDrivenMaterialsStats logs only the statistics).
 //
+// FSPerfGPUDrivenBuildCache (fsgddcommon.cpp): a non rigged pass given the same batches as in an earlier frame uses
+// the commands, records and materials built then, from their own buffers, once the texture handles and arena
+// copies they name are found to be the same; only its matrices are looked up again.
+//
 // FSRenderGPUOcclusionCulling (fsgpuocclusion.h), the opaque, alpha mask and emissive passes of the main camera's
 // G-buffer: as in the PBR pass (fsgpudrivenpbr.cpp), the pass's commands go through the phase 1 cull first and
 // the multi-draws read the culled copy (sIndirectOverride), which keeps only the batches visible last frame. The
@@ -214,6 +218,20 @@ namespace
     FSGDDBuffer sMaterialBuffer;
     GLuint sQuery = 0;
 
+    // The buffers the pass being drawn reads (the ones above, or with FSPerfGPUDrivenBuildCache a kept pass's), and
+    // which of them execute uploads to
+    enum EUpload
+    {
+        UPLOAD_COMMANDS = 1,
+        UPLOAD_RECORDS = 2,
+        UPLOAD_MATERIALS = 4,
+        UPLOAD_ALL = 7
+    };
+    FSGDDBuffer* sCurIndirect = &sIndirectBuffer;
+    FSGDDBuffer* sCurRecords = &sRecordBuffer;
+    FSGDDBuffer* sCurMaterials = &sMaterialBuffer;
+    U32 sUploads = UPLOAD_ALL;
+
     std::vector<Op> sOps;
     std::vector<FSGDDDrawCommand> sCommands;
     std::vector<Record> sRecords;
@@ -285,6 +303,25 @@ namespace
         LLTexture* mLastDiffuse = nullptr;
     };
     StockState sStock;
+
+    // FSPerfGPUDrivenBuildCache: the kept passes, and by their slot what the build made besides the buffers
+    constexpr U32 FS_GDD_MAT_KEPT = 32;
+    FSGDDBuildCache sCache(FS_GDD_BUILDER_MATERIALS, FS_GDD_MAT_KEPT);
+    struct Kept
+    {
+        std::vector<Op> mOps;
+        std::vector<FSGDDDrawCommand> mCommands;
+        std::vector<Record> mRecords;
+        std::vector<Material> mMaterials;
+        std::vector<LLDrawInfo*> mParams;
+    };
+    std::vector<Kept> sKept(FS_GDD_MAT_KEPT);
+    // what a build that may be kept looked up, and whether it may be
+    std::vector<FSGDDTextureUse> sTextureUses;
+    std::vector<FSGDDArenaUse> sArenaUses;
+    std::vector<FSGDDMatrixUse> sMatrixUses;
+    bool sKeepable = false;
+    std::vector<U32> sRemap;
 
     // stats, every 10 seconds with FSPerfGPUDrivenMaterialsVerify or FSPerfGPUDrivenMaterialsStats
     U64 sStatBatches = 0;
@@ -483,6 +520,11 @@ bool fsGDDRiggedLoadable(S32 vs_blocks)
 
 void fsGDDMaterialsReleaseGL()
 {
+    sCache.release();
+    for (Kept& kept : sKept)
+    {
+        kept = Kept();
+    }
     sArena.releaseGL();
     sRiggedArena.releaseGL();
     sIndirectBuffer.release();
@@ -514,14 +556,135 @@ namespace
         return handle ? -1 : R_HANDLE;
     }
 
+    // FSPerfGPUDrivenBuildCache: the kept pass, if what it names is still where it was (the texture handles, the
+    // arena copies); then its ops, commands, records and materials are the pass's, its buffers the ones drawn from,
+    // and the matrix table holds its matrices. False, with nothing taken, otherwise.
+    bool use_kept(FSGDDKeptPass& kept, FSGDDArena& arena, U32 frame, const glm::mat4& proj, const glm::mat4& view)
+    {
+        fsGDDBeginTexturePass();
+        for (const FSGDDTextureUse& use : kept.mTextures)
+        {
+            if (fsGDDPassTextureHandle(use.mTex, frame) != use.mHandle)
+            {
+                return false;
+            }
+        }
+        const size_t count = kept.mArena.size();
+        for (size_t i = 0; i < count; ++i)
+        {
+            if (i + 8 < count)
+            {
+                arena.prefetchBuffer(kept.mArena[i + 8].mBuffer);
+            }
+            if (i + 4 < count)
+            {
+                arena.prefetchEntry(kept.mArena[i + 4].mBuffer);
+            }
+            const FSGDDArenaUse& use = kept.mArena[i];
+            const FSGDDArenaEntry* entry = arena.find(use.mBuffer, frame);
+            if (!entry || entry->mVertex != use.mVertex || entry->mIndex != use.mIndex)
+            {
+                return false;
+            }
+        }
+
+        Kept& k = sKept[sCache.slotOf(&kept)];
+        sOps = k.mOps;
+        sCommands = k.mCommands;
+        sRecords = k.mRecords;
+        sMaterials = k.mMaterials;
+        sCommandParams = k.mParams;
+        sUploads = 0;
+        sMatrices.begin(proj, view, true, true);
+        if (!sMatrices.replay(kept.mMatrices, proj, view, sRemap))
+        {   // the matrices are at other indices than the kept records say (FSPerfGPUDrivenSharedMatrices): the
+            // records follow, kept so, and go up again
+            for (Record& record : sRecords)
+            {
+                record.mMatrix = record.mMatrix < sRemap.size() ? sRemap[record.mMatrix] : record.mMatrix;
+                record.mTexMatrix = record.mTexMatrix < sRemap.size() ? sRemap[record.mTexMatrix] : record.mTexMatrix;
+            }
+            k.mRecords = sRecords;
+            sUploads = UPLOAD_RECORDS;
+        }
+        sCurIndirect = &kept.mCommandBuffer;
+        sCurRecords = &kept.mRecordBuffer;
+        sCurMaterials = &kept.mDataBuffer;
+        sStatBatches += kept.mBatches;
+        sStatDrawn += sCommands.size();
+        sStatMaterials += sMaterials.size();
+        return true;
+    }
+
+    // FSPerfGPUDrivenBuildCache: keeps the pass just built, which then uploads to and draws from the kept buffers
+    void keep(U64 key, U64 hash, LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, U32 batches)
+    {
+        FSGDDKeptPass* kept = sCache.claim(key);
+        if (!kept)
+        {
+            sCache.countUnkept();
+            return;
+        }
+        kept->keepInput(key, hash, (const uintptr_t*)begin, (size_t)(end - begin), 1);
+        kept->mTextures.swap(sTextureUses);
+        kept->mArena.swap(sArenaUses);
+        FSGDDMatrixTable::finishUses(sMatrixUses);
+        kept->mMatrices.swap(sMatrixUses);
+        kept->mBatches = batches;
+        kept->mValid = true;
+        Kept& k = sKept[sCache.slotOf(kept)];
+        k.mOps = sOps;
+        k.mCommands = sCommands;
+        k.mRecords = sRecords;
+        k.mMaterials = sMaterials;
+        k.mParams = sCommandParams;
+        sCurIndirect = &kept->mCommandBuffer;
+        sCurRecords = &kept->mRecordBuffer;
+        sCurMaterials = &kept->mDataBuffer;
+        sCache.countKept();
+    }
+
     // Turns the pass's batches into ops (in the stock order, or grouped: one op for all the commands, then the
-    // stock fallbacks) and commands.
-    void build(U32 index, LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool grouped)
+    // stock fallbacks) and commands. cache: FSPerfGPUDrivenBuildCache may keep the pass, or use a kept one (key:
+    // which pass this is).
+    void build(U32 index, LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool grouped, bool cache,
+               U64 key)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_MATERIALS);
         FSGDDBuildScope scope(FS_GDD_BUILDER_MATERIALS);
         scope.addBatches((size_t)(end - begin));
+        sCurIndirect = &sIndirectBuffer;
+        sCurRecords = &sRecordBuffer;
+        sCurMaterials = &sMaterialBuffer;
+        sUploads = UPLOAD_ALL;
+        const U32 frame = LLFrameTimer::getFrameCount();
+        const bool rigged = is_rigged(index);
+        FSGDDArena& arena = arena_for(index);
+        arena.beginFrame(frame);
+        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 view = get_current_modelview();
+
+        U64 hash = 0;
+        cache = cache && !rigged;
+        if (cache)
+        {
+            hash = FSGDDBuildCache::hash((const uintptr_t*)begin, (size_t)(end - begin));
+            FSGDDKeptPass* kept = sCache.find(key, (const uintptr_t*)begin, (size_t)(end - begin), hash);
+            const bool used = kept && use_kept(*kept, arena, frame, proj, view);
+            fsGDDLap(FS_GDD_STAGE_CACHE);
+            if (used)
+            {
+                scope.setReused();
+                sCache.countHit();
+                return;
+            }
+            sTextureUses.clear();
+            sArenaUses.clear();
+            sMatrixUses.clear();
+            sKeepable = true;
+        }
+
         sOps.clear();
         sCommands.clear();
         sRecords.clear();
@@ -530,14 +693,13 @@ namespace
         sCommandPalettes.clear();
         sStockPalettes.clear();
         fsGDDBeginTexturePass();
-
-        const U32 frame = LLFrameTimer::getFrameCount();
-        const bool rigged = is_rigged(index);
-        FSGDDArena& arena = arena_for(index);
-        arena.beginFrame(frame);
-        const glm::mat4 proj = gGL.getProjectionMatrix();
-        const glm::mat4 view = get_current_modelview();
         sMatrices.begin(proj, view, true, true);   // texture matrix 0: identity
+        U32 batches = 0;
+        if (cache)
+        {
+            fsGDDRecordTextureUses(&sTextureUses);
+            sMatrices.record(&sMatrixUses);
+        }
 
         // the maps the stock loop binds: those the stock program samples (its texture channels)
         const LLGLSLShader& stock = gDeferredMaterialProgram[index];
@@ -557,6 +719,7 @@ namespace
             }
             LLDrawInfo& params = *pparams;
             ++sStatBatches;
+            ++batches;
 
             S32 reason = -1;
             const FSGDDArenaEntry* entry = nullptr;
@@ -640,6 +803,10 @@ namespace
                 {
                     sStockPalettes.push_back(palette);
                 }
+                if (reason == R_RIGGED || reason == R_FADING || reason >= R_ARENA)
+                {   // a rigged batch's avatar mustn't be held; the others may come out differently next frame
+                    sKeepable = false;
+                }
                 continue;
             }
 
@@ -671,6 +838,10 @@ namespace
             {
                 sCommandPalettes.push_back(palette);
             }
+            if (cache)
+            {
+                sArenaUses.push_back({ params.mVertexBuffer.get(), entry->mVertex, entry->mIndex });
+            }
 
             if (grouped)
             {
@@ -693,6 +864,22 @@ namespace
             sOps.insert(sOps.begin(), { false, 0, (U32)sCommands.size(), nullptr });
         }
         sStatMaterials += sMaterials.size();
+
+        if (cache)
+        {
+            fsGDDRecordTextureUses(nullptr);
+            sMatrices.record(nullptr);
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
+            if (sKeepable && !sCommands.empty())
+            {
+                keep(key, hash, begin, end, batches);
+            }
+            else
+            {
+                sCache.countUnkept();
+            }
+            fsGDDLap(FS_GDD_STAGE_CACHE);
+        }
     }
 
     // Rigged pass: puts every palette the pass draws with into the palette buffer, and the offsets into the
@@ -748,7 +935,7 @@ namespace
         else
         {
             sMatrices.bindBase(FS_GDD_MAT_MATRIX_BINDING);
-            sMaterialBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_MATERIAL_BINDING);
+            sCurMaterials->bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_MATERIAL_BINDING);
         }
         if (sRiggedPass)
         {   // the palette buffer whole; the records hold the offsets
@@ -760,7 +947,7 @@ namespace
         }
         else
         {
-            sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
+            sCurIndirect->bind(GL_DRAW_INDIRECT_BUFFER);
         }
         const GLuint record = (GLuint)sRecordAttrib[index];
         if (sReplayPass >= 0)
@@ -769,10 +956,10 @@ namespace
         }
         else
         {
-            sRecordBuffer.bind(GL_ARRAY_BUFFER);
+            sCurRecords->bind(GL_ARRAY_BUFFER);
         }
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sReplayPass >= 0 ? (const void*)0 : sRecordBuffer.at(0));
+        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sReplayPass >= 0 ? (const void*)0 : sCurRecords->at(0));
         glVertexAttribDivisor(record, 1);
         // every attribute the program reads (bind_inputs checked the arena holds them, build that the batches have them)
         arena_for(index).bindForDraw(sPrograms[index].mAttributeMask);
@@ -798,7 +985,7 @@ namespace
     // Where the multi-draws find the command `offset` bytes in
     const void* indirect_at(size_t offset)
     {
-        return sIndirectOverride ? (const void*)offset : sIndirectBuffer.at(offset);
+        return sIndirectOverride ? (const void*)offset : sCurIndirect->at(offset);
     }
 
     // FSRenderGPUOcclusionCulling: phase 1 for the pass just uploaded; the multi-draws then read its culled
@@ -822,11 +1009,11 @@ namespace
         inputs.mRanges = sRanges.data();
         inputs.mRangeCount = (U32)sRanges.size();
         inputs.mKind = sRiggedPass ? FSGPUOcclusion::KIND_RIGGED : FSGPUOcclusion::KIND_MATERIALS;
-        inputs.mCommands = sIndirectBuffer.name();
-        inputs.mCommandsOffset = sIndirectBuffer.offset();
+        inputs.mCommands = sCurIndirect->name();
+        inputs.mCommandsOffset = sCurIndirect->offset();
         inputs.mCommandCount = (U32)sCommands.size();
-        inputs.mRecords = sRecordBuffer.name();
-        inputs.mRecordsOffset = sRecordBuffer.offset();
+        inputs.mRecords = sCurRecords->name();
+        inputs.mRecordsOffset = sCurRecords->offset();
         inputs.mRecordBytes = sRecords.size() * sizeof(Record);
         inputs.mRecordStride = sizeof(Record) / sizeof(U32);
         inputs.mMatrixField = 0;    // Record::mMatrix: the modelview, the modelview projection after it
@@ -834,8 +1021,8 @@ namespace
         inputs.mMatrices = sMatrices.buffer().name();
         inputs.mMatricesOffset = sMatrices.buffer().offset();
         inputs.mMatrixBytes = sMatrices.size() * sizeof(glm::mat4);
-        inputs.mMaterials = sMaterialBuffer.name();
-        inputs.mMaterialsOffset = sMaterialBuffer.offset();
+        inputs.mMaterials = sCurMaterials->name();
+        inputs.mMaterialsOffset = sCurMaterials->offset();
         inputs.mMaterialBytes = sMaterials.size() * sizeof(Material);
         const S32 pass = FSGPUOcclusion::cullPhaseOne(inputs, sCullEntries);
         sIndirectOverride = pass >= 0 ? FSGPUOcclusion::phaseOneCommands(pass) : 0;
@@ -985,10 +1172,20 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd materials execute");
         LL_PROFILE_GPU_ZONE("gdd materials");
 
-        sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-        sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        // a kept pass used again (FSPerfGPUDrivenBuildCache) has its commands, records and materials up already
+        if (sUploads & UPLOAD_COMMANDS)
+        {
+            sCurIndirect->upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        }
+        if (sUploads & UPLOAD_RECORDS)
+        {
+            sCurRecords->upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        }
         sMatrices.upload();
-        sMaterialBuffer.upload(GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        if (sUploads & UPLOAD_MATERIALS)
+        {
+            sCurMaterials->upload(GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        }
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1330,7 +1527,9 @@ bool fsGDDDrawMaterials(U32 type, LLGLSLShader& stock)
 
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd materials build");
-        build(index, begin, end, group_runs);
+        // FSPerfGPUDrivenBuildCache: not while verifying, which checks what a build makes
+        const bool cache = !verify && FSGDDBuildCache::enabled();
+        build(index, begin, end, group_runs, cache, ((U64)type << 32) | ((U64)index << 1) | (group_runs ? 1 : 0));
     }
     if (sRiggedPass && !sCommands.empty() && !assign_palettes())
     {   // no buffer, or it never held still: the stock loop draws the pass

@@ -482,6 +482,7 @@ namespace
         { "FSPerfGPUDrivenShadowAlphaArenaMB", CL, VN },
         { "FSPerfGPUDrivenUploadRing", CS, VN },
         { "FSPerfGPUDrivenSharedMatrices", CS, VN },
+        { "FSPerfGPUDrivenBuildCache", CS, VN },
         { "FSRenderGPUOcclusionCulling", CS, VN },
         { "FSRenderMergePostPasses", CS, VN },
         { "FSRenderThread", CS, VN },

@@ -30,9 +30,12 @@
 
 #include "stdtypes.h"
 
+#include <vector>
+
 class LLGLSLShader;
 class LLRenderPass;
 class LLViewerTexture;
+struct FSGDDTextureUse;
 
 // gDeferredDiffuseProgram, gDeferredDiffuseAlphaMaskProgram, gDeferredFullbrightProgram and
 // gDeferredFullbrightAlphaMaskProgram built with FS_GDD_LEGACY: matrices from a storage buffer, the diffuse
@@ -67,5 +70,8 @@ bool fsGDDDrawLegacy(LLRenderPass& pool, U32 type);
 // texture with a handle active, as bindFast would.
 void fsGDDBeginTexturePass();
 U64 fsGDDPassTextureHandle(LLViewerTexture* tex, U32 frame);
+// FSPerfGPUDrivenBuildCache: while uses isn't null, each texture's first lookup in a pass (and the handle it gave)
+// goes into it, in order (fsgddcommon.h). nullptr stops it.
+void fsGDDRecordTextureUses(std::vector<FSGDDTextureUse>* uses);
 
 #endif // FS_GPUDRIVENLEGACY_H

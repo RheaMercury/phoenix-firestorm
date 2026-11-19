@@ -31,8 +31,11 @@
 #include "fsgddcommon.h"
 
 #include "fsglstream.h"
+#include "llspatialpartition.h"
 #include "llviewercontrol.h"
+#include "llviewertexture.h"
 
+#include <algorithm>
 #include <cstring>
 
 LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD("FS GDD Build");
@@ -63,8 +66,18 @@ namespace
         U64 mBatches = 0;
         U64 mSplitTicks = 0;                    // the passes split into stages
         U64 mStageTicks[FS_GDD_STAGE_COUNT] = {};
+        U64 mReusedTicks = 0;                   // FSPerfGPUDrivenBuildCache: the passes a kept pass was used for
+        U64 mReusedPasses = 0;
+        U64 mReusedBatches = 0;
         U32 mSplitCounter = 0;
     };
+
+    // Every builder's cache (FSGDDBuildCache registers itself); never destroyed
+    std::vector<FSGDDBuildCache*>& build_caches()
+    {
+        static std::vector<FSGDDBuildCache*>* caches = new std::vector<FSGDDBuildCache*>();
+        return *caches;
+    }
 
     BuilderStats sBuilders[FS_GDD_BUILDER_COUNT];
     U64 sUploadTicks = 0;   // FSGDDBuffer writes, while the statistics are on
@@ -80,7 +93,7 @@ namespace
 
     const char* stage_name(U32 stage)
     {
-        static const char* names[FS_GDD_STAGE_COUNT] = { "walk", "arena", "textures", "matrices", "records" };
+        static const char* names[FS_GDD_STAGE_COUNT] = { "walk", "arena", "textures", "matrices", "records", "cache" };
         return stage < FS_GDD_STAGE_COUNT ? names[stage] : "?";
     }
 
@@ -155,12 +168,47 @@ namespace
                 }
             }
             out << ");";
+        }
+        out << " all but the collect " << total_ms << "; uploads " << ((F64)sUploadTicks * ms_per_tick / frames);
+        sUploadTicks = 0;
+
+        // FSPerfGPUDrivenBuildCache: how often a kept pass stood in for a build, and the time that saved: the
+        // batches it served at the builder's cost per batch of the passes it built, less the time the checks took
+        static LLCachedControl<bool> cache_on(gSavedSettings, "FSPerfGPUDrivenBuildCache", false);
+        bool cache_counted = false;
+        for (FSGDDBuildCache* cache : build_caches())
+        {
+            U64 hits = 0;
+            U64 kept = 0;
+            U64 unkept = 0;
+            cache->takeCounts(hits, kept, unkept);
+            if (!cache_on && !hits && !kept && !unkept)
+            {
+                continue;
+            }
+            const BuilderStats& s = sBuilders[cache->builder()];
+            out << (cache_counted ? "; " : "; build cache: ") << builder_name(cache->builder()) << " ";
+            cache_counted = true;
+            const U64 passes = hits + kept + unkept;
+            out << hits << " of " << passes << " passes used a kept one ("
+                << (passes ? (U32)(100 * hits / passes) : 0) << "%), " << kept << " built and kept, " << unkept
+                << " built and not kept";
+            const U64 built_ticks = s.mTicks - s.mReusedTicks;
+            const U64 built_batches = s.mBatches - s.mReusedBatches;
+            if (s.mReusedPasses && built_batches)
+            {
+                const F64 saved = ((F64)s.mReusedBatches * (F64)built_ticks / (F64)built_batches - (F64)s.mReusedTicks) *
+                                  ms_per_tick / frames;
+                out << ", the kept ones took " << ((F64)s.mReusedTicks * ms_per_tick / frames) << " ms a frame, about "
+                    << saved << " ms a frame saved";
+            }
+        }
+        for (BuilderStats& s : sBuilders)
+        {
             const U32 counter = s.mSplitCounter;
             s = BuilderStats();
             s.mSplitCounter = counter;
         }
-        out << " all but the collect " << total_ms << "; uploads " << ((F64)sUploadTicks * ms_per_tick / frames);
-        sUploadTicks = 0;
         LL_INFOS("FSGPUDrivenBuild") << out.str() << LL_ENDL;
     }
 }
@@ -208,11 +256,20 @@ FSGDDBuildScope::~FSGDDBuildScope()
     const U64 end = LLTrace::BlockTimer::getCPUClockCount64();
     BuilderStats& s = sBuilders[mBuilder];
     s.mTicks += end - mStart;
-    ++s.mPasses;
+    if (!mCheckOnly)
+    {   // a check that found nothing to use: its time is the builder's, the pass is counted with the build after it
+        ++s.mPasses;
+    }
     s.mBatches += mBatches;
+    if (mReused)
+    {
+        s.mReusedTicks += end - mStart;
+        ++s.mReusedPasses;
+        s.mReusedBatches += mBatches;
+    }
     if (mSplit)
     {   // what came after the last lap
-        s.mStageTicks[FS_GDD_STAGE_WALK] += end - gFSGDDStageLast;
+        s.mStageTicks[mCheckOnly ? FS_GDD_STAGE_CACHE : FS_GDD_STAGE_WALK] += end - gFSGDDStageLast;
         s.mSplitTicks += end - mStart;
         gFSGDDStageTicks = nullptr;
     }
@@ -530,7 +587,7 @@ void FSGDDBuffer::allocate(GLenum target, size_t capacity, const void* data, siz
         }
     } upload_clock;
     static LLCachedControl<bool> use_ring(gSavedSettings, "FSPerfGPUDrivenUploadRing", false);
-    if (use_ring)
+    if (use_ring && !mOwnStorage)
     {
         RingSlice slice;
         if (ring_alloc(capacity, slice))
@@ -564,13 +621,15 @@ void FSGDDBuffer::allocate(GLenum target, size_t capacity, const void* data, siz
     }
     glBindBuffer(target, mOwn);
     const size_t size = llmax(capacity, (size_t)16);
+    // a kept pass's buffers are drawn from again over many frames
+    const GLenum usage = mOwnStorage ? GL_DYNAMIC_DRAW : GL_STREAM_DRAW;
     if (bytes == capacity)
     {
-        glBufferData(target, size, bytes ? data : nullptr, GL_STREAM_DRAW);
+        glBufferData(target, size, bytes ? data : nullptr, usage);
     }
     else
     {
-        glBufferData(target, size, nullptr, GL_STREAM_DRAW);
+        glBufferData(target, size, nullptr, usage);
         if (bytes)
         {
             glBufferSubData(target, 0, (GLsizeiptr)bytes, data);
@@ -668,6 +727,7 @@ namespace
 void fsGDDNewCull()
 {
     ++sCull;
+    fsGDDBuildCachesTick();
 }
 
 FSGDDMatrixStore* fsGDDSharedMatrixStore(const glm::mat4& proj, const glm::mat4& view, bool full)
@@ -705,11 +765,292 @@ FSGDDMatrixStore* fsGDDSharedMatrixStore(const glm::mat4& proj, const glm::mat4&
 
 void fsGDDCommonReleaseGL()
 {
+    fsGDDBuildCachesRelease();
     release_ring();
     for (SharedTable& table : sTables)
     {
         table.mStore.mBuffer.release();
         table.mStore.clear();
         table.mValid = false;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// FSPerfGPUDrivenBuildCache
+//
+// In a scene that holds still, most passes are given the same draw list frame after frame, and the builders turn it
+// into the same commands, records and materials every time: the arena lookups, the bindless handles, the material
+// records and the matrix lookups of thousands of batches, for the same result. With the setting on, the opaque
+// shadow casters (fsgpudrivendraws.cpp), the legacy material passes (fsgpudrivenmaterials.cpp) and the legacy
+// passes (fsgpudrivenlegacy.cpp) keep what they built for a pass, and while the pass is given the same list again
+// they use it instead of building:
+//  - The input: a pass with the same key (program and render type, or shadow kind) whose list holds the same words
+//    (the draw info pointers, and the cascade sets of the single pass list), hashed and then compared. A kept pass
+//    holds a reference to each of its draw infos, so none of them is freed while it is kept and no other can be
+//    made at its address: the same pointer is the same batch. Draw infos aren't changed once their group's
+//    rebuild made them (a rebuild makes new ones), so the same batch reads the same vertex buffer, range, textures,
+//    matrices and material values; the draw infos keep those alive.
+//  - What changes under the same batches is checked again, the way the build would have found it: every texture
+//    handle the build looked up is looked up again (fsGDDPassTextureHandle: textures dropped and remade, made non
+//    resident, or given a handle only now, all show as a different handle; the lookups also keep the textures and
+//    their handles in use, as a build would), and every arena copy a command reads is found again
+//    (FSGDDArena::find: a copy evicted, dropped with the arena or made again for a changed buffer shows as a
+//    different place; finding it also marks it used this frame, so it isn't evicted or given back while the frame
+//    still draws from it). Anything different and the pass is built again.
+//  - The matrices aren't kept, they change with the camera and the objects: the lookups of the matrices the
+//    records name are made again (FSGDDMatrixTable::replay), once per matrix rather than once per batch. With
+//    FSPerfGPUDrivenSharedMatrices a matrix may land at another index than last frame (the passes before added
+//    others); the records are then rewritten with the new indices and uploaded again.
+//  - The commands, records and materials live in the kept pass's own buffers (FSGDDBuffer::setOwnStorage), not in
+//    the upload ring, whose slices are written over three frames later. They are written only when the pass is
+//    built, with new storage each time, so draws of earlier frames still in flight keep reading what they had;
+//    a kept pass that is used again uploads nothing, its buffers are only bound again. The GPU occlusion culling
+//    (fsgpuocclusion.cpp) copies its inputs from wherever they are, so it reads the kept ones the same way.
+//  - Not kept: rigged passes (their palettes move every frame), passes with a batch fading in, rigged in a static
+//    pass, or turned down by the arena (no room, copy budget: it may fit next frame), and anything while a verify
+//    setting is on.
+// Passes not used for a while are let go of (they hold draw infos, and through them vertex buffers and textures),
+// all of them at fsGDDReleaseGL.
+
+namespace
+{
+    constexpr U32 KEPT_PASS_IDLE_FRAMES = 8;    // a kept pass not used for this many frames is let go of
+}
+
+void FSGDDMatrixTable::finishUses(std::vector<FSGDDMatrixUse>& uses)
+{
+    std::sort(uses.begin(), uses.end(), [](const FSGDDMatrixUse& a, const FSGDDMatrixUse& b) { return a.mIndex < b.mIndex; });
+    uses.erase(std::unique(uses.begin(), uses.end(), [](const FSGDDMatrixUse& a, const FSGDDMatrixUse& b) { return a.mIndex == b.mIndex; }),
+               uses.end());
+}
+
+bool FSGDDMatrixTable::replay(std::vector<FSGDDMatrixUse>& uses, const glm::mat4& proj, const glm::mat4& view, std::vector<U32>& remap)
+{
+    // by old index, which is the order the table took them in: an own table gives each the index it had
+    static std::vector<U32> now;
+    now.resize(uses.size());
+    bool same = true;
+    for (size_t i = 0; i < uses.size(); ++i)
+    {
+        const FSGDDMatrixUse& use = uses[i];
+        now[i] = use.mTexture ? textureIndex((const LLMatrix4*)use.mMatrix)
+                              : lookupModel((const LLMatrix4*)use.mMatrix, proj, view, mFull);
+        same = same && now[i] == use.mIndex;
+    }
+    if (same)
+    {
+        return true;
+    }
+    const U32 old_end = uses.empty() ? 0 : uses.back().mIndex + 1;
+    remap.resize(old_end);
+    for (U32 i = 0; i < old_end; ++i)
+    {
+        remap[i] = i;
+    }
+    for (size_t i = 0; i < uses.size(); ++i)
+    {
+        remap[uses[i].mIndex] = now[i];
+        uses[i].mIndex = now[i];
+    }
+    finishUses(uses);   // sorted by the new indices: the order of this frame's table
+    return false;
+}
+
+FSGDDKeptPass::FSGDDKeptPass()
+{
+    mCommandBuffer.setOwnStorage(true);
+    mRecordBuffer.setOwnStorage(true);
+    mDataBuffer.setOwnStorage(true);
+}
+
+FSGDDKeptPass::~FSGDDKeptPass()
+{
+}
+
+void FSGDDKeptPass::keepInput(U64 key, U64 hash, const uintptr_t* words, size_t count, size_t stride)
+{
+    mKey = key;
+    mHash = hash;
+    mInput.assign(words, words + count);
+    // assigned in place: a batch kept again keeps its reference instead of letting go and taking it back
+    const size_t held = stride ? count / stride : 0;
+    mHeld.resize(held);
+    for (size_t i = 0; i < held; ++i)
+    {
+        mHeld[i] = (LLDrawInfo*)words[i * stride];
+    }
+}
+
+void FSGDDKeptPass::clear()
+{
+    mValid = false;
+    mKey = 0;
+    mHash = 0;
+    mInput.clear();
+    mInput.shrink_to_fit();
+    mHeld.clear();
+    mHeld.shrink_to_fit();
+    mTextures.clear();
+    mArena.clear();
+    mMatrices.clear();
+    mCommandBuffer.release();
+    mRecordBuffer.release();
+    mDataBuffer.release();
+    mBatches = 0;
+}
+
+FSGDDBuildCache::FSGDDBuildCache(EFSGDDBuilder builder, U32 size)
+    : mBuilder(builder)
+{
+    for (U32 i = 0; i < size; ++i)
+    {
+        mPasses.push_back(new FSGDDKeptPass());
+    }
+    build_caches().push_back(this);
+}
+
+// static
+bool FSGDDBuildCache::enabled()
+{
+    static LLCachedControl<bool> enabled(gSavedSettings, "FSPerfGPUDrivenBuildCache", false);
+    return enabled;
+}
+
+// static
+U64 FSGDDBuildCache::hash(const uintptr_t* words, size_t count)
+{
+    U64 h = 0x9E3779B97F4A7C15ull ^ (U64)count;
+    for (size_t i = 0; i < count; ++i)
+    {
+        h = (h ^ (U64)words[i]) * 0xFF51AFD7ED558CCDull;
+        h ^= h >> 32;
+    }
+    return h;
+}
+
+void FSGDDBuildCache::sweep(U32 frame)
+{
+    if (mSweptFrame == frame)
+    {
+        return;
+    }
+    mSweptFrame = frame;
+    for (FSGDDKeptPass* pass : mPasses)
+    {
+        if (pass->mValid && frame - pass->mLastFrame > KEPT_PASS_IDLE_FRAMES)
+        {
+            pass->clear();
+        }
+    }
+}
+
+FSGDDKeptPass* FSGDDBuildCache::find(U64 key, const uintptr_t* words, size_t count, U64 hash)
+{
+    const U32 frame = LLFrameTimer::getFrameCount();
+    sweep(frame);
+    for (FSGDDKeptPass* pass : mPasses)
+    {
+        if (pass->mValid && pass->mKey == key && pass->mHash == hash && pass->mInput.size() == count &&
+            !memcmp(pass->mInput.data(), words, count * sizeof(uintptr_t)))
+        {
+            pass->mLastFrame = frame;
+            return pass;
+        }
+    }
+    return nullptr;
+}
+
+FSGDDKeptPass* FSGDDBuildCache::claim(U64 key)
+{
+    const U32 frame = LLFrameTimer::getFrameCount();
+    sweep(frame);
+    FSGDDKeptPass* oldest = nullptr;
+    for (FSGDDKeptPass* pass : mPasses)
+    {
+        if (!pass->mValid)
+        {
+            if (!oldest || oldest->mValid)
+            {
+                oldest = pass;
+            }
+            continue;
+        }
+        if (pass->mKey == key && pass->mLastFrame != frame)
+        {   // most likely this pass as it was in an earlier frame
+            oldest = pass;
+            break;
+        }
+        if (!oldest || (oldest->mValid && pass->mLastFrame - oldest->mLastFrame > 0x80000000u))
+        {   // older (frames wrap)
+            oldest = pass;
+        }
+    }
+    if (!oldest)
+    {
+        return nullptr;
+    }
+    // what it held goes, the GL buffers stay (the next upload gives them new storage)
+    oldest->mValid = false;
+    oldest->mTextures.clear();
+    oldest->mArena.clear();
+    oldest->mMatrices.clear();
+    oldest->mLastFrame = frame;
+    return oldest;
+}
+
+U32 FSGDDBuildCache::slotOf(const FSGDDKeptPass* pass) const
+{
+    for (U32 i = 0; i < (U32)mPasses.size(); ++i)
+    {
+        if (mPasses[i] == pass)
+        {
+            return i;
+        }
+    }
+    return U32_MAX;
+}
+
+void FSGDDBuildCache::release()
+{
+    for (FSGDDKeptPass* pass : mPasses)
+    {
+        pass->clear();
+    }
+}
+
+void FSGDDBuildCache::takeCounts(U64& hits, U64& kept, U64& unkept)
+{
+    hits = mHits;
+    kept = mKept;
+    unkept = mUnkept;
+    mHits = mKept = mUnkept = 0;
+}
+
+void fsGDDBuildCachesRelease()
+{
+    for (FSGDDBuildCache* cache : build_caches())
+    {
+        cache->release();
+    }
+}
+
+void fsGDDBuildCachesTick()
+{
+    static bool s_was_on = false;
+    const bool on = FSGDDBuildCache::enabled();
+    if (!on)
+    {   // turned off: nothing is kept any more
+        if (s_was_on)
+        {
+            fsGDDBuildCachesRelease();
+        }
+        s_was_on = false;
+        return;
+    }
+    s_was_on = true;
+    const U32 frame = LLFrameTimer::getFrameCount();
+    for (FSGDDBuildCache* cache : build_caches())
+    {   // also those whose builder didn't run this frame
+        cache->sweep(frame);
     }
 }

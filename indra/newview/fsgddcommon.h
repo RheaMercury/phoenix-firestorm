@@ -94,7 +94,12 @@ public:
     // Deletes the own buffer; ring slices belong to the ring.
     void release();
 
+    // FSPerfGPUDrivenBuildCache: always the own buffer, never the ring, so the data stays where it is for the frames
+    // that draw it again (a ring slice is written over three frames later). Each upload still gives it new storage.
+    void setOwnStorage(bool own)        { mOwnStorage = own; }
+
 private:
+    bool mOwnStorage = false;
     GLuint mOwn = 0;            // the own buffer, given new storage at each upload outside the ring
     GLuint mName = 0;           // where the data is: mOwn or a ring buffer
     size_t mOffset = 0;         // of the data in mName
@@ -138,6 +143,14 @@ FSGDDMatrixStore* fsGDDSharedMatrixStore(const glm::mat4& proj, const glm::mat4&
 extern U64 gFSGDDStatModelsComputed;
 extern U64 gFSGDDStatModelsFound;
 
+// FSPerfGPUDrivenBuildCache: a matrix a pass's records name, by the index the lookup gave
+struct FSGDDMatrixUse
+{
+    const void* mMatrix;    // the LLMatrix4 looked up (a model may be null: the view alone)
+    U32 mIndex;
+    U32 mTexture;           // 1: a texture matrix (textureIndex), 0: a model (modelIndex or mvpIndex)
+};
+
 // The matrices one multi-draw reads from its storage buffer: model matrices, composed the way
 // LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them, and texture matrices, each stored once
 // per pass. Consecutive batches mostly share their matrices, so the last lookup of each kind is kept too.
@@ -158,6 +171,8 @@ public:
     void begin(const glm::mat4& proj, const glm::mat4& view, bool full, bool identity)
     {
         static LLCachedControl<bool> shared(gSavedSettings, "FSPerfGPUDrivenSharedMatrices", false);
+        mFull = full;
+        mUses = nullptr;
         mStore = shared ? fsGDDSharedMatrixStore(proj, view, full) : nullptr;
         mShared = mStore != nullptr;
         if (!mStore)
@@ -197,16 +212,46 @@ public:
         }
         s.mLastTex = texture_matrix;
         auto it = s.mTexIndex.find(texture_matrix);
+        U32 index = 0;
         if (it != s.mTexIndex.end())
         {
-            s.mLastTexIndex = it->second;
-            return it->second;
+            index = it->second;
         }
-        const U32 index = push(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        s.mTexIndex.emplace(texture_matrix, index);
+        else
+        {
+            index = push(glm::make_mat4((const F32*)texture_matrix->mMatrix));
+            s.mTexIndex.emplace(texture_matrix, index);
+        }
         s.mLastTexIndex = index;
+        if (mUses)
+        {
+            mUses->push_back({ texture_matrix, index, 1 });
+        }
         return index;
     }
+
+    // FSPerfGPUDrivenBuildCache: from here (after begin) until begin or record(nullptr), every matrix the lookups
+    // give goes into uses, some more than once (finishUses sorts them out). The last lookups are forgotten first:
+    // a shared table's would come from the pass before, and their matrices would be missing from uses.
+    void record(std::vector<FSGDDMatrixUse>* uses)
+    {
+        mUses = uses;
+        if (uses)
+        {
+            mStore->mLastModel = nullptr;
+            mStore->mLastModelIndex = U32_MAX;
+            mStore->mLastTex = nullptr;
+            mStore->mLastTexIndex = U32_MAX;
+        }
+    }
+
+    // Each matrix once, by index: the order the table took them in
+    static void finishUses(std::vector<FSGDDMatrixUse>& uses);
+
+    // FSPerfGPUDrivenBuildCache, after begin: the lookups of a kept pass again, so the table holds its matrices as
+    // they are now. True when every one has the index it had; otherwise remap (by old index) gives the new one
+    // (other indices map to themselves) and uses take the new indices.
+    bool replay(std::vector<FSGDDMatrixUse>& uses, const glm::mat4& proj, const glm::mat4& view, std::vector<U32>& remap);
 
     // Any other matrix the pass wants in the same buffer; its index.
     U32 push(const glm::mat4& matrix)
@@ -262,6 +307,10 @@ private:
         {
             ++gFSGDDStatModelsFound;
             s.mLastModelIndex = it->second;
+            if (mUses)
+            {
+                mUses->push_back({ model, it->second, 0 });
+            }
             return it->second;
         }
         ++gFSGDDStatModelsComputed;
@@ -283,12 +332,18 @@ private:
         }
         s.mModelIndex.emplace(model, index);
         s.mLastModelIndex = index;
+        if (mUses)
+        {
+            mUses->push_back({ model, index, 0 });
+        }
         return index;
     }
 
     FSGDDMatrixStore mOwn;
     FSGDDMatrixStore* mStore = &mOwn;
     bool mShared = false;
+    bool mFull = false;                             // as begin was told
+    std::vector<FSGDDMatrixUse>* mUses = nullptr;   // record
 };
 
 // FSPerfGPUDrivenSharedMatrices: a new cull result is about to be drawn (LLPipeline::postSort). The shared tables
@@ -332,6 +387,7 @@ enum EFSGDDStage : U32
     FS_GDD_STAGE_TEXTURES,      // bindless handles and material records
     FS_GDD_STAGE_MATRICES,      // the matrix table: lookups and the matrices computed
     FS_GDD_STAGE_RECORDS,       // writing the commands, per draw records and ops
+    FS_GDD_STAGE_CACHE,         // FSPerfGPUDrivenBuildCache: checking a kept pass, keeping one
     FS_GDD_STAGE_COUNT
 };
 
@@ -350,7 +406,8 @@ inline void fsGDDLap(EFSGDDStage stage)
     }
 }
 
-// One pass of a builder, for the statistics. Does nothing while they are off. Not nested.
+// One pass of a builder (a build, or with FSPerfGPUDrivenBuildCache the check of a kept pass and its use), for the
+// statistics. Does nothing while they are off. Not nested.
 class FSGDDBuildScope
 {
 public:
@@ -360,9 +417,15 @@ public:
     FSGDDBuildScope& operator=(const FSGDDBuildScope&) = delete;
 
     void addBatches(size_t batches)     { mBatches += (U32)batches; }
+    // FSPerfGPUDrivenBuildCache: a kept pass was used, nothing built
+    void setReused()                    { mReused = true; }
+    // FSPerfGPUDrivenBuildCache: only a check that found no kept pass to use; a build follows in a scope of its own
+    void setCheckOnly()                 { mCheckOnly = true; }
 
 private:
     U64 mStart = 0;
+    bool mReused = false;
+    bool mCheckOnly = false;
     U32 mBuilder = FS_GDD_BUILDER_COUNT;    // FS_GDD_BUILDER_COUNT: statistics off
     U32 mBatches = 0;
     bool mSplit = false;
@@ -525,5 +588,102 @@ inline U32 fsGDDCascadeList(U32 mask, F32 cascades[4])
     }
     return n;
 }
+
+//-----------------------------------------------------------------------------
+// FSPerfGPUDrivenBuildCache: a pass's commands, records and materials kept from the frame they were built in, used
+// again while the pass's input is the same (fsgddcommon.cpp has the full story). What the builder kept besides
+// (ops, the commands and records as arrays) is the builder's, by the kept pass's slot.
+
+class LLDrawInfo;
+class LLViewerTexture;
+
+// A texture handle the build looked up (fsGDDPassTextureHandle, the first lookup of the texture in the pass)
+struct FSGDDTextureUse
+{
+    LLViewerTexture* mTex;  // held by a draw info the kept pass holds
+    U64 mHandle;            // 0: none, the batch went the stock way
+};
+
+// An arena copy a command reads
+struct FSGDDArenaUse
+{
+    LLVertexBuffer* mBuffer;    // held by a draw info the kept pass holds
+    U32 mVertex;
+    U32 mIndex;
+};
+
+struct FSGDDKeptPass
+{
+    FSGDDKeptPass();
+    ~FSGDDKeptPass();   // fsgddcommon.cpp: lets go of the draw infos
+    FSGDDKeptPass(const FSGDDKeptPass&) = delete;
+    FSGDDKeptPass& operator=(const FSGDDKeptPass&) = delete;
+
+    // Holds the draw infos of the input (every stride-th word, from the first) and keeps a copy of it
+    void keepInput(U64 key, U64 hash, const uintptr_t* words, size_t count, size_t stride);
+    // Lets go of everything; the GL buffers too
+    void clear();
+
+    U64 mKey = 0;               // the builder's identity of the pass (program, render type, kind)
+    U64 mHash = 0;              // of mInput
+    std::vector<uintptr_t> mInput;
+    // The draw infos of the input, held so that none is freed (and another made at its address) while kept: a
+    // kept pass with the same input names the same batches, which hold their vertex buffers, textures and matrices
+    std::vector<LLPointer<LLDrawInfo>> mHeld;
+    std::vector<FSGDDTextureUse> mTextures;     // in the order the build looked them up
+    std::vector<FSGDDArenaUse> mArena;          // one per command (or run of commands from one copy)
+    std::vector<FSGDDMatrixUse> mMatrices;      // FSGDDMatrixTable::finishUses
+    // Their own storage (FSGDDBuffer::setOwnStorage): written at the build, then only drawn from
+    FSGDDBuffer mCommandBuffer;
+    FSGDDBuffer mRecordBuffer;
+    FSGDDBuffer mDataBuffer;                    // the materials or texture lists
+    U32 mLastFrame = 0;
+    U32 mBatches = 0;                           // for the statistics
+    bool mValid = false;
+};
+
+// The kept passes of one builder: a few, the least recently used given up for a new one, and those not used for
+// a while let go (they hold draw infos, and through them vertex buffers and textures).
+class FSGDDBuildCache
+{
+public:
+    FSGDDBuildCache(EFSGDDBuilder builder, U32 size);
+
+    // FSPerfGPUDrivenBuildCache is on
+    static bool enabled();
+    // A hash of an input list
+    static U64 hash(const uintptr_t* words, size_t count);
+
+    // The kept pass for key with this input, or nullptr. Lets go of passes not used for a while first.
+    FSGDDKeptPass* find(U64 key, const uintptr_t* words, size_t count, U64 hash);
+    // Where to keep a new pass for key: the one key had if it wasn't used this frame, else the least recently used
+    FSGDDKeptPass* claim(U64 key);
+    U32 slotOf(const FSGDDKeptPass* pass) const;
+    U32 size() const                    { return (U32)mPasses.size(); }
+    void release();
+
+    // Statistics (#FSGPUDrivenBuild): a pass used again, a pass built and kept, one that couldn't be kept
+    void countHit()                     { ++mHits; }
+    void countKept()                    { ++mKept; }
+    void countUnkept()                  { ++mUnkept; }
+    EFSGDDBuilder builder() const       { return mBuilder; }
+    // hits, kept, unkept; zeroed
+    void takeCounts(U64& hits, U64& kept, U64& unkept);
+    // Lets go of the passes not used for a while (once a frame)
+    void sweep(U32 frame);
+
+private:
+    EFSGDDBuilder mBuilder;
+    std::vector<FSGDDKeptPass*> mPasses;    // never deleted, only cleared: no static destructor holds draw infos
+    U32 mSweptFrame = U32_MAX;
+    U64 mHits = 0;
+    U64 mKept = 0;
+    U64 mUnkept = 0;
+};
+
+// Lets go of every kept pass (fsGDDReleaseGL, shader reloads)
+void fsGDDBuildCachesRelease();
+// Once a frame (fsGDDNewCull): lets go of the kept passes not used for a while, and of all once the setting is off
+void fsGDDBuildCachesTick();
 
 #endif // FS_GDDCOMMON_H

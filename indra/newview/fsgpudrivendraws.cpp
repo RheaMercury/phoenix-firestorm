@@ -48,6 +48,10 @@
 // or the arena size limit reached) stays in the list and is drawn by the stock loop. Rigged, alpha masked,
 // GLTF, tree, grass, terrain and avatar casters are untouched.
 //
+// FSPerfGPUDrivenBuildCache (fsgddcommon.cpp): a shadow pass given the same casters (and cascade sets) as in an
+// earlier frame skips the sort and the build and draws the commands and records built then, from their own
+// buffers, once the arena copies they read are found where they were; only the matrices are looked up again.
+//
 // FSPerfGPUDrivenDrawsVerify: after each multi-draw the same batches are drawn the stock way with depth
 // writes off, a small polygon offset and a GL_SAMPLES_PASSED query; any sample that passes GL_LESS is a
 // spot where the stock path would have put a nearer caster than the multi-draw did, which is logged. It
@@ -118,9 +122,12 @@ namespace
 
 namespace
 {
+    void release_kept();    // FSPerfGPUDrivenBuildCache, below
+
     // the shadow pass's own GL objects; the PBR pass (fsGDDPBR*) releases its own
     void release_shadow_gl()
     {
+        release_kept();
         sArena.releaseGL();
         sIndirectBuffer.release();
         sDrawBuffer.release();
@@ -296,9 +303,141 @@ namespace
     std::vector<Item> sHandled;     // FSPerfGPUDrivenDrawsVerify
     std::vector<Segment> sSegments;
 
+    // The buffers the pass being drawn reads (sIndirectBuffer and sDrawBuffer, or with FSPerfGPUDrivenBuildCache a
+    // kept pass's), and which of them draw_commands uploads to
+    enum EUpload
+    {
+        UPLOAD_COMMANDS = 1,
+        UPLOAD_RECORDS = 2,
+        UPLOAD_ALL = 3
+    };
+    FSGDDBuffer* sCurIndirect = &sIndirectBuffer;
+    FSGDDBuffer* sCurDraws = &sDrawBuffer;
+    U32 sUploads = UPLOAD_ALL;
+
+    // FSPerfGPUDrivenBuildCache: the kept passes, and by their slot what the build made besides the buffers
+    constexpr U32 FS_GDD_SHADOW_KEPT = 16;
+    constexpr U64 KEY_OPAQUE = 1;           // fsGDDDrawShadowOpaque: the batches as given, before the sort
+    constexpr U64 KEY_SINGLE_PASS = 2;      // fsGDDDrawShadowSinglePass: each caster and its cascade set
+    FSGDDBuildCache sCache(FS_GDD_BUILDER_SHADOW, FS_GDD_SHADOW_KEPT);
+    struct Kept
+    {
+        std::vector<FSGDDDrawCommand> mCommands;
+        std::vector<Record> mDraws;
+        std::vector<Segment> mSegments;
+    };
+    std::vector<Kept> sKept(FS_GDD_SHADOW_KEPT);
+    std::vector<FSGDDArenaUse> sArenaUses;  // what a build that may be kept looked up
+    std::vector<FSGDDMatrixUse> sMatrixUses;
+    std::vector<U32> sRemap;
+    std::vector<uintptr_t> sWords;          // the single pass list as the kept passes compare it
+    bool sKeepable = false;                 // the pass just built may be kept
+
+    // FSPerfGPUDrivenBuildCache: the kept pass for this input, if the arena copies it reads are still where they
+    // were; then its commands, records and segments are the pass's, its buffers the ones drawn from, and the
+    // matrix table holds its matrices. hash: of the input, for keep.
+    bool use_kept(U64 key, const uintptr_t* words, size_t count, U64& hash)
+    {
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_SHADOW);
+        FSGDDBuildScope scope(FS_GDD_BUILDER_SHADOW);
+        sCurIndirect = &sIndirectBuffer;
+        sCurDraws = &sDrawBuffer;
+        sUploads = UPLOAD_ALL;
+        hash = FSGDDBuildCache::hash(words, count);
+        FSGDDKeptPass* kept = sCache.find(key, words, count, hash);
+        if (!kept)
+        {
+            scope.setCheckOnly();
+            return false;
+        }
+        const U32 frame = LLFrameTimer::getFrameCount();
+        sArena.beginFrame(frame);
+        const size_t uses = kept->mArena.size();
+        for (size_t i = 0; i < uses; ++i)
+        {
+            if (i + 8 < uses)
+            {
+                sArena.prefetchBuffer(kept->mArena[i + 8].mBuffer);
+            }
+            if (i + 4 < uses)
+            {
+                sArena.prefetchEntry(kept->mArena[i + 4].mBuffer);
+            }
+            const FSGDDArenaUse& use = kept->mArena[i];
+            const FSGDDArenaEntry* entry = sArena.find(use.mBuffer, frame);
+            if (!entry || entry->mVertex != use.mVertex || entry->mIndex != use.mIndex)
+            {
+                scope.setCheckOnly();
+                return false;
+            }
+        }
+
+        Kept& k = sKept[sCache.slotOf(kept)];
+        sCommands = k.mCommands;
+        sDraws = k.mDraws;
+        sSegments = k.mSegments;
+        sUploads = 0;
+        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 view = get_current_modelview();
+        sMatrices.begin(proj, view, false, false);
+        if (!sMatrices.replay(kept->mMatrices, proj, view, sRemap))
+        {   // the matrices are at other indices than the kept records say (FSPerfGPUDrivenSharedMatrices): the
+            // records follow, kept so, and go up again
+            for (Record& record : sDraws)
+            {
+                record.mMatrix = record.mMatrix < sRemap.size() ? sRemap[record.mMatrix] : record.mMatrix;
+            }
+            k.mDraws = sDraws;
+            sUploads = UPLOAD_RECORDS;
+        }
+        sCurIndirect = &kept->mCommandBuffer;
+        sCurDraws = &kept->mRecordBuffer;
+        scope.addBatches(kept->mBatches);
+        scope.setReused();
+        sCache.countHit();
+        fsGDDLap(FS_GDD_STAGE_CACHE);
+        return true;
+    }
+
+    void release_kept()
+    {
+        sCache.release();
+        for (Kept& kept : sKept)
+        {
+            kept = Kept();
+        }
+    }
+
+    // FSPerfGPUDrivenBuildCache: keeps the pass just built (with nothing left to the stock path), which then
+    // uploads to and draws from the kept buffers
+    void keep(U64 key, U64 hash, const uintptr_t* words, size_t count, size_t stride, U32 batches)
+    {
+        FSGDDKeptPass* kept = sCache.claim(key);
+        if (!kept)
+        {
+            sCache.countUnkept();
+            return;
+        }
+        kept->keepInput(key, hash, words, count, stride);
+        kept->mArena.swap(sArenaUses);
+        FSGDDMatrixTable::finishUses(sMatrixUses);
+        kept->mMatrices.swap(sMatrixUses);
+        kept->mBatches = batches;
+        kept->mValid = true;
+        Kept& k = sKept[sCache.slotOf(kept)];
+        k.mCommands = sCommands;
+        k.mDraws = sDraws;
+        k.mSegments = sSegments;
+        sCurIndirect = &kept->mCommandBuffer;
+        sCurDraws = &kept->mRecordBuffer;
+        sCache.countKept();
+    }
+
     // Turns the items (sorted by mask, model matrix, buffer, index offset, longer range first) into commands
     // and segments. Items that can't be drawn from the arena go to left, the rest (verify only) to sHandled.
-    void build_commands(const std::vector<Item>& items, std::vector<Item>& left, bool single_pass, bool verify)
+    // record: what FSPerfGPUDrivenBuildCache needs to keep the pass.
+    void build_commands(const std::vector<Item>& items, std::vector<Item>& left, bool single_pass, bool verify, bool record)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_SHADOW);
@@ -314,6 +453,13 @@ namespace
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
         sMatrices.begin(proj, view, false, false);
+        if (record)
+        {
+            sArenaUses.clear();
+            sMatrixUses.clear();
+            sMatrices.record(&sMatrixUses);
+            sKeepable = true;
+        }
 
         const size_t count = items.size();
         size_t i = 0;
@@ -356,6 +502,10 @@ namespace
             {   // always true for a valid batch; anything else is left to the stock path rather than read past the copy
                 const LLDrawInfo* params = items[j].mParams;
                 in_range = params->mOffset + params->mCount <= entry->mNumIndices && params->mEnd < entry->mNumVerts;
+                if (record && params->mAvatar.notNull())
+                {   // FSPerfGPUDrivenBuildCache: a kept pass mustn't hold an avatar through its draw infos
+                    sKeepable = false;
+                }
             }
             fsGDDLap(FS_GDD_STAGE_ARENA);
             if (!in_range)
@@ -371,6 +521,10 @@ namespace
             }
             const U32 matrix = sMatrices.mvpIndex(model, proj, view);
             fsGDDLap(FS_GDD_STAGE_MATRICES);
+            if (record)
+            {
+                sArenaUses.push_back({ vb, entry->mVertex, entry->mIndex });
+            }
             const U32 instances = single_pass ? fsGDDPopcount4(first.mMask) : 1;
             U32 cascades[4] = { 0, 0, 0, 0 };   // the cascade of each instance
             if (single_pass)
@@ -420,6 +574,10 @@ namespace
             i = group_end;
             fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
+        if (record)
+        {
+            sMatrices.record(nullptr);
+        }
     }
 
     // Issues the built commands, one multi-draw per segment. The program is bound by the caller.
@@ -428,7 +586,15 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("gdd multi-draw");
         LL_PROFILE_GPU_ZONE("gdd multi-draw");
 
-        sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        // a kept pass used again (FSPerfGPUDrivenBuildCache) has its commands and records up already
+        if (sUploads & UPLOAD_COMMANDS)
+        {
+            sCurIndirect->upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        }
+        else
+        {
+            sCurIndirect->bind(GL_DRAW_INDIRECT_BUFFER);
+        }
         sMatrices.upload();
         sMatrices.bindBase(FS_GDD_MATRIX_BINDING);
 
@@ -436,16 +602,23 @@ namespace
         // instances; it goes into the global vertex array object, never a buffer's own
         LLVertexBuffer::fsUseDefaultVAO();
         const GLuint record = (GLuint)sRecordAttrib[single_pass ? 1 : 0];
-        sDrawBuffer.upload(GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
+        if (sUploads & UPLOAD_RECORDS)
+        {
+            sCurDraws->upload(GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
+        }
+        else
+        {
+            sCurDraws->bind(GL_ARRAY_BUFFER);
+        }
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 2, GL_UNSIGNED_INT, sizeof(Record), sDrawBuffer.at(0));
+        glVertexAttribIPointer(record, 2, GL_UNSIGNED_INT, sizeof(Record), sCurDraws->at(0));
         glVertexAttribDivisor(record, 1);
         sArena.bindForDraw(LLVertexBuffer::MAP_VERTEX);
 
         for (const Segment& segment : sSegments)
         {
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
-                                        sIndirectBuffer.at((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
+                                        sCurIndirect->at((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
         }
 
         // the program's attribute mask doesn't have this location, so LLVertexBuffer expects it off and undivided
@@ -556,10 +729,25 @@ U32 fsGDDDrawShadowOpaque(std::vector<LLDrawInfo*>& batches)
         return 0;
     }
 
+    // FSPerfGPUDrivenBuildCache: not while verifying, which checks what a build makes. Until a kept pass is
+    // found or made, the pass's own buffers.
+    sCurIndirect = &sIndirectBuffer;
+    sCurDraws = &sDrawBuffer;
+    sUploads = UPLOAD_ALL;
+    const bool cache = !verify && FSGDDBuildCache::enabled();
+    const uintptr_t* words = (const uintptr_t*)batches.data();
+    U64 hash = 0;
+    static std::vector<Item> left;
+    left.clear();
+    const bool reused = cache && use_kept(KEY_OPAQUE, words, batches.size(), hash);
+
     sItems.clear();
-    for (LLDrawInfo* params : batches)
+    if (!reused)
     {
-        sItems.push_back({ params, 1 });
+        for (LLDrawInfo* params : batches)
+        {
+            sItems.push_back({ params, 1 });
+        }
     }
     std::sort(sItems.begin(), sItems.end(), [](const Item& a, const Item& b)
     {
@@ -580,9 +768,18 @@ U32 fsGDDDrawShadowOpaque(std::vector<LLDrawInfo*>& batches)
         return lhs->mCount > rhs->mCount;
     });
 
-    static std::vector<Item> left;
-    left.clear();
-    build_commands(sItems, left, false, verify);
+    if (!reused)
+    {
+        build_commands(sItems, left, false, verify, cache);
+        if (cache && sKeepable && left.empty() && !sCommands.empty())
+        {   // kept before batches changes below: words points into it
+            keep(KEY_OPAQUE, hash, words, batches.size(), 1, (U32)batches.size());
+        }
+        else if (cache)
+        {
+            sCache.countUnkept();
+        }
+    }
 
     const U32 total = (U32)batches.size();
     U32 calls = 0;
@@ -622,16 +819,45 @@ U32 fsGDDDrawShadowSinglePass(std::vector<LLPipeline::FSShadowSPEntry>& list, co
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
     static LLCachedControl<bool> verify(gSavedSettings, "FSPerfGPUDrivenDrawsVerify", false);
 
-    // already sorted by mask, model matrix, buffer and offset (fsShadowSinglePassFinish)
-    sItems.clear();
-    for (const LLPipeline::FSShadowSPEntry& entry : list)
+    // FSPerfGPUDrivenBuildCache: not while verifying, which checks what a build makes. The list as words: each
+    // caster and its cascade set. Until a kept pass is found or made, the pass's own buffers.
+    sCurIndirect = &sIndirectBuffer;
+    sCurDraws = &sDrawBuffer;
+    sUploads = UPLOAD_ALL;
+    const bool cache = !verify && FSGDDBuildCache::enabled();
+    U64 hash = 0;
+    bool reused = false;
+    if (cache)
     {
-        sItems.push_back({ entry.mParams, entry.mMask });
+        sWords.clear();
+        for (const LLPipeline::FSShadowSPEntry& entry : list)
+        {
+            sWords.push_back((uintptr_t)entry.mParams);
+            sWords.push_back((uintptr_t)entry.mMask);
+        }
+        reused = use_kept(KEY_SINGLE_PASS, sWords.data(), sWords.size(), hash);
     }
 
+    // already sorted by mask, model matrix, buffer and offset (fsShadowSinglePassFinish)
+    sItems.clear();
     static std::vector<Item> left;
     left.clear();
-    build_commands(sItems, left, true, verify);
+    if (!reused)
+    {
+        for (const LLPipeline::FSShadowSPEntry& entry : list)
+        {
+            sItems.push_back({ entry.mParams, entry.mMask });
+        }
+        build_commands(sItems, left, true, verify, cache);
+        if (cache && sKeepable && left.empty() && !sCommands.empty())
+        {
+            keep(KEY_SINGLE_PASS, hash, sWords.data(), sWords.size(), 2, (U32)list.size());
+        }
+        else if (cache)
+        {
+            sCache.countUnkept();
+        }
+    }
 
     const U32 total = (U32)list.size();
     U32 calls = 0;
