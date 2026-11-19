@@ -65,6 +65,7 @@
 #include "fsgpudrivenshadowalpha.h"
 
 #include "fsgddarena.h"
+#include "fsgddcommon.h"
 #include "fsgpudrivenlegacy.h"
 #include "fsgpudrivenpbr.h"
 #include "fsshadowsinglepass.h"
@@ -117,15 +118,6 @@ namespace
                       { LLVertexBuffer::TYPE_VERTEX, LLVertexBuffer::TYPE_TEXCOORD0, LLVertexBuffer::TYPE_COLOR },
                       "FSPerfGPUDrivenShadowAlphaArenaMB", 256, 8, LLVertexBuffer::MAP_COLOR);
 
-    struct DrawCommand  // DrawElementsIndirectCommand
-    {
-        GLuint  mCount;
-        GLuint  mInstanceCount;
-        GLuint  mFirstIndex;
-        GLint   mBaseVertex;
-        GLuint  mBaseInstance;
-    };
-
     struct Record       // fs_gdd_draw
     {
         U32 mMatrix;    // model view projection (single pass: model, and the instance's cascade in bits 30-31)
@@ -134,12 +126,7 @@ namespace
         U32 mMode;      // bits 0-1: kind; bits 2-31: GLTF base colour transform (a matrix whose first two columns hold it)
     };
 
-    struct TexEntry     // uvec2, std430 stride 8
-    {
-        U32 mX;         // header: minimum alpha (float bits); handle: low 32 bits
-        U32 mY;         // header: texture count; handle: high 32 bits
-    };
-    static_assert(sizeof(TexEntry) == 8, "FSGDDShadowAlphaTextures layout");
+    static_assert(sizeof(FSGDDTexEntry) == 8, "FSGDDShadowAlphaTextures layout");
 
     struct Item
     {
@@ -195,17 +182,11 @@ namespace
     U32 sFrame = 0;
     std::vector<Item> sItems;
     std::vector<Item> sSortedItems;         // build's bucket sort target, kept for its capacity
-    std::vector<TexEntry> sTextures;
-    std::vector<DrawCommand> sCommands;
+    std::vector<FSGDDTexEntry> sTextures;
+    std::vector<FSGDDDrawCommand> sCommands;
     std::vector<Record> sRecords;
     std::vector<Segment> sSegments;
-    std::vector<glm::mat4> sMatrices;
-    std::unordered_map<const LLMatrix4*, U32> sMatrixIndex;
-    std::unordered_map<const LLMatrix4*, U32> sTexMatrixIndex;
-    const LLMatrix4* sLastModel = nullptr;  // consecutive batches mostly share their matrices
-    U32 sLastModelIndex = U32_MAX;          // U32_MAX: none yet this build
-    const LLMatrix4* sLastTexMatrix = nullptr;
-    U32 sLastTexMatrixIndex = U32_MAX;
+    FSGDDMatrixTable sMatrices;
     std::unordered_map<const LLFetchedGLTFMaterial*, U32> sTransformIndex;
 
     // stats, every 10 seconds with FSPerfShadowBatchStats or FSPerfGPUDrivenDrawsVerify
@@ -300,23 +281,8 @@ namespace
 void fsGDDShadowAlphaReleaseGL()
 {
     sArena.releaseGL();
-    GLuint buffers[4] = { sIndirectBuffer, sRecordBuffer, sMatrixBuffer, sTextureBuffer };
-    for (GLuint buffer : buffers)
-    {
-        if (buffer)
-        {
-            glDeleteBuffers(1, &buffer);
-        }
-    }
-    sIndirectBuffer = 0;
-    sRecordBuffer = 0;
-    sMatrixBuffer = 0;
-    sTextureBuffer = 0;
-    if (sQuery)
-    {
-        glDeleteQueries(1, &sQuery);
-        sQuery = 0;
-    }
+    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sTextureBuffer });
+    fsGDDDeleteQuery(sQuery);
     sItems.clear();
     sTextures.clear();
     sActive = false;
@@ -633,56 +599,6 @@ void fsGDDShadowAlphaCollectSP(U32 kind, std::vector<LLPipeline::FSShadowSPEntry
 
 namespace
 {
-    U32 matrix_index(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view)
-    {
-        if (sLastModelIndex != U32_MAX && model == sLastModel)
-        {
-            return sLastModelIndex;
-        }
-        sLastModel = model;
-        auto it = sMatrixIndex.find(model);
-        if (it != sMatrixIndex.end())
-        {
-            sLastModelIndex = it->second;
-            return it->second;
-        }
-        // as LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose it
-        glm::mat4 modelview = view;
-        if (model)
-        {
-            modelview *= glm::make_mat4((const F32*)model->mMatrix);
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(proj * modelview);
-        sMatrixIndex.emplace(model, index);
-        sLastModelIndex = index;
-        return index;
-    }
-
-    U32 texture_matrix_index(const LLMatrix4* texture_matrix)
-    {
-        if (!texture_matrix)
-        {
-            return 0;   // identity, what MM_TEXTURE0 holds outside pushBatch and pushGLTFBatch
-        }
-        if (sLastTexMatrixIndex != U32_MAX && texture_matrix == sLastTexMatrix)
-        {
-            return sLastTexMatrixIndex;
-        }
-        sLastTexMatrix = texture_matrix;
-        auto it = sTexMatrixIndex.find(texture_matrix);
-        if (it != sTexMatrixIndex.end())
-        {
-            sLastTexMatrixIndex = it->second;
-            return it->second;
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        sTexMatrixIndex.emplace(texture_matrix, index);
-        sLastTexMatrixIndex = index;
-        return index;
-    }
-
     // the base colour transform LLFetchedGLTFMaterial::bind uploads (texture_base_color_transform, vec4[2]), as
     // the first two columns of a matrix
     U32 transform_index(const LLFetchedGLTFMaterial* mat)
@@ -696,28 +612,15 @@ namespace
         mat->mTextureTransform[LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR].getPacked(packed);
         glm::mat4 holder(0.f);
         memcpy(glm::value_ptr(holder), packed, sizeof(packed));
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(holder);
+        const U32 index = sMatrices.push(holder);
         sTransformIndex.emplace(mat, index);
         return index;
     }
 
-    U32 popcount4(U32 mask)
-    {
-        return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
-    }
-
     void set_cascades(LLGLSLShader* shader, U32 mask)
     {
-        F32 cascades[4] = { 0.f, 0.f, 0.f, 0.f };
-        U32 n = 0;
-        for (U32 c = 0; c < 4; ++c)
-        {
-            if (mask & (1u << c))
-            {
-                cascades[n++] = (F32)c;
-            }
-        }
+        F32 cascades[4];
+        const U32 n = fsGDDCascadeList(mask, cascades);
         shader->uniform4f(sCascade, cascades[0], cascades[1], cascades[2], cascades[3]);
         LLVertexBuffer::sFSInstanceCount = n;   // the stock instanced draws; the multi-draw commands carry their own count
     }
@@ -753,12 +656,8 @@ namespace
         sRecords.clear();
         sSegments.clear();
         sMatrices.clear();
-        sMatrixIndex.clear();
-        sTexMatrixIndex.clear();
         sTransformIndex.clear();
-        sLastModelIndex = U32_MAX;
-        sLastTexMatrixIndex = U32_MAX;
-        sMatrices.push_back(glm::mat4(1.f));   // texture matrix 0: identity
+        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
 
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
@@ -769,12 +668,12 @@ namespace
                 sSegments.push_back({ item.mMask, item.mDoubleSided, (U32)sCommands.size(), 0 });
             }
             const LLDrawInfo& params = *item.mParams;
-            const U32 instances = single_pass ? popcount4(item.mMask) : 1;
+            const U32 instances = single_pass ? fsGDDPopcount4(item.mMask) : 1;
             // base instance: this command's first record, one per instance
             sCommands.push_back({ params.mCount, instances, item.mIndex + params.mOffset, (GLint)item.mVertex, (GLuint)sRecords.size() });
             const U32 transform = item.mKind == MODE_GLTF ? transform_index(item.mMaterial) : 0;
-            const U32 matrix = matrix_index(params.mModelMatrix, proj, view);
-            const U32 tex_matrix = texture_matrix_index(item.mTexMatrix);
+            const U32 matrix = sMatrices.mvpIndex(params.mModelMatrix, proj, view);
+            const U32 tex_matrix = sMatrices.textureIndex(item.mTexMatrix);
             llassert(matrix < (1u << FS_GDD_SA_CASCADE_SHIFT));
             if (single_pass)
             {
@@ -792,17 +691,6 @@ namespace
             }
             ++sSegments.back().mCount;
         }
-    }
-
-    void upload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-    {
-        if (!buffer)
-        {
-            glGenBuffers(1, &buffer);
-        }
-        glBindBuffer(target, buffer);
-        // new storage: the previous pass's draws may still read the old; never empty
-        glBufferData(target, llmax(bytes, (size_t)16), bytes ? data : nullptr, GL_STREAM_DRAW);
     }
 
     // the arena, the record attribute and the storage buffers for the bound program
@@ -972,33 +860,16 @@ namespace
     void verify_against_stock(bool single_pass, U32 target_width, const glm::mat4* clip, const F32* widths)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("gdd shadow alpha verify");
-        if (!sQuery)
+        const GLuint samples = fsGDDNearerSamples(sQuery, true, [&]()
         {
-            glGenQueries(1, &sQuery);
-        }
-        GLfloat factor = 0.f;
-        GLfloat units = 0.f;
-        glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &factor);
-        glGetFloatv(GL_POLYGON_OFFSET_UNITS, &units);
-        {
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LESS);
-            LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(1.f, 4.f);  // only casters clearly nearer than what the multi-draw wrote count
-            glBeginQuery(GL_SAMPLES_PASSED, sQuery);
             draw_stock(single_pass, target_width, clip, widths);
-            glEndQuery(GL_SAMPLES_PASSED);
-        }
-        glPolygonOffset(factor, units);
-
-        GLuint samples = 0;
-        glGetQueryObjectuiv(sQuery, GL_QUERY_RESULT, &samples);
+        });
         if (samples > FS_GDD_SA_VERIFY_SAMPLES)
         {
             ++sStatMismatches;
             static LLFrameTimer warn_timer;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
+            if (fsGDDWarnDue(warn_timer))
             {
-                warn_timer.reset();
                 LL_WARNS("Rendering") << "FSPerfGPUDrivenShadowAlpha verify: " << samples << " samples of " << sItems.size()
                                       << " stock alpha tested shadow casters are nearer than the multi-draw depth"
                                       << (single_pass ? " (single pass)" : "") << "; " << sStatMismatches
@@ -1017,21 +888,12 @@ namespace
             return;
         }
         timer.reset();
-        std::ostringstream reasons;
-        for (U32 r = 0; r < R_COUNT; ++r)
-        {
-            if (sStatReasons[r])
-            {
-                reasons << (reasons.tellp() ? ", " : "") << reason_name(r) << " " << sStatReasons[r];
-                sStatReasons[r] = 0;
-            }
-        }
+        const std::string reasons = fsGDDCountList(sStatReasons, R_COUNT, reason_name);
         LL_INFOS("FSShadowBatches") << "GPU-driven alpha tested shadow casters, last 10 s: " << sStatPasses << " passes, "
                                     << sStatBatches << " batches (" << sStatDrawn << " from the arena) in " << sStatCalls
                                     << " multi-draw calls; stock path for: "
-                                    << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                    << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices (" << sArena.allocatedMB() << " MB allocated), "
-                                    << sArena.entries() << " buffers, " << sArena.uploads() << " copies; "
+                                    << reasons << "; arena "
+                                    << fsGDDArenaSummary(sArena) << "; "
                                     << sStatMismatches << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatDrawn = sStatCalls = 0;
         sArena.clearCounts();
@@ -1066,10 +928,10 @@ namespace
         }
         else
         {
-            upload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(DrawCommand));
-            upload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-            upload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.size() * sizeof(glm::mat4));
-            upload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(TexEntry));
+            fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+            fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+            fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
+            fsGDDUpload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1091,7 +953,7 @@ namespace
                 LLGLDisable no_cull(segment.mDoubleSided ? GL_CULL_FACE : 0);
                 // single pass: each instance's record names its cascade, no uniform needed
                 glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
-                                            (const void*)((size_t)segment.mFirst * sizeof(DrawCommand)), (GLsizei)segment.mCount, 0);
+                                            (const void*)((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
                 ++calls;
             }
             LLVertexBuffer::sFSInstanceCount = 0;

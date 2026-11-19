@@ -1050,6 +1050,7 @@ set(viewer_HEADER_FILES
     fsfavoritegroups.h
     fsfoginterior.h
     fsgddarena.h
+    fsgddcommon.h
     fsgpudrivenalpha.h
     fsgpudrivendraws.h
     fsgpudrivenlegacy.h

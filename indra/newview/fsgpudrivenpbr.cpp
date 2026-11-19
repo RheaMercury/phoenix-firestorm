@@ -96,6 +96,7 @@
 #include "fsglstream.h"
 
 #include "fsgddarena.h"
+#include "fsgddcommon.h"
 #include "fsgpudrivenmaterials.h"
 #include "fsskinpalettebuffer.h"
 
@@ -155,15 +156,6 @@ namespace
                             { LLVertexBuffer::TYPE_VERTEX, LLVertexBuffer::TYPE_NORMAL, LLVertexBuffer::TYPE_TANGENT,
                               LLVertexBuffer::TYPE_TEXCOORD0, LLVertexBuffer::TYPE_COLOR, LLVertexBuffer::TYPE_WEIGHT4 },
                             "FSPerfGPUDrivenPBRArenaMB", 512, 8);
-
-    struct DrawCommand  // DrawElementsIndirectCommand
-    {
-        GLuint  mCount;
-        GLuint  mInstanceCount;
-        GLuint  mFirstIndex;
-        GLint   mBaseVertex;
-        GLuint  mBaseInstance;
-    };
 
     struct Record       // fs_gdd_draw
     {
@@ -247,13 +239,11 @@ namespace
     U32 sPaletteGeneration = 0;
 
     std::vector<Op> sOps;
-    std::vector<DrawCommand> sCommands;
+    std::vector<FSGDDDrawCommand> sCommands;
     std::vector<Record> sRecords;
-    std::vector<glm::mat4> sMatrices;
+    FSGDDMatrixTable sMatrices;
     std::vector<Material> sMaterials;
     std::vector<LLDrawInfo*> sCommandParams; // per command: its batch (verify, and the stock fallback)
-    std::unordered_map<const LLMatrix4*, U32> sMatrixIndex;
-    std::unordered_map<const LLMatrix4*, U32> sTexMatrixIndex;
     struct MaterialInfo
     {
         U32 mIndex;
@@ -1270,23 +1260,8 @@ void fsGDDPBRReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    GLuint buffers[4] = { sIndirectBuffer, sRecordBuffer, sMatrixBuffer, sMaterialBuffer };
-    for (GLuint buffer : buffers)
-    {
-        if (buffer)
-        {
-            glDeleteBuffers(1, &buffer);
-        }
-    }
-    sIndirectBuffer = 0;
-    sRecordBuffer = 0;
-    sMatrixBuffer = 0;
-    sMaterialBuffer = 0;
-    if (sQuery)
-    {
-        glDeleteQueries(1, &sQuery);
-        sQuery = 0;
-    }
+    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sMaterialBuffer });
+    fsGDDDeleteQuery(sQuery);
     release_handles();
     sBindlessTested = 0;    // per GL context: tested again at the next load
 }
@@ -1335,44 +1310,6 @@ void fsGDDSweepHandles(U32 frame)
 
 namespace
 {
-    U32 matrix_index(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view)
-    {
-        auto it = sMatrixIndex.find(model);
-        if (it != sMatrixIndex.end())
-        {
-            return it->second;
-        }
-        // as LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them
-        glm::mat4 modelview = view;
-        if (model)
-        {
-            modelview *= glm::make_mat4((const F32*)model->mMatrix);
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(modelview);
-        sMatrices.push_back(proj * modelview);
-        sMatrices.push_back(glm::transpose(glm::inverse(modelview)));  // the normal matrix is its upper 3x3
-        sMatrixIndex.emplace(model, index);
-        return index;
-    }
-
-    U32 texture_matrix_index(const LLMatrix4* texture_matrix)
-    {
-        if (!texture_matrix)
-        {
-            return 0;   // identity, what MM_TEXTURE0 holds outside setup_texture_matrix/teardown_texture_matrix
-        }
-        auto it = sTexMatrixIndex.find(texture_matrix);
-        if (it != sTexMatrixIndex.end())
-        {
-            return it->second;
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        sTexMatrixIndex.emplace(texture_matrix, index);
-        return index;
-    }
-
     // The material's record: what LLFetchedGLTFMaterial::bind(nullptr) sets in the deferred pass, and, when
     // bindless is wanted and every texture can have a handle, the handles of what it would bind.
     MaterialInfo material_index(LLFetchedGLTFMaterial* mat, bool want_bindless, U32 frame)
@@ -1536,8 +1473,6 @@ namespace
         sMatrices.clear();
         sMaterials.clear();
         sCommandParams.clear();
-        sMatrixIndex.clear();
-        sTexMatrixIndex.clear();
         if (++sMaterialPass == 0)
         {
             sMaterialPass = 1; // 0 is what a material starts with
@@ -1548,7 +1483,7 @@ namespace
         arena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
-        sMatrices.push_back(glm::mat4(1.f));   // texture matrix 0: identity
+        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
 
         for (LLCullResult::drawinfo_iterator i = begin; i != end; )
         {
@@ -1634,7 +1569,7 @@ namespace
                 }
             }
             const bool double_sided = mat->mDoubleSided;
-            const Record record = { matrix_index(params.mModelMatrix, proj, view), texture_matrix_index(params.mTextureMatrix.get()),
+            const Record record = { sMatrices.modelIndex(params.mModelMatrix, proj, view), sMatrices.textureIndex(params.mTextureMatrix.get()),
                                     info.mIndex, 0 };
 
             if (group_runs)
@@ -1665,17 +1600,6 @@ namespace
         {
             emit_grouped();
         }
-    }
-
-    void upload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-    {
-        if (!buffer)
-        {
-            glGenBuffers(1, &buffer);
-        }
-        glBindBuffer(target, buffer);
-        // new storage: the previous pass's draws may still read the old; never empty
-        glBufferData(target, llmax(bytes, (size_t)16), bytes ? data : nullptr, GL_STREAM_DRAW);
     }
 
     // the arena, the record attribute and the storage buffers for program `which` (bound)
@@ -1754,10 +1678,10 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr execute");
         LL_PROFILE_GPU_ZONE("gdd pbr");
 
-        upload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(DrawCommand));
-        upload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-        upload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.size() * sizeof(glm::mat4));
-        upload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
+        fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1859,7 +1783,7 @@ namespace
                 bound_tex = op.mTex;
             }
             LLGLDisable cull_face(op.mDoubleSided ? GL_CULL_FACE : 0);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(DrawCommand)),
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
                                         (GLsizei)op.mCount, 0);
             ++calls;
             drew = true;
@@ -1883,74 +1807,29 @@ namespace
         }
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr verify");
 
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
-            static LLFrameTimer warn_timer;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
-            {
-                warn_timer.reset();
-                LL_WARNS("Rendering") << "FSPerfGPUDrivenPBRVerify: GL error 0x" << std::hex << error << std::dec
-                                      << " after the GPU-driven PBR pass" << LL_ENDL;
-            }
-        }
+        static LLFrameTimer error_timer;
+        fsGDDCheckGLError(error_timer, "FSPerfGPUDrivenPBRVerify", "PBR");
 
         // arena copies against their sources, a couple per pass
-        U32 checked = 0;
-        for (LLDrawInfo* params : sCommandParams)
-        {
-            LLVertexBuffer* vb = params->mVertexBuffer.get();
-            FSGDDArenaEntry* found = sPassArena->peek(vb);
-            if (found && !found->mVerified)
-            {
-                if (!sPassArena->verifyEntry(vb, *found))
-                {
-                    ++sStatMismatches;
-                    static LLFrameTimer warn_timer;
-                    if (warn_timer.getElapsedTimeF32() > 5.f)
-                    {
-                        warn_timer.reset();
-                        LL_WARNS("Rendering") << "FSPerfGPUDrivenPBRVerify: the arena copy of a vertex buffer ("
-                                              << found->mNumVerts << " vertices, " << found->mNumIndices
-                                              << " indices) differs from the buffer" << LL_ENDL;
-                    }
-                }
-                if (++checked >= 2)
-                {
-                    break;
-                }
-            }
-        }
+        sStatMismatches += fsGDDVerifyArenaCopies(*sPassArena, sCommandParams,
+                                                  [](LLDrawInfo* params) { return params->mVertexBuffer.get(); },
+                                                  "FSPerfGPUDrivenPBRVerify");
 
-        if (!sQuery)
+        const GLuint samples = fsGDDNearerSamples(sQuery, false, [&]()
         {
-            glGenQueries(1, &sQuery);
-        }
-        {
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LESS);
-            GLboolean mask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
-            glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);    // behind gGL's back, put back below
-            glBeginQuery(GL_SAMPLES_PASSED, sQuery);
             LLFetchedGLTFMaterial* last_mat = nullptr;
             LLViewerTexture* last_tex = nullptr;
             for (LLDrawInfo* params : sCommandParams)
             {
                 push_stock(*params, last_mat, last_tex);
             }
-            glEndQuery(GL_SAMPLES_PASSED);
-            glColorMask(mask[0], mask[1], mask[2], mask[3]);
-        }
-
-        GLuint samples = 0;
-        glGetQueryObjectuiv(sQuery, GL_QUERY_RESULT, &samples);
+        });
         if (samples)
         {
             ++sStatMismatches;
             static LLFrameTimer warn_timer;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
+            if (fsGDDWarnDue(warn_timer))
             {
-                warn_timer.reset();
                 LL_WARNS("Rendering") << "FSPerfGPUDrivenPBRVerify: " << samples << " samples of " << sCommandParams.size()
                                       << " stock PBR batches are nearer than the multi-draw depth; "
                                       << sStatMismatches << " mismatches so far" << LL_ENDL;
@@ -1966,15 +1845,7 @@ namespace
             return;
         }
         timer.reset();
-        std::ostringstream reasons;
-        for (U32 r = 0; r < R_COUNT; ++r)
-        {
-            if (sStatReasons[r])
-            {
-                reasons << (reasons.tellp() ? ", " : "") << reason_name(r) << " " << sStatReasons[r];
-                sStatReasons[r] = 0;
-            }
-        }
+        const std::string reasons = fsGDDCountList(sStatReasons, R_COUNT, reason_name);
         U32 handle_textures = 0;
         {
             std::lock_guard<std::mutex> lock(sHandleMutex);
@@ -1984,29 +1855,19 @@ namespace
         static const char* no_handle_names[NH_COUNT] = { "not a fetched texture", "not loaded", "not 2D", "options pending",
                                                          "moved by a partial update", "compressed", "driver gave none",
                                                          "being made" };
-        std::ostringstream no_handle;
-        for (U32 r = 0; r < NH_COUNT; ++r)
-        {
-            if (sStatNoHandle[r])
-            {
-                no_handle << (no_handle.tellp() ? ", " : "") << no_handle_names[r] << " " << sStatNoHandle[r];
-                sStatNoHandle[r] = 0;
-            }
-        }
+        const std::string no_handle = fsGDDCountList(sStatNoHandle, NH_COUNT, [](U32 r) { return no_handle_names[r]; });
         LL_INFOS("FSGPUDrivenPBR") << "GPU-driven PBR, last 10 s: " << sStatPasses << " passes, " << sStatBatches
                                    << " batches (" << sStatBindless << " bindless, " << sStatBound
                                    << " bound textures) in " << sStatCalls << " multi-draw calls, "
                                    << sStatSwitches << " program switches; stock path or bound textures for: "
-                                   << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                   << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices (" << sArena.allocatedMB() << " MB allocated), "
-                                   << sArena.entries() << " buffers, " << sArena.uploads() << " copies; rigged arena "
-                                   << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices (" << sRiggedArena.allocatedMB() << " MB allocated), "
-                                   << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; bindless "
+                                   << reasons << "; arena "
+                                   << fsGDDArenaSummary(sArena) << "; rigged arena "
+                                   << fsGDDArenaSummary(sRiggedArena) << "; bindless "
                                    << handle_textures << " textures, " << sResident << " resident handles, "
                                    << sStatHandlesMade << " made, " << sStatHandleFailures << " failed, "
                                    << sStatUnlocks << " dropped for texture changes, " << sStatPreviousHandle
                                    << " lookups served by the previous texture's handle; lookups without a handle: "
-                                   << (no_handle.tellp() ? no_handle.str() : std::string("none")) << "; " << sStatMismatches
+                                   << no_handle << "; " << sStatMismatches
                                    << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatBindless = sStatBound = sStatCalls = sStatSwitches = 0;
         sStatHandlesMade = sStatHandleFailures = sStatUnlocks = sStatPreviousHandle = 0;

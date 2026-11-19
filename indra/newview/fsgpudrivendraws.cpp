@@ -58,6 +58,7 @@
 #include "fsgpudrivendraws.h"
 
 #include "fsgddarena.h"
+#include "fsgddcommon.h"
 #include "fsgpudrivenlegacy.h"
 #include "fsgpudrivenmaterials.h"
 #include "fsgpudrivenalpha.h"
@@ -89,15 +90,6 @@ namespace
     const LLStaticHashedString sClip("fs_shadow_clip");
     const LLStaticHashedString sCascade("fs_shadow_cascade");
 
-    struct DrawCommand  // DrawElementsIndirectCommand
-    {
-        GLuint  mCount;
-        GLuint  mInstanceCount;
-        GLuint  mFirstIndex;
-        GLint   mBaseVertex;
-        GLuint  mBaseInstance;
-    };
-
     // positions only, three quarters of FSPerfGPUDrivenDrawsArenaMB, the rest indices
     FSGDDArena sArena("FSPerfGPUDrivenDraws shadow arena", { LLVertexBuffer::TYPE_VERTEX }, "FSPerfGPUDrivenDrawsArenaMB", 256, 4);
 
@@ -108,15 +100,14 @@ namespace
     GLuint sQuery = 0;
     GLint sRecordAttrib[2] = { -1, -1 };   // location of fs_gdd_draw: plain, single pass
     S32 sInputsReady[2] = { 0, 0 };         // bind_inputs done: 0 not yet, 1 yes, -1 failed
-    std::vector<DrawCommand> sCommands;
+    std::vector<FSGDDDrawCommand> sCommands;
     struct Record                           // fs_gdd_draw, one per instance of a command
     {
         U32 mMatrix;                        // index into fs_gdd_matrix
         U32 mCascade;                       // single pass: the cascade the instance draws into
     };
     std::vector<Record> sDraws;
-    std::vector<glm::mat4> sMatrices;
-    std::unordered_map<const LLMatrix4*, U32> sMatrixIndex;
+    FSGDDMatrixTable sMatrices;
 
     // stats, logged every 10 seconds with FSPerfShadowBatchStats or FSPerfGPUDrivenDrawsVerify
     U64 sStatBatches = 0;
@@ -131,22 +122,8 @@ namespace
     void release_shadow_gl()
     {
         sArena.releaseGL();
-        GLuint buffers[3] = { sIndirectBuffer, sDrawBuffer, sMatrixBuffer };
-        for (GLuint buffer : buffers)
-        {
-            if (buffer)
-            {
-                glDeleteBuffers(1, &buffer);
-            }
-        }
-        sIndirectBuffer = 0;
-        sDrawBuffer = 0;
-        sMatrixBuffer = 0;
-        if (sQuery)
-        {
-            glDeleteQueries(1, &sQuery);
-            sQuery = 0;
-        }
+        fsGDDDeleteBuffers({ &sIndirectBuffer, &sDrawBuffer, &sMatrixBuffer });
+        fsGDDDeleteQuery(sQuery);
     }
 
     void unload_shadow_shaders()
@@ -313,30 +290,6 @@ namespace
     std::vector<Item> sHandled;     // FSPerfGPUDrivenDrawsVerify
     std::vector<Segment> sSegments;
 
-    U32 matrix_index(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view)
-    {
-        auto it = sMatrixIndex.find(model);
-        if (it != sMatrixIndex.end())
-        {
-            return it->second;
-        }
-        // as LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose it
-        glm::mat4 modelview = view;
-        if (model)
-        {
-            modelview *= glm::make_mat4((const F32*)model->mMatrix);
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(proj * modelview);
-        sMatrixIndex.emplace(model, index);
-        return index;
-    }
-
-    U32 popcount4(U32 mask)
-    {
-        return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
-    }
-
     // Turns the items (sorted by mask, model matrix, buffer, index offset, longer range first) into commands
     // and segments. Items that can't be drawn from the arena go to left, the rest (verify only) to sHandled.
     void build_commands(const std::vector<Item>& items, std::vector<Item>& left, bool single_pass, bool verify)
@@ -344,7 +297,6 @@ namespace
         sCommands.clear();
         sDraws.clear();
         sMatrices.clear();
-        sMatrixIndex.clear();
         sSegments.clear();
         sHandled.clear();
 
@@ -405,8 +357,8 @@ namespace
             {
                 sSegments.push_back({ first.mMask, (U32)sCommands.size(), 0 });
             }
-            const U32 matrix = matrix_index(model, proj, view);
-            const U32 instances = single_pass ? popcount4(first.mMask) : 1;
+            const U32 matrix = sMatrices.mvpIndex(model, proj, view);
+            const U32 instances = single_pass ? fsGDDPopcount4(first.mMask) : 1;
             U32 cascades[4] = { 0, 0, 0, 0 };   // the cascade of each instance
             if (single_pass)
             {
@@ -456,31 +408,21 @@ namespace
         }
     }
 
-    void upload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-    {
-        if (!buffer)
-        {
-            glGenBuffers(1, &buffer);
-        }
-        glBindBuffer(target, buffer);
-        glBufferData(target, bytes, data, GL_STREAM_DRAW);  // new storage: the previous pass's draws may still read the old
-    }
-
     // Issues the built commands, one multi-draw per segment. The program is bound by the caller.
     void draw_commands(bool single_pass)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("gdd multi-draw");
         LL_PROFILE_GPU_ZONE("gdd multi-draw");
 
-        upload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(DrawCommand));
-        upload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.size() * sizeof(glm::mat4));
+        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MATRIX_BINDING, sMatrixBuffer);
 
         // the per instance records, an instanced attribute (divisor 1) stepped from the commands' base
         // instances; it goes into the global vertex array object, never a buffer's own
         LLVertexBuffer::fsUseDefaultVAO();
         const GLuint record = (GLuint)sRecordAttrib[single_pass ? 1 : 0];
-        upload(sDrawBuffer, GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
+        fsGDDUpload(sDrawBuffer, GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
         glEnableVertexAttribArray(record);
         glVertexAttribIPointer(record, 2, GL_UNSIGNED_INT, sizeof(Record), nullptr);
         glVertexAttribDivisor(record, 1);
@@ -489,7 +431,7 @@ namespace
         for (const Segment& segment : sSegments)
         {
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
-                                        (const void*)((size_t)segment.mFirst * sizeof(DrawCommand)), (GLsizei)segment.mCount, 0);
+                                        (const void*)((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
         }
 
         // the program's attribute mask doesn't have this location, so LLVertexBuffer expects it off and undivided
@@ -513,60 +455,19 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("gdd verify");
 
         // arena copies against their sources, a couple per pass
-        U32 checked = 0;
-        for (const Item& item : sHandled)
-        {
-            LLVertexBuffer* vb = item.mParams->mVertexBuffer.get();
-            // peek, not find: a verify pass must not copy, evict or touch entries
-            FSGDDArenaEntry* found = sArena.peek(vb);
-            if (found && !found->mVerified)
-            {
-                if (!sArena.verifyEntry(vb, *found))
-                {
-                    static LLFrameTimer warn_timer;
-                    if (warn_timer.getElapsedTimeF32() > 5.f)
-                    {
-                        warn_timer.reset();
-                        LL_WARNS("Rendering") << "FSPerfGPUDrivenDrawsVerify: the arena copy of a vertex buffer ("
-                                              << found->mNumVerts << " vertices, " << found->mNumIndices
-                                              << " indices) differs from the buffer" << LL_ENDL;
-                    }
-                }
-                if (++checked >= 2)
-                {
-                    break;
-                }
-            }
-        }
+        fsGDDVerifyArenaCopies(sArena, sHandled, [](const Item& item) { return item.mParams->mVertexBuffer.get(); },
+                               "FSPerfGPUDrivenDrawsVerify");
 
-        if (!sQuery)
+        const GLuint samples = fsGDDNearerSamples(sQuery, true, [single_pass]()
         {
-            glGenQueries(1, &sQuery);
-        }
-        GLfloat factor = 0.f;
-        GLfloat units = 0.f;
-        glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &factor);
-        glGetFloatv(GL_POLYGON_OFFSET_UNITS, &units);
-        {
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LESS);
-            LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-            glPolygonOffset(1.f, 4.f);  // only casters clearly nearer than what the multi-draw wrote count
-            glBeginQuery(GL_SAMPLES_PASSED, sQuery);
             U32 mask = 0;
             for (const Item& item : sHandled)
             {
                 if (single_pass && item.mMask != mask)
                 {
                     mask = item.mMask;
-                    F32 cascades[4] = { 0.f, 0.f, 0.f, 0.f };
-                    U32 n = 0;
-                    for (U32 c = 0; c < 4; ++c)
-                    {
-                        if (mask & (1u << c))
-                        {
-                            cascades[n++] = (F32)c;
-                        }
-                    }
+                    F32 cascades[4];
+                    const U32 n = fsGDDCascadeList(mask, cascades);
                     LLGLSLShader::sCurBoundShaderPtr->uniform4f(sCascade, cascades[0], cascades[1], cascades[2], cascades[3]);
                     LLVertexBuffer::sFSInstanceCount = n;
                 }
@@ -576,22 +477,17 @@ namespace
                 params.mVertexBuffer->drawRange(LLRender::TRIANGLES, params.mStart, params.mEnd, params.mCount, params.mOffset);
             }
             LLVertexBuffer::sFSInstanceCount = 0;
-            glEndQuery(GL_SAMPLES_PASSED);
-        }
-        glPolygonOffset(factor, units);
+        });
         gGL.loadMatrix(gGLModelView);
         gGLLastMatrix = NULL;
 
-        GLuint samples = 0;
-        glGetQueryObjectuiv(sQuery, GL_QUERY_RESULT, &samples);
         if (samples > FS_GDD_VERIFY_SAMPLES)
         {
             static LLFrameTimer warn_timer;
             static U32 mismatches = 0;
             ++mismatches;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
+            if (fsGDDWarnDue(warn_timer))
             {
-                warn_timer.reset();
                 LL_WARNS("Rendering") << "FSPerfGPUDrivenDrawsVerify: " << samples << " samples of " << sHandled.size()
                                       << " stock shadow casters are nearer than the multi-draw depth"
                                       << (single_pass ? " (single pass)" : "") << "; " << mismatches

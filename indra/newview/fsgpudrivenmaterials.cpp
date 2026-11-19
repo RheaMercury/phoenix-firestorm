@@ -83,6 +83,7 @@
 #include "fsgpudrivenmaterials.h"
 
 #include "fsgddarena.h"
+#include "fsgddcommon.h"
 #include "fsgpudrivenlegacy.h"
 #include "fsgpudrivenpbr.h"
 #include "fsskinpalettebuffer.h"
@@ -150,15 +151,6 @@ namespace
         return is_rigged(index) ? sRiggedArena : sArena;
     }
 
-    struct DrawCommand  // DrawElementsIndirectCommand
-    {
-        GLuint  mCount;
-        GLuint  mInstanceCount;
-        GLuint  mFirstIndex;
-        GLint   mBaseVertex;
-        GLuint  mBaseInstance;
-    };
-
     struct Record       // fs_gdd_draw
     {
         U32 mMatrix;    // modelview; modelview projection and normal matrix follow
@@ -214,9 +206,9 @@ namespace
     GLuint sQuery = 0;
 
     std::vector<Op> sOps;
-    std::vector<DrawCommand> sCommands;
+    std::vector<FSGDDDrawCommand> sCommands;
     std::vector<Record> sRecords;
-    std::vector<glm::mat4> sMatrices;
+    FSGDDMatrixTable sMatrices;
     std::vector<Material> sMaterials;
     std::vector<LLDrawInfo*> sCommandParams;    // per command: its batch (verify, and the stock fallback)
     // rigged pass: per command its palette, and the palettes of the batches drawn the stock way
@@ -225,13 +217,7 @@ namespace
     U32 sPaletteGeneration = 0;                 // FSSkinPaletteBuffer::generation() the records' offsets hold for
     FSGDDArena* sVerifyArena = &sArena;         // the arena of the pass verify_against_stock checks
     bool sRiggedPass = false;                   // the pass being drawn is a rigged one
-    std::unordered_map<const LLMatrix4*, U32> sMatrixIndex;
-    std::unordered_map<const LLMatrix4*, U32> sTexMatrixIndex;
     // consecutive batches mostly share their matrices: the last answers skip the map lookups
-    const LLMatrix4* sLastModel = nullptr;
-    U32 sLastModelIndex = U32_MAX;              // U32_MAX: none yet this pass
-    const LLMatrix4* sLastTexMatrix = nullptr;
-    U32 sLastTexMatrixIndex = U32_MAX;
 
     // The stock loop's state for the batches drawn the stock way: its uniform locations and texture units, and
     // what it last set (uniforms belong to the stock program, which the GPU-driven draws leave alone, and those
@@ -455,23 +441,8 @@ void fsGDDMaterialsReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    GLuint buffers[4] = { sIndirectBuffer, sRecordBuffer, sMatrixBuffer, sMaterialBuffer };
-    for (GLuint buffer : buffers)
-    {
-        if (buffer)
-        {
-            glDeleteBuffers(1, &buffer);
-        }
-    }
-    sIndirectBuffer = 0;
-    sRecordBuffer = 0;
-    sMatrixBuffer = 0;
-    sMaterialBuffer = 0;
-    if (sQuery)
-    {
-        glDeleteQueries(1, &sQuery);
-        sQuery = 0;
-    }
+    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sMaterialBuffer });
+    fsGDDDeleteQuery(sQuery);
 }
 
 //-----------------------------------------------------------------------------
@@ -479,58 +450,6 @@ void fsGDDMaterialsReleaseGL()
 
 namespace
 {
-    U32 matrix_index(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view)
-    {
-        if (sLastModelIndex != U32_MAX && model == sLastModel)
-        {
-            return sLastModelIndex;
-        }
-        sLastModel = model;
-        auto it = sMatrixIndex.find(model);
-        if (it != sMatrixIndex.end())
-        {
-            sLastModelIndex = it->second;
-            return it->second;
-        }
-        // as LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them (as fsgpudrivenlegacy.cpp)
-        glm::mat4 modelview = view;
-        if (model)
-        {
-            modelview *= glm::make_mat4((const F32*)model->mMatrix);
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(modelview);
-        sMatrices.push_back(proj * modelview);
-        sMatrices.push_back(glm::transpose(glm::inverse(modelview)));  // the normal matrix is its upper 3x3
-        sMatrixIndex.emplace(model, index);
-        sLastModelIndex = index;
-        return index;
-    }
-
-    U32 texture_matrix_index(const LLMatrix4* texture_matrix)
-    {
-        if (!texture_matrix)
-        {
-            return 0;   // identity, what MM_TEXTURE0 holds outside the batch
-        }
-        if (sLastTexMatrixIndex != U32_MAX && texture_matrix == sLastTexMatrix)
-        {
-            return sLastTexMatrixIndex;
-        }
-        sLastTexMatrix = texture_matrix;
-        auto it = sTexMatrixIndex.find(texture_matrix);
-        if (it != sTexMatrixIndex.end())
-        {
-            sLastTexMatrixIndex = it->second;
-            return it->second;
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        sTexMatrixIndex.emplace(texture_matrix, index);
-        sLastTexMatrixIndex = index;
-        return index;
-    }
-
     void set_handle(Material& mat, U32 slot, U64 handle)
     {
         mat.mTex[slot * 2] = (U32)(handle & 0xFFFFFFFFull);
@@ -560,10 +479,6 @@ namespace
         sCommandParams.clear();
         sCommandPalettes.clear();
         sStockPalettes.clear();
-        sMatrixIndex.clear();
-        sTexMatrixIndex.clear();
-        sLastModelIndex = U32_MAX;
-        sLastTexMatrixIndex = U32_MAX;
         fsGDDBeginTexturePass();
 
         const U32 frame = LLFrameTimer::getFrameCount();
@@ -572,7 +487,7 @@ namespace
         arena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
-        sMatrices.push_back(glm::mat4(1.f));   // texture matrix 0: identity
+        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
 
         // the maps the stock loop binds: those the stock program samples (its texture channels)
         const LLGLSLShader& stock = gDeferredMaterialProgram[index];
@@ -693,7 +608,7 @@ namespace
             ++sStatDrawn;
             const U32 command = (U32)sCommands.size();
             sCommands.push_back({ params.mCount, 1, entry->mIndex + params.mOffset, (GLint)entry->mVertex, command });
-            sRecords.push_back({ matrix_index(params.mModelMatrix, proj, view), texture_matrix_index(params.mTextureMatrix.get()),
+            sRecords.push_back({ sMatrices.modelIndex(params.mModelMatrix, proj, view), sMatrices.textureIndex(params.mTextureMatrix.get()),
                                  material, 0 });
             sCommandParams.push_back(&params);
             if (palette)
@@ -754,17 +669,6 @@ namespace
             }
         }
         return false;
-    }
-
-    void upload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-    {
-        if (!buffer)
-        {
-            glGenBuffers(1, &buffer);
-        }
-        glBindBuffer(target, buffer);
-        // new storage: the previous pass's draws may still read the old; never empty
-        glBufferData(target, llmax(bytes, (size_t)16), bytes ? data : nullptr, GL_STREAM_DRAW);
     }
 
     // the arena, the record attribute and the storage buffers for the pass's program (bound)
@@ -939,10 +843,10 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd materials execute");
         LL_PROFILE_GPU_ZONE("gdd materials");
 
-        upload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(DrawCommand));
-        upload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-        upload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.size() * sizeof(glm::mat4));
-        upload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
+        fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1019,7 +923,7 @@ namespace
                 gdd = true;
                 setup_inputs(index);
             }
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(DrawCommand)),
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
                                         (GLsizei)op.mCount, 0);
             ++calls;
             drew = true;
@@ -1043,44 +947,13 @@ namespace
         }
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd materials verify");
 
-        GLenum error = glGetError();
-        if (error != GL_NO_ERROR)
-        {
-            static LLFrameTimer warn_timer;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
-            {
-                warn_timer.reset();
-                LL_WARNS("Rendering") << "FSPerfGPUDrivenMaterialsVerify: GL error 0x" << std::hex << error << std::dec
-                                      << " after the GPU-driven " << stock.mName << " pass" << LL_ENDL;
-            }
-        }
+        static LLFrameTimer error_timer;
+        fsGDDCheckGLError(error_timer, "FSPerfGPUDrivenMaterialsVerify", stock.mName);
 
         // arena copies against their sources, a couple per pass
-        U32 checked = 0;
-        for (LLDrawInfo* params : sCommandParams)
-        {
-            LLVertexBuffer* vb = params->mVertexBuffer.get();
-            FSGDDArenaEntry* found = sVerifyArena->peek(vb);
-            if (found && !found->mVerified)
-            {
-                if (!sVerifyArena->verifyEntry(vb, *found))
-                {
-                    ++sStatMismatches;
-                    static LLFrameTimer warn_timer;
-                    if (warn_timer.getElapsedTimeF32() > 5.f)
-                    {
-                        warn_timer.reset();
-                        LL_WARNS("Rendering") << "FSPerfGPUDrivenMaterialsVerify: the arena copy of a vertex buffer ("
-                                              << found->mNumVerts << " vertices, " << found->mNumIndices
-                                              << " indices) differs from the buffer" << LL_ENDL;
-                    }
-                }
-                if (++checked >= 2)
-                {
-                    break;
-                }
-            }
-        }
+        sStatMismatches += fsGDDVerifyArenaCopies(*sVerifyArena, sCommandParams,
+                                                  [](LLDrawInfo* params) { return params->mVertexBuffer.get(); },
+                                                  "FSPerfGPUDrivenMaterialsVerify");
 
         // the occlusion check needs the multi-draws' depth in the buffer
         GLboolean depth_test = GL_FALSE;
@@ -1092,33 +965,19 @@ namespace
             return;
         }
 
-        if (!sQuery)
+        const GLuint samples = fsGDDNearerSamples(sQuery, false, [&]()
         {
-            glGenQueries(1, &sQuery);
-        }
-        {
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LESS);
-            GLboolean mask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
-            glGetBooleanv(GL_COLOR_WRITEMASK, mask);
-            glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);    // behind gGL's back, put back below
-            glBeginQuery(GL_SAMPLES_PASSED, sQuery);
             for (LLDrawInfo* params : sCommandParams)
             {
                 push_stock(stock, *params);
             }
-            glEndQuery(GL_SAMPLES_PASSED);
-            glColorMask(mask[0], mask[1], mask[2], mask[3]);
-        }
-
-        GLuint samples = 0;
-        glGetQueryObjectuiv(sQuery, GL_QUERY_RESULT, &samples);
+        });
         if (samples)
         {
             ++sStatMismatches;
             static LLFrameTimer warn_timer;
-            if (warn_timer.getElapsedTimeF32() > 5.f)
+            if (fsGDDWarnDue(warn_timer))
             {
-                warn_timer.reset();
                 LL_WARNS("Rendering") << "FSPerfGPUDrivenMaterialsVerify: " << samples << " samples of " << sCommandParams.size()
                                       << " stock batches (" << stock.mName << ") are nearer than the multi-draw depth; "
                                       << sStatMismatches << " mismatches so far" << LL_ENDL;
@@ -1134,26 +993,14 @@ namespace
             return;
         }
         timer.reset();
-        std::ostringstream reasons;
-        for (U32 r = 0; r < R_COUNT; ++r)
-        {
-            if (sStatReasons[r])
-            {
-                reasons << (reasons.tellp() ? ", " : "") << reason_name(r) << " " << sStatReasons[r];
-                sStatReasons[r] = 0;
-            }
-        }
+        const std::string reasons = fsGDDCountList(sStatReasons, R_COUNT, reason_name);
         LL_INFOS("FSGPUDrivenMaterials") << "GPU-driven materials, last 10 s: " << sStatPasses << " passes, " << sStatBatches
                                          << " batches (" << sStatDrawn << " from the arena, " << sStatMaterials
                                          << " material records) in " << sStatCalls << " multi-draw calls, " << sStatSwitches
                                          << " program switches; stock path for: "
-                                         << (reasons.tellp() ? reasons.str() : std::string("none")) << "; arena "
-                                         << sArena.vertexMB() << " MB vertices, " << sArena.indexMB() << " MB indices ("
-                                         << sArena.allocatedMB() << " MB allocated), "
-                                         << sArena.entries() << " buffers, " << sArena.uploads() << " copies; rigged arena "
-                                         << sRiggedArena.vertexMB() << " MB vertices, " << sRiggedArena.indexMB() << " MB indices ("
-                                         << sRiggedArena.allocatedMB() << " MB allocated), "
-                                         << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; "
+                                         << reasons << "; arena "
+                                         << fsGDDArenaSummary(sArena) << "; rigged arena "
+                                         << fsGDDArenaSummary(sRiggedArena) << "; "
                                          << sStatMismatches << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatDrawn = sStatCalls = sStatSwitches = sStatMaterials = 0;
         sArena.clearCounts();

@@ -77,6 +77,7 @@
 #include "fsgpudrivenalpha.h"
 
 #include "fsgddarena.h"
+#include "fsgddcommon.h"
 #include "fsgpudrivenlegacy.h"
 #include "fsgpudrivenmaterials.h"
 #include "fsgpudrivenpbr.h"
@@ -137,15 +138,6 @@ namespace
                             LLVertexBuffer::MAP_NORMAL | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 |
                                 LLVertexBuffer::MAP_TEXCOORD2);
 
-    struct DrawCommand  // DrawElementsIndirectCommand
-    {
-        GLuint  mCount;
-        GLuint  mInstanceCount;
-        GLuint  mFirstIndex;
-        GLint   mBaseVertex;
-        GLuint  mBaseInstance;
-    };
-
     struct Record       // fs_gdd_draw
     {
         U32 mMatrix;    // modelview; modelview projection and normal matrix follow
@@ -154,12 +146,7 @@ namespace
         U32 mSkin;      // rigged: the palette's first vec4 in the palette buffer (FSSkinPaletteBuffer::place)
     };
 
-    struct TexEntry     // uvec2, std430 stride 8 (FSGDDLegacyTextures)
-    {
-        U32 mX;         // header: minimum alpha (float bits); handle: low 32 bits
-        U32 mY;         // header: texture count; handle: high 32 bits
-    };
-    static_assert(sizeof(TexEntry) == 8, "FSGDDLegacyTextures layout");
+    static_assert(sizeof(FSGDDTexEntry) == 8, "FSGDDLegacyTextures layout");
 
     struct Material     // FSGDDLegacyMaterial, std430 (FSGDDMaterialRecords)
     {
@@ -262,15 +249,13 @@ namespace
     std::vector<Candidate> sCandidates;     // by the draw's index in the group
     std::vector<U64> sHandles;
     std::vector<S32> sDrawCommand;          // by the draw's index in the group
-    std::vector<DrawCommand> sCommands;
+    std::vector<FSGDDDrawCommand> sCommands;
     std::vector<Record> sRecords;
     std::vector<U32> sCommandSlot;
     std::vector<LLDrawInfo*> sCommandParams;
-    std::vector<glm::mat4> sMatrices;
-    std::vector<TexEntry> sTextures;
+    FSGDDMatrixTable sMatrices;
+    std::vector<FSGDDTexEntry> sTextures;
     std::vector<Material> sMaterials;
-    std::unordered_map<const LLMatrix4*, U32> sMatrixIndex;
-    std::unordered_map<const LLMatrix4*, U32> sTexMatrixIndex;
     // rigged: the group's draws drawn the stock way (their palettes go into the buffer too), the offsets and
     // the generation they hold for
     std::vector<LLDrawInfo*> sStockRigged;
@@ -441,19 +426,7 @@ void fsGDDAlphaReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    GLuint buffers[5] = { sIndirectBuffer, sRecordBuffer, sMatrixBuffer, sTextureBuffer, sMaterialBuffer };
-    for (GLuint buffer : buffers)
-    {
-        if (buffer)
-        {
-            glDeleteBuffers(1, &buffer);
-        }
-    }
-    sIndirectBuffer = 0;
-    sRecordBuffer = 0;
-    sMatrixBuffer = 0;
-    sTextureBuffer = 0;
-    sMaterialBuffer = 0;
+    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sTextureBuffer, &sMaterialBuffer });
     sPassOn = false;
     sPendingSlot = -1;
     sPendingCount = 0;
@@ -525,44 +498,6 @@ void fsGDDAlphaEndPass()
 
 namespace
 {
-    U32 matrix_index(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view)
-    {
-        auto it = sMatrixIndex.find(model);
-        if (it != sMatrixIndex.end())
-        {
-            return it->second;
-        }
-        // as LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them (as fsgpudrivenlegacy.cpp)
-        glm::mat4 modelview = view;
-        if (model)
-        {
-            modelview *= glm::make_mat4((const F32*)model->mMatrix);
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(modelview);
-        sMatrices.push_back(proj * modelview);
-        sMatrices.push_back(glm::transpose(glm::inverse(modelview)));  // the normal matrix is its upper 3x3
-        sMatrixIndex.emplace(model, index);
-        return index;
-    }
-
-    U32 texture_matrix_index(const LLMatrix4* texture_matrix)
-    {
-        if (!texture_matrix)
-        {
-            return 0;   // identity, what MM_TEXTURE0 holds outside TexSetup / RestoreTexSetup
-        }
-        auto it = sTexMatrixIndex.find(texture_matrix);
-        if (it != sTexMatrixIndex.end())
-        {
-            return it->second;
-        }
-        const U32 index = (U32)sMatrices.size();
-        sMatrices.push_back(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        sTexMatrixIndex.emplace(texture_matrix, index);
-        return index;
-    }
-
     // The bindless handle of a texture the stock loop binds, or 0
     U64 handle_of(LLViewerTexture* tex, U32 frame)
     {
@@ -693,7 +628,7 @@ namespace
     {
         LLDrawInfo& params = *c.mParams;
         const U32 slot = (U32)c.mSlot;
-        const U32 tex_matrix = c.mTexMatrix ? texture_matrix_index(params.mTextureMatrix.get()) : 0;
+        const U32 tex_matrix = c.mTexMatrix ? sMatrices.textureIndex(params.mTextureMatrix.get()) : 0;
         U32 data = 0;
         if (slot_material(slot))
         {
@@ -735,20 +670,9 @@ namespace
 
         const U32 command = (U32)sCommands.size();
         sCommands.push_back({ params.mCount, 1, c.mEntry->mIndex + params.mOffset, (GLint)c.mEntry->mVertex, command });
-        sRecords.push_back({ matrix_index(params.mModelMatrix, proj, view), tex_matrix, data, 0 });
+        sRecords.push_back({ sMatrices.modelIndex(params.mModelMatrix, proj, view), tex_matrix, data, 0 });
         sCommandSlot.push_back(slot);
         sCommandParams.push_back(&params);
-    }
-
-    void upload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-    {
-        if (!buffer)
-        {
-            glGenBuffers(1, &buffer);
-        }
-        glBindBuffer(target, buffer);
-        // new storage: the previous group's draws may still read the old; never empty
-        glBufferData(target, llmax(bytes, (size_t)16), bytes ? data : nullptr, GL_STREAM_DRAW);
     }
 
     // Rigged: every palette the group draws with into the palette buffer, and the offsets into the records
@@ -849,12 +773,10 @@ bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool&
     sMatrices.clear();
     sTextures.clear();
     sMaterials.clear();
-    sMatrixIndex.clear();
-    sTexMatrixIndex.clear();
     sStockRigged.clear();
     const glm::mat4 proj = gGL.getProjectionMatrix();
     const glm::mat4 view = get_current_modelview();
-    sMatrices.push_back(glm::mat4(1.f));   // texture matrix 0: identity
+    sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
     for (size_t i = 0; i < draws.size(); ++i)
     {
         const Candidate& c = sCandidates[i];
@@ -888,11 +810,11 @@ bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool&
     }
     palettes_moved = FSSkinPaletteBuffer::generation() != start_generation;
 
-    upload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(DrawCommand));
-    upload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-    upload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.size() * sizeof(glm::mat4));
-    upload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(TexEntry));
-    upload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+    fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+    fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+    fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
+    fsGDDUpload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
+    fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
     unbind_uploads();
     return true;
 }
@@ -944,7 +866,7 @@ void fsGDDAlphaFlush(const fs_gdd_alpha_bind_t& bind)
                                        << "rigged alpha draws is left out" << LL_ENDL;
             return;
         }
-        upload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
         unbind_uploads();
     }
 
@@ -991,7 +913,7 @@ void fsGDDAlphaFlush(const fs_gdd_alpha_bind_t& bind)
     // them), texture_index included
     (sPassRigged ? sRiggedArena : sArena).bindForDraw(shader.mAttributeMask);
 
-    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)first * sizeof(DrawCommand)),
+    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)first * sizeof(FSGDDDrawCommand)),
                                 (GLsizei)count, 0);
 
     // undo the inputs: the program's attribute mask doesn't have the record's location, so LLVertexBuffer
