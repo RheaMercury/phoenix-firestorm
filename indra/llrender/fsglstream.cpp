@@ -3625,6 +3625,7 @@ namespace
     std::atomic<U64> sPresented{ 0 };
     U64 sRecordedFrames = 0;                // main
     std::atomic<bool (*)(bool)> sRenderPoll{ nullptr };  // FSGLStream::setRenderPoll
+    bool sRenderLostContext = false;        // render: execPause could not take the context back
 
     // Render thread: true while the poll hook has work left
     bool runRenderPoll()
@@ -3672,6 +3673,7 @@ namespace
     void renderMain()
     {
         tRenderThread = true;
+        sRenderLostContext = false;
         LL_PROFILER_SET_THREAD_NAME("FS Render");
         publishRenderThread();
         const bool ok = sOps.mAcquireOnRender && sOps.mAcquireOnRender();
@@ -3746,6 +3748,13 @@ namespace
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT replay");
                 execChunk(c);
+                if (sRenderLostContext)
+                {
+                    // execPause could not take the context back (it is the last record of its
+                    // chunk). Leave without another GL call: the main thread takes GL over.
+                    freeChunk(c);
+                    return;
+                }
                 // Chunks come every 32 KB, about 150 a frame: polling queries and readbacks after
                 // each meant hundreds of availability calls into the driver per frame. Results only
                 // need to arrive within a frame or so; the idle wait above polls as well.
@@ -3788,6 +3797,143 @@ namespace
         sAttribLocs.clear();
         sPresented.store(0);
         sRecordedFrames = 0;
+    }
+
+    //------------------------------------------------------------------------
+    // FSGLStream::DirectScope: the render thread lends the context to the main thread
+
+    struct PauseCtx
+    {
+        std::atomic<U32> mReleased{ 0 };    // the render thread let go of the context
+        std::atomic<U32> mResume{ 0 };      // the main thread gave it back
+        std::atomic<U32> mDone{ 0 };        // the render thread is done taking it back
+        std::atomic<U32> mOk{ 0 };          // ...and has it (read after mDone)
+    };
+    PauseCtx sPause;
+
+    // Render thread, in stream order: everything recorded before it has been replayed
+    void execPause(U8*)
+    {
+        if (sOps.mReleaseOnRender)
+        {
+            sOps.mReleaseOnRender();
+        }
+        sPause.mReleased.store(1, std::memory_order_release);
+        sPause.mReleased.notify_one();
+        while (!sPause.mResume.load(std::memory_order_acquire))
+        {
+            sPause.mResume.wait(0, std::memory_order_acquire);
+        }
+        bool ok = sOps.mAcquireOnRender && sOps.mAcquireOnRender();
+        for (int i = 0; i < 100 && !ok && sOps.mAcquireOnRender; ++i)
+        {
+            Sleep(1);
+            ok = sOps.mAcquireOnRender();
+        }
+        if (!ok)
+        {
+            // Replaying on without a current context would call into the driver with none bound
+            // (a crash, or black frames for good). renderMain sees the flag and exits;
+            // resumeRecording gives the context to the main thread, which then runs GL itself.
+            LL_WARNS("FSRenderThread") << "The render thread could not take the GL context back after a direct section; "
+                                       << "stopping it, GL goes back to the main thread" << LL_ENDL;
+            sRenderLostContext = true;
+        }
+        sPause.mOk.store(ok ? 1 : 0, std::memory_order_relaxed);
+        sPause.mDone.store(1, std::memory_order_release);
+        sPause.mDone.notify_one();
+    }
+
+    // Main thread, after execPause reported that the render thread could not take the context
+    // back. That thread is leaving without touching GL (nothing was queued after the pause): take
+    // the context and carry on single-threaded, as if the stream had been stopped.
+    void stopAfterLostContext()
+    {
+        sThread->join();
+        delete sThread;
+        sThread = nullptr;
+        tRecording = false;
+        sRunning = false;
+        sOps.mAcquireOnMain();
+        if (bool (*fn)(bool) = sRenderPoll.load(std::memory_order_acquire))
+        {
+            fn(true);
+        }
+        resetStreamState();
+        LL_WARNS("FSRenderThread") << "Render thread stopped after losing the GL context; GL runs on the main thread from now on"
+                                   << (wglGetCurrentContext() ? "" : ", but the main thread has no context either") << LL_ENDL;
+    }
+
+    // Main thread. True when the main thread now has the context and calls GL directly.
+    bool pauseRecording()
+    {
+        if (!tRecording || !sRunning)
+        {
+            return false;
+        }
+        LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT direct begin");
+        FS_RECORD_BLOCK_TIME(FTM_FS_WAIT_RENDER_THREAD);
+        sPause.mReleased.store(0, std::memory_order_relaxed);
+        sPause.mResume.store(0, std::memory_order_relaxed);
+        sPause.mDone.store(0, std::memory_order_relaxed);
+        sPause.mOk.store(0, std::memory_order_relaxed);
+        allocRecord(&execPause, 0);
+        submitCurrent();
+        while (!sPause.mReleased.load(std::memory_order_acquire))
+        {
+            sPause.mReleased.wait(0, std::memory_order_acquire);
+        }
+        sOps.mAcquireOnMain();
+        if (!wglGetCurrentContext())
+        {
+            // Couldn't take it: give it back and keep recording
+            sPause.mResume.store(1, std::memory_order_release);
+            sPause.mResume.notify_one();
+            while (!sPause.mDone.load(std::memory_order_acquire))
+            {
+                sPause.mDone.wait(0, std::memory_order_acquire);
+            }
+            if (!sPause.mOk.load(std::memory_order_relaxed))
+            {
+                stopAfterLostContext();
+            }
+            return false;
+        }
+        tRecording = false;
+        return true;
+    }
+
+    // Main thread, after pauseRecording() returned true
+    void resumeRecording()
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT direct end");
+        // GL ran past the recorder: read the tracked state again, and forget what was cached about
+        // objects that may have been deleted and their names handed out again (programs, queries).
+        // The render thread is parked in execPause, so its query state can be reset from here.
+        snapshotState();
+        clearUniformValues();
+        sUniformLocs.clear();
+        sAttribLocs.clear();
+        sQueryIssued.clear();
+        {
+            std::lock_guard<std::mutex> lock(sQueryResultMutex);
+            sQueryResults.clear();
+        }
+        sQueryPending.clear();
+        sQueryRenderGen.clear();
+
+        sOps.mReleaseOnMain();
+        tRecording = true;
+        sPause.mResume.store(1, std::memory_order_release);
+        sPause.mResume.notify_one();
+        while (!sPause.mDone.load(std::memory_order_acquire))
+        {
+            sPause.mDone.wait(0, std::memory_order_acquire);
+        }
+        if (!sPause.mOk.load(std::memory_order_relaxed))
+        {
+            stopAfterLostContext();
+        }
     }
 }
 
@@ -3891,6 +4037,19 @@ namespace FSGLStream
         ++sStatSyncs;
         auto g = [&]() { fn(); };
         runSyncImpl(g);
+    }
+
+    DirectScope::DirectScope()
+        : mPaused(pauseRecording())
+    {
+    }
+
+    DirectScope::~DirectScope()
+    {
+        if (mPaused)
+        {
+            resumeRecording();
+        }
     }
 
     void recordCall(void (*fn)(U64), U64 value)
@@ -4113,6 +4272,8 @@ namespace FSGLStream
     bool isRunning() { return false; }
     bool isRecording() { return false; }
     void runSync(const std::function<void()>& fn) { fn(); }
+    DirectScope::DirectScope() {}
+    DirectScope::~DirectScope() {}
     void present(std::function<void()> fn) { fn(); }
     void setCheck(bool) {}
     Stats takeStats() { return Stats(); }

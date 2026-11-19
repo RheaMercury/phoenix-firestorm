@@ -33,6 +33,7 @@
 #include "llrender.h"
 #include "llvertexbuffer.h"
 #include "llrendertarget.h"
+#include "fsglstream.h" // <FS:Trish/> FSGLStream::DirectScope
 
 #include "hbxxh.h"
 #include "llsdserialize.h"
@@ -418,6 +419,9 @@ void LLGLSLShader::unloadInternal()
 bool LLGLSLShader::createShader()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+    // <FS:Trish> Render thread: one hand-over of the context instead of a wait per call (nested: no-op)
+    FSGLStream::DirectScope fs_direct_gl;
+    // </FS:Trish>
 
     unloadInternal();
     mFSPaletteSerial = 0; // <FS:Trish/> a new program has none of the old uniforms
@@ -648,6 +652,7 @@ bool LLGLSLShader::fsCreateShaderSync()
 bool LLGLSLShader::fsResolveShader()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+    FSGLStream::DirectScope fs_direct_gl; // render thread: one hand-over of the context instead of a wait per call
 
     mFSPending = false;
 

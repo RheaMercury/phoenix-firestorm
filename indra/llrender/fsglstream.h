@@ -85,6 +85,22 @@ namespace FSGLStream
     // Runs fn on the render thread, in stream order, and waits for it.
     void runSync(const std::function<void()>& fn);
 
+    // While one exists, the main thread makes its GL calls directly: the render thread replays
+    // what was recorded, hands the context over and waits until the scope ends, when the state
+    // the recorder tracks is read again and recording resumes. For bursts of calls that would
+    // each wait for the render thread, such as loading shaders (about 80 waits per program).
+    // Does nothing when not recording, so scopes nest. Main thread.
+    class DirectScope
+    {
+    public:
+        DirectScope();
+        ~DirectScope();
+        DirectScope(const DirectScope&) = delete;
+        DirectScope& operator=(const DirectScope&) = delete;
+    private:
+        bool mPaused = false;
+    };
+
     // Calls fn(value) on the render thread in stream order without waiting (directly when not
     // recording). For GL calls made outside the proxies that return nothing.
     void recordCall(void (*fn)(U64), U64 value);

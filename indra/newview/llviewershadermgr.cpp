@@ -59,6 +59,7 @@
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
+#include "fsglstream.h" // <FS:Trish/> FSGLStream::DirectScope
 
 static LLStaticHashedString sTexture0("texture0");
 static LLStaticHashedString sTexture1("texture1");
@@ -921,6 +922,11 @@ void LLViewerShaderMgr::setShaders()
         LL_INFOS("ShaderLoading") << "Not supported hardware/software" << LL_ENDL;
         return;
     }
+
+    // <FS:Trish> With the render thread on, load with the GL context on this thread: nearly every
+    // call of a shader load returns a value, and each would wait for the render thread (~0.4 s a reload)
+    FSGLStream::DirectScope fs_direct_gl;
+    // </FS:Trish>
 
     // <FS:Trish> Parallel shader compile and load timing (one log line at the end)
     static LLCachedControl<bool> fs_parallel_compile(gSavedSettings, "FSPerfParallelShaderCompile", false);
