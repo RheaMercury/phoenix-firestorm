@@ -963,15 +963,21 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
     // a group's glow pass waits for the next draw, which often wants another program anyway.
     std::vector<LLGLSLShader*> fs_pass_programs;    // fully bound in this pass
     LLGLSLShader* fs_glow_return = nullptr;         // the program the glow pass interrupted
+    // The glow pass of a soft particle group put the scene depth on the first unit past the glow
+    // program's own (FSSoftParticles::apply), which the interrupted program samples too: its
+    // textures must go back on their units, not only the program
+    bool fs_glow_rebind = false;
     auto fs_bind_program = [&](LLGLSLShader& shader)
     {
-        if (fs_glow_return == &shader)
+        //if (fs_glow_return == &shader)
+        if (fs_glow_return == &shader && !fs_glow_rebind)
         {   // as the stock rebind after the glow pass: its textures are still on their units
             fs_glow_return = nullptr;
             shader.bind();
             return;
         }
         fs_glow_return = nullptr;
+        fs_glow_rebind = false;
         const bool known = std::find(fs_pass_programs.begin(), fs_pass_programs.end(), &shader) != fs_pass_programs.end();
         gPipeline.bindDeferredShaderFast(shader, known);
         if (!known)
@@ -1480,6 +1486,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 if (lastShader && rebind)
                 {
                     fs_glow_return = lastShader;
+                    fs_glow_rebind = sFSSoftGroup && !emissives.empty(); // renderEmissives bound the soft particle depth
                 }
                 // </FS:Trish>
                 } // <FS:Trish/>
