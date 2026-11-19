@@ -37,7 +37,13 @@ void main()
 {
     float alpha = diffuseLookup(vary_texcoord0.xy).a;
 
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#ifdef FS_ALPHA_COVERAGE
+    if (alpha * FS_ALPHA_SCALE(fsDiffuseLookupLod(vary_texcoord0.xy)) < minimum_alpha)
+#else
     if (alpha < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

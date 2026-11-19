@@ -72,7 +72,18 @@ void main()
 
     // Evaluate normal derivatives before any potentially non-uniform discard.
     mirrorClip(vary_position);
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#ifdef FS_ALPHA_COVERAGE
+    float fs_alpha_test = col.a;
+    if (minimum_alpha > 0.0)
+    {
+        fs_alpha_test *= FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, vary_texcoord0.xy));
+    }
+    if (fs_alpha_test < minimum_alpha)
+#else
     if (col.a < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

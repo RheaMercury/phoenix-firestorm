@@ -375,7 +375,13 @@ void main()
     // Evaluate normal derivatives before any potentially non-uniform discard.
     mirrorClip(vary_position);
     applyWaterClip();
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#if defined(FS_ALPHA_COVERAGE) && (DIFFUSE_ALPHA_MODE == DIFFUSE_ALPHA_MODE_MASK)
+    alphaMask(diffcol.a * FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, vary_texcoord0.xy)));
+#else
     alphaMask(diffcol.a);
+#endif
+    // </FS:Trish>
 
     float emissive = getEmissive(diffcol);
 

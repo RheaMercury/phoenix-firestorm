@@ -36,6 +36,14 @@ vec4 diffuseLookup(vec2 texcoord)
 {
     return texture(sampler2D(fs_gdd_diffuse), texcoord);
 }
+// <FS:Trish> FSRenderAlphaCoverage: the mip level of that texture, as LLShaderMgr::loadShaderFile makes it for the indexed units
+#ifdef FS_ALPHA_COVERAGE
+float fsDiffuseLookupLod(vec2 texcoord)
+{
+    return FS_ALPHA_LOD(sampler2D(fs_gdd_diffuse), texcoord);
+}
+#endif
+// </FS:Trish>
 #endif
 
 #ifdef FS_WBOIT
@@ -109,7 +117,15 @@ void main()
     float final_alpha = color.a * vertex_color.a;
 
 #ifdef HAS_ALPHA_MASK
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#if defined(FS_ALPHA_COVERAGE) && !defined(IS_HUD) && defined(HAS_DIFFUSE_LOOKUP)
+    if (color.a * FS_ALPHA_SCALE(fsDiffuseLookupLod(vary_texcoord0.xy)) < minimum_alpha)
+#elif defined(FS_ALPHA_COVERAGE) && !defined(IS_HUD)
+    if (color.a * FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, vary_texcoord0.xy)) < minimum_alpha)
+#else
     if (color.a < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

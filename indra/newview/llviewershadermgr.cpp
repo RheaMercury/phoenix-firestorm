@@ -1241,6 +1241,13 @@ void LLViewerShaderMgr::setShaders()
 
     finalizeShaderList();
 
+    // <FS:Trish> FSRenderAlphaCoverage: the shadow casters aren't in mShaderList
+    if (LLGLSLShader::sGlobalDefines.count("FS_ALPHA_COVERAGE"))
+    {
+        fsMarkAllUniformsDirty();
+    }
+    // </FS:Trish>
+
     fsEndLoadStats(); // <FS:Trish/>
 
     reentrance = false;
@@ -1451,6 +1458,14 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     if (fs_foliage)
     {
         attribs["FS_FOLIAGE"] = "1";
+    }
+    // Alpha test that holds up at a distance: alpha masked G-buffer and shadow shaders scale the
+    // alpha they test by the mip level (FS_ALPHA_SCALE, see LLShaderMgr::loadShaderFile). The
+    // strength is the uniform fs_alpha_coverage (uploadValueUniforms).
+    static LLCachedControl<bool> fs_alpha_coverage(gSavedSettings, "FSRenderAlphaCoverage", false);
+    if (fs_alpha_coverage)
+    {
+        attribs["FS_ALPHA_COVERAGE"] = "1";
     }
     // </FS:Trish>
 
@@ -4982,6 +4997,13 @@ static void fs_upload_height_fog_uniforms(LLGLSLShader& shader)
     static LLStaticHashedString sHeightFogScatter("fs_height_fog_scatter");
 
     LLEnvironment& environment = LLEnvironment::instance();
+    // Before login there is no environment yet (getCurrentSky and getWaterHeight would dereference
+    // null): programs bound at the login screen, such as the UI, can come through here when every
+    // program is marked to take the value uniforms. The fog programs get them again once in world.
+    if (!environment.getCurrentEnvironmentInstance())
+    {
+        return;
+    }
 
     F32 fog_density = llclamp((F32)density, 0.f, 0.1f);
     LLSettingsSky::ptr_t psky = environment.getCurrentSky();
@@ -5026,7 +5048,29 @@ void LLViewerShaderMgr::uploadValueUniforms(LLGLSLShader& shader)
     shader.uniform1f(sTriplanarFactor, (F32)ll_round((F32)triplanar_factor * 100.f) / 100.f);
     fs_upload_shading_occlusion(shader);
 
+    // FSRenderAlphaCoverage: alpha gained per mip level in the alpha masked shaders
+    if (LLGLSLShader::sGlobalDefines.count("FS_ALPHA_COVERAGE"))
+    {
+        static LLCachedControl<F32> coverage(gSavedSettings, "FSRenderAlphaCoverageStrength", 0.25f);
+        static LLStaticHashedString sAlphaCoverage("fs_alpha_coverage");
+        shader.uniform1f(sAlphaCoverage, llclamp((F32)coverage, 0.f, 1.f));
+    }
+
     fs_upload_height_fog_uniforms(shader);
+}
+// </FS:Trish>
+
+// <FS:Trish> The shadow, GPU-driven and other programs outside mShaderList only take the value
+// uniforms when something marks them dirty. Marks every program, so each one runs
+// updateShaderUniforms (and with it uploadValueUniforms) once at its next bind: after a shader load
+// that needs them, and when such a value changes.
+// static
+void LLViewerShaderMgr::fsMarkAllUniformsDirty()
+{
+    for (LLGLSLShader* shader : LLGLSLShader::sInstances)
+    {
+        shader->mUniformsDirty = true;
+    }
 }
 // </FS:Trish>
 

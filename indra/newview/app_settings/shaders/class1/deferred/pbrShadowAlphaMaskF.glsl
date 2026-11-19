@@ -37,7 +37,13 @@ void main()
 {
     float alpha = texture(diffuseMap,vary_texcoord0.xy).a * vertex_color.a;
 
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#ifdef FS_ALPHA_COVERAGE
+    if (alpha * FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, vary_texcoord0.xy)) < minimum_alpha)
+#else
     if (alpha < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

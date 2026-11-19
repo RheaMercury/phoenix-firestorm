@@ -135,6 +135,7 @@ public:
 
     // <FS:Trish> Setting values read as uniforms instead of global defines (see the .cpp)
     static void uploadValueUniforms(LLGLSLShader& shader);
+    static void fsMarkAllUniformsDirty();
     // </FS:Trish>
 
 private:

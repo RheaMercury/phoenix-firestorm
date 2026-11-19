@@ -159,7 +159,18 @@ void main()
     //emissive = tnorm*0.5+0.5;
     // See: C++: addDeferredAttachments(), GLSL: softenLightF
     mirrorClip(vary_position);
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#ifdef FS_ALPHA_COVERAGE
+    float fs_alpha_test = basecolor.a;
+    if (minimum_alpha > 0.0)
+    {
+        fs_alpha_test *= FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, base_color_texcoord.xy));
+    }
+    if (fs_alpha_test < minimum_alpha)
+#else
     if (basecolor.a < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

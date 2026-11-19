@@ -728,6 +728,30 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
             extra_code_text[extra_code_count++] = strdup("#define FS_MASK_FLAG(f, masked) (f)\n");
         }
     }
+    // Alpha test that holds up at a distance (FSRenderAlphaCoverage): mip filtering averages a
+    // leaf's alpha down below the cutoff, so trees, grass and fences thin out with distance. The
+    // alpha masked G-buffer and shadow shaders multiply the alpha they compare with the cutoff by
+    // FS_ALPHA_SCALE(FS_ALPHA_LOD(texture, uv)), 1 + fs_alpha_coverage per mip level below the
+    // top one (Golus 2017, after Castano 2010), so the full size mip tests as before. GLSL 4 asks
+    // the hardware which mip it samples; GLSL 1.50/3.30 estimates it from the derivatives,
+    // allowing for 16x anisotropic filtering. Macros and one uniform only: a function defined in
+    // two shader objects of one program would not link.
+    if (type == GL_FRAGMENT_SHADER && LLGLSLShader::sGlobalDefines.count("FS_ALPHA_COVERAGE"))
+    {
+        if (!defines || defines->count("FS_ALPHA_COVERAGE") == 0)
+        {
+            extra_code_text[extra_code_count++] = strdup("#define FS_ALPHA_COVERAGE 1\n");
+        }
+        extra_code_text[extra_code_count++] = strdup("uniform float fs_alpha_coverage;\n");
+        extra_code_text[extra_code_count++] = strdup("#if __VERSION__ >= 400\n"
+                                                     "#define FS_ALPHA_LOD(tex, uv) textureQueryLod(tex, uv).x\n"
+                                                     "#else\n"
+                                                     "#define FS_ALPHA_LOD_TEXELS(t) (0.5 * log2(max(max(min(dot(dFdx(t), dFdx(t)), dot(dFdy(t), dFdy(t))), "
+                                                     "max(dot(dFdx(t), dFdx(t)), dot(dFdy(t), dFdy(t))) * (1.0 / 256.0)), 1e-8)))\n"
+                                                     "#define FS_ALPHA_LOD(tex, uv) FS_ALPHA_LOD_TEXELS((uv) * vec2(textureSize(tex, 0)))\n"
+                                                     "#endif\n"
+                                                     "#define FS_ALPHA_SCALE(lod) (1.0 + fs_alpha_coverage * max((lod), 0.0))\n");
+    }
     // </FS:Trish>
 
     if( gGLManager.mIsAMD )
@@ -829,6 +853,27 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
             LL_ERRS() << "Indexed texture rendering requires GLSL 1.30 or later." << LL_ENDL;
         }
     }
+
+    // <FS:Trish> FSRenderAlphaCoverage: the mip level diffuseLookup samples, for FS_ALPHA_SCALE
+    if (texture_index_channels > 0 && type == GL_FRAGMENT_SHADER && LLGLSLShader::sGlobalDefines.count("FS_ALPHA_COVERAGE"))
+    {
+        extra_code_text[extra_code_count++] = strdup("float fsDiffuseLookupLod(vec2 texcoord)\n{\n");
+        if (texture_index_channels == 1)
+        {
+            extra_code_text[extra_code_count++] = strdup("\treturn FS_ALPHA_LOD(tex0, texcoord);\n");
+        }
+        else
+        {
+            for (S32 i = 0; i < texture_index_channels; ++i)
+            {
+                std::string if_string = llformat("\t%sif (vary_texture_index == %d) { return FS_ALPHA_LOD(tex%d, texcoord); }\n", i > 0 ? "else " : "", i, i);
+                extra_code_text[extra_code_count++] = strdup(if_string.c_str());
+            }
+            extra_code_text[extra_code_count++] = strdup("\treturn 0.0;\n");
+        }
+        extra_code_text[extra_code_count++] = strdup("}\n");
+    }
+    // </FS:Trish>
 
     // Master definition can be found in deferredUtil.glsl
     extra_code_text[extra_code_count++] = strdup("struct GBufferInfo { vec4 albedo; vec4 specular; vec3 normal; vec3 geoNormal; vec4 emissive; float gbufferFlag; float envIntensity; };\n");

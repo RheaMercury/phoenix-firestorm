@@ -49,19 +49,26 @@ flat in uint fs_gdd_mode;
 void main()
 {
     float alpha = texture(sampler2D(fs_gdd_diffuse), vary_texcoord0.xy).a;
+#ifdef FS_ALPHA_COVERAGE
+    // FSRenderAlphaCoverage: the cutoff tests below compare the alpha scaled by the mip level, as the
+    // stock shadow shaders do (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+    float alpha_scale = FS_ALPHA_SCALE(FS_ALPHA_LOD(sampler2D(fs_gdd_diffuse), vary_texcoord0.xy));
+#else
+    const float alpha_scale = 1.0;
+#endif
 
     if (fs_gdd_mode == 3u)
     {
         alpha *= vertex_color.a;
 
-        if (alpha < fs_gdd_minimum_alpha)
+        if (alpha * alpha_scale < fs_gdd_minimum_alpha)
         {
             discard;
         }
     }
     else
     {
-        if (alpha < fs_gdd_minimum_alpha)
+        if (alpha * alpha_scale < fs_gdd_minimum_alpha)
         {
             discard;
         }

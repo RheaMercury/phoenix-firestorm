@@ -46,7 +46,13 @@ void main()
 #endif
     vec4 col = texture(diffuseMap, vary_texcoord0.xy);
 
+    // <FS:Trish> FSRenderAlphaCoverage: distant leaves keep their coverage (FS_ALPHA_SCALE, LLShaderMgr::loadShaderFile)
+#ifdef FS_ALPHA_COVERAGE
+    if (col.a * FS_ALPHA_SCALE(FS_ALPHA_LOD(diffuseMap, vary_texcoord0.xy)) < minimum_alpha)
+#else
     if (col.a < minimum_alpha)
+#endif
+    // </FS:Trish>
     {
         discard;
     }

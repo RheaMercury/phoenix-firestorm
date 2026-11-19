@@ -27867,6 +27867,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.18</real>
     </map>
+    <key>FSRenderAlphaCoverage</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Keep alpha-masked leaves, grass, fences and their shadows from thinning out and vanishing at a distance: the alpha test is scaled up by how far down the mip chain the texture is sampled, so the full-size texture tests exactly as before. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderAlphaCoverageStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>FSRenderAlphaCoverage: alpha gained per mip level below the full-size texture before the alpha mask cutoff test (alpha x (1 + strength x mip level)). 0 = no change, 0.25 = default; high values thicken thin masks such as chain-link fences.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.25</real>
+    </map>
     <key>FSRenderFadeIn</key>
     <map>
       <key>Comment</key>

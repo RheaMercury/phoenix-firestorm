@@ -263,6 +263,8 @@ namespace
         { "FSRenderSpecularAA", CL, VM },
         { "FSRenderSpecularAAStrength", CL, VM },
         { "FSRenderSpecularAAThreshold", CL, VM },
+        { "FSRenderAlphaCoverage", CL, VM },
+        { "FSRenderAlphaCoverageStrength", CL, VM },
         { "FSRenderFadeIn", CL, VM },
         { "FSRenderFadeInTime", CL, VM },
         { "FSRenderClusteredLights", CS, VN },
