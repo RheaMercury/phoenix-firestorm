@@ -408,6 +408,8 @@ static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_OPAQUE("FS Shadow Opaque");
 static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_OCCLUSION("FS Shadow Occlusion");
 static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_GEOM("FS Shadow Geom");
 static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_ALPHA("FS Shadow Alpha");
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_SHARED_SORT("FS Shadow Shared Sort"); // FSPerfShadowSharedStateSort: once an update
+static LLTrace::BlockTimerStatHandle FTM_FS_SHADOW_CASCADE_FILTER("FS Shadow Cascade Filter"); // and each cascade's share of it
 
 static LLTrace::BlockTimerStatHandle& fs_pool_timer(LLTrace::BlockTimerStatHandle* table, U32 type)
 {
@@ -4939,6 +4941,306 @@ bool LLPipeline::postSortBuildRenderMapParallel(LLCamera& camera)
     }
 
     return true;
+}
+// </FS:Trish>
+
+// <FS:Trish> FSPerfShadowSharedStateSort
+//
+// In RenderShadowCullMode 1 the sun cascades share one octree cull (the union). Each cascade then took
+// the union groups in its own frustum (bucketShadowCull) and ran a full stateSort over them: rebuilding
+// meshes and geometry, the priority rebuild queue, the delayed mesh rebuilds, and walking every group's
+// draw map into its render map. The rebuilds only find work the first time a group is seen, and a
+// group's draw map walk gives the same draw infos in every cascade, so three cascades did most of this
+// three times.
+// With the option on, fsShadowSharedSortBegin does the rebuild work once over the union, right after
+// the union cull, and keeps each union group's draw infos (what postSort's render map loop would push
+// for it) in one list. Each cascade then only:
+//  - takes the union groups in its frustum, with the same tests as bucketShadowCull, and appends their
+//    kept draw infos to its render map (fs_bucket_shared_shadow_cull): the render map stateSort built;
+//  - marks its groups visible for its camera, marks the drawables of its drawable groups (avatars,
+//    terrain, trees) visible into its cull and puts their faces in the face pools, as stateSort did
+//    (fsShadowSharedSortCascade).
+// Everything after that (the static cache, single pass recording, alpha and rigged casters, the avatar
+// cascade and distance limits) reads the same render map and face pools as before. The draw infos are
+// kept as raw pointers for the sun cascade loop only: nothing in the loop rebuilds a group once the
+// shared sort ran, and fsShadowSharedSortEnd empties the list at its end.
+namespace
+{
+    struct FSSharedShadowGroup
+    {
+        LLSpatialGroup* mGroup;
+        U32             mBegin;     // range of its draw infos in sFSSharedShadowInfos
+        U32             mEnd;
+    };
+    std::vector<FSSharedShadowGroup> sFSSharedShadowGroups;    // the union's live visible groups, in cull order
+    fs_postsort_infos_t              sFSSharedShadowInfos;     // (pass, draw info) of each, group after group
+    std::vector<U32>                 sFSSharedShadowChunkCounts; // draw infos per group, filled by the chunk jobs
+
+    // FSPerfShadowBatchStats
+    U64 sFSSharedShadowStatUpdates = 0;
+    U64 sFSSharedShadowStatGroups = 0;
+    U64 sFSSharedShadowStatInfos = 0;
+    U64 sFSSharedShadowStatCascades = 0;
+    U64 sFSSharedShadowStatCascadeInfos = 0;
+}
+
+void LLPipeline::fsShadowSharedSortBegin(LLCamera& camera, LLCullResult& union_result)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_SHARED_SORT);
+
+    sFSSharedShadowGroups.clear();
+    sFSSharedShadowInfos.clear();
+    mFSShadowSharedSort = false;
+
+    // as renderShadow sets them around stateSort
+    const bool saved_shadow_render = sShadowRender;
+    const U32 saved_occlusion = sUseOcclusion;
+    sShadowRender = true;
+    sUseOcclusion = 0;  // checkOcclusion and the occluded tests below are then no-ops, as in the cascades
+
+    grabReferences(union_result);
+    sVolumeSAFrame = 0.f; //ZK LBG, as postSort
+    fsGDDNewCull(); // the rebuilds below may free matrices the GPU-driven shared tables name
+
+    // stateSort's part: mesh rebuilds, and the LOD state sort of the render-by-group partitions (its
+    // stateSort(drawable) only sets the drawables visible; they have no face pools to fill)
+    for (LLCullResult::sg_iterator i = union_result.beginDrawableGroups(); i != union_result.endDrawableGroups(); ++i)
+    {
+        LLSpatialGroup* group = *i;
+        if (!group->isDead())
+        {
+            group->rebuildMesh();
+        }
+    }
+    for (LLCullResult::sg_iterator i = union_result.beginVisibleGroups(); i != union_result.endVisibleGroups(); ++i)
+    {
+        LLSpatialGroup* group = *i;
+        if (!group->isDead())
+        {
+            stateSort(group, camera);
+            group->rebuildMesh();
+        }
+    }
+
+    // postSort's part: geometry rebuilds, the priority queue, then each group's draw infos
+    for (LLCullResult::sg_iterator i = union_result.beginDrawableGroups(); i != union_result.endDrawableGroups(); ++i)
+    {
+        LLSpatialGroup* group = *i;
+        if (!group->isDead())
+        {
+            group->rebuildGeom();
+        }
+    }
+    rebuildPriorityGroups();
+
+    sFSPostSortGroups.clear();  // the groups whose draw infos count, as postSort's filter passes them
+    for (LLCullResult::sg_iterator i = union_result.beginVisibleGroups(); i != union_result.endVisibleGroups(); ++i)
+    {
+        LLSpatialGroup* group = *i;
+        if (group->isDead())
+        {
+            continue;   // bucketShadowCull drops them too
+        }
+        const bool drawn = !(RenderAutoHideSurfaceAreaLimit > 0.f &&
+                             group->mSurfaceArea > RenderAutoHideSurfaceAreaLimit * llmax(group->mObjectBoxSize, 10.f));
+        if (drawn && group->hasState(LLSpatialGroup::NEW_DRAWINFO) && group->hasState(LLSpatialGroup::GEOM_DIRTY))
+        {   // no way this group is going to be drawable without a rebuild
+            group->rebuildGeom();
+        }
+        // a group that is not drawn still goes into the cascades' visible groups, without draw infos.
+        // mBegin says whether it is drawn until the ranges are set below.
+        sFSSharedShadowGroups.push_back({ group, drawn ? 1U : 0U, 0U });
+        if (drawn)
+        {
+            sFSPostSortGroups.push_back(group);
+        }
+    }
+
+    // the draw map walk, on the FSParallelCull workers with FSPerfParallelPostSort as postSort does it
+    const U32 group_count = (U32)sFSPostSortGroups.size();
+    sFSSharedShadowChunkCounts.resize(group_count);
+    static LLCachedControl<bool> parallel_post_sort(gSavedSettings, "FSPerfParallelPostSort", false);
+    static LLCachedControl<U32> min_groups(gSavedSettings, "FSPerfParallelPostSortMinGroups", 128);
+    const bool parallel = parallel_post_sort && group_count >= llmax((U32)min_groups, 2U);
+    const U32 workers = FSParallelCull::workerCount() ? FSParallelCull::workerCount() : 4U;
+    const U32 chunk_count = parallel ? llclamp(group_count / 32U, 1U, (workers + 1U) * 4U) : 1U;
+    if (sFSPostSortChunks.size() < chunk_count)
+    {
+        sFSPostSortChunks.resize(chunk_count);
+    }
+    LLSpatialGroup* const* groups = sFSPostSortGroups.data();
+    U32* counts = sFSSharedShadowChunkCounts.data();
+    FSPostSortChunk* chunks = sFSPostSortChunks.data();
+    auto collect = [this, groups, counts, chunks, group_count, chunk_count](U32 c)
+    {
+        FSPostSortChunk& chunk = chunks[c];
+        chunk.mInfos.clear();
+        const U32 begin = (U32)((U64)group_count * c / chunk_count);
+        const U32 end = (U32)((U64)group_count * (c + 1) / chunk_count);
+        for (U32 g = begin; g < end; ++g)
+        {
+            const size_t before = chunk.mInfos.size();
+            // references only: no LLPointer copies, their reference counts are not atomic
+            const LLSpatialGroup::draw_map_t& draw_map = groups[g]->mDrawMap;
+            for (LLSpatialGroup::draw_map_t::const_iterator j = draw_map.begin(); j != draw_map.end(); ++j)
+            {
+                if (!hasRenderType(j->first))
+                {
+                    continue;
+                }
+                for (LLSpatialGroup::drawmap_elem_t::const_iterator k = j->second.begin(); k != j->second.end(); ++k)
+                {
+                    chunk.mInfos.emplace_back(j->first, k->get());
+                }
+            }
+            counts[g] = (U32)(chunk.mInfos.size() - before);
+        }
+    };
+    if (parallel)
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("fs shared shadow sort collect");
+        FSParallelCull::run(chunk_count, collect);
+    }
+    else if (group_count)
+    {
+        collect(0);
+    }
+
+    // one list, and each group's range in it
+    size_t total = 0;
+    for (U32 c = 0; c < chunk_count && group_count; ++c)
+    {
+        total += chunks[c].mInfos.size();
+    }
+    sFSSharedShadowInfos.reserve(total);
+    for (U32 c = 0; c < chunk_count && group_count; ++c)
+    {
+        sFSSharedShadowInfos.insert(sFSSharedShadowInfos.end(), chunks[c].mInfos.begin(), chunks[c].mInfos.end());
+    }
+    U32 offset = 0;
+    U32 drawn_index = 0;
+    for (FSSharedShadowGroup& entry : sFSSharedShadowGroups)
+    {
+        const U32 count = entry.mBegin ? counts[drawn_index++] : 0U;
+        entry.mBegin = offset;
+        entry.mEnd = offset + count;
+        offset += count;
+    }
+
+    // postSort's delayed mesh rebuilds
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("rebuild delayed upd groups");
+        LL_PROFILE_GPU_ZONE("rebuildMesh");
+        LLTimer fs_rebuild_timer; // FSPerfGroupRebuildBudgetMs
+        for (LLSpatialGroup::sg_vector_t::iterator iter = mMeshDirtyGroup.begin(); iter != mMeshDirtyGroup.end(); ++iter)
+        {
+            (*iter)->rebuildMesh();
+        }
+        sFSGroupRebuildMs += fs_rebuild_timer.getElapsedTimeF32().value() * 1000.f;
+    }
+    mMeshDirtyGroup.clear();
+    LLVertexBuffer::flushBuffers();
+
+    sUseOcclusion = saved_occlusion;
+    sShadowRender = saved_shadow_render;
+
+    ++sFSSharedShadowStatUpdates;
+    sFSSharedShadowStatGroups += sFSSharedShadowGroups.size();
+    sFSSharedShadowStatInfos += sFSSharedShadowInfos.size();
+    mFSShadowSharedSort = true;
+}
+
+// renderShadow, in place of stateSort, for a cascade whose cull fs_bucket_shared_shadow_cull filled: what
+// stateSort did that depends on the cascade's own camera and groups
+void LLPipeline::fsShadowSharedSortCascade(LLCamera& camera, LLCullResult& result)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+
+    if (hasAnyRenderType(LLPipeline::RENDER_TYPE_AVATAR,
+                         LLPipeline::RENDER_TYPE_CONTROL_AV,
+                         LLPipeline::RENDER_TYPE_TERRAIN,
+                         LLPipeline::RENDER_TYPE_TREE,
+                         LLPipeline::RENDER_TYPE_SKY,
+                         LLPipeline::RENDER_TYPE_VOIDWATER,
+                         LLPipeline::RENDER_TYPE_WATER,
+                         LLPipeline::END_RENDER_TYPES))
+    {
+        //clear faces from face pools
+        resetDrawOrders();
+    }
+
+    grabReferences(result);
+    fsGDDNewCull(); // as postSort, once per cull
+
+    // (sUseOcclusion is 0 here, so stateSort's checkOcclusion and occluded tests did nothing)
+    for (LLCullResult::sg_iterator iter = sCull->beginDrawableGroups(); iter != sCull->endDrawableGroups(); ++iter)
+    {
+        LLSpatialGroup* group = *iter;
+        if (group->isDead())
+        {
+            continue;
+        }
+        group->setVisible();
+        for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
+        {
+            markVisible((LLDrawable*)(*i)->getDrawable(), camera);
+        }
+    }
+    for (LLCullResult::sg_iterator iter = sCull->beginVisibleGroups(); iter != sCull->endVisibleGroups(); ++iter)
+    {
+        LLSpatialGroup* group = *iter;
+        if (!group->isDead())
+        {
+            group->setVisible();
+        }
+    }
+    for (LLCullResult::drawable_iterator iter = sCull->beginVisibleList(); iter != sCull->endVisibleList(); ++iter)
+    {
+        LLDrawable* drawablep = *iter;
+        if (!drawablep->isDead())
+        {
+            stateSort(drawablep, camera);
+        }
+    }
+}
+
+void LLPipeline::fsShadowSharedSortEnd()
+{
+    if (!mFSShadowSharedSort)
+    {
+        return;
+    }
+    mFSShadowSharedSort = false;
+    sFSSharedShadowGroups.clear();
+    sFSSharedShadowInfos.clear();
+
+    static LLCachedControl<bool> batch_stats(gSavedSettings, "FSPerfShadowBatchStats", false);
+    static LLFrameTimer timer;
+    if (batch_stats && timer.getElapsedTimeF32() >= 10.f)
+    {
+        const U64 updates = llmax(sFSSharedShadowStatUpdates, (U64)1);
+        const U64 cascades = llmax(sFSSharedShadowStatCascades, (U64)1);
+        LL_INFOS("FSShadowBatches") << "Shared shadow state sort: " << sFSSharedShadowStatUpdates << " sun shadow updates sorted once, "
+                                    << sFSSharedShadowStatGroups / updates << " union groups and "
+                                    << sFSSharedShadowStatInfos / updates << " draw infos an update; "
+                                    << sFSSharedShadowStatCascades << " cascades took "
+                                    << sFSSharedShadowStatCascadeInfos / cascades << " draw infos each from it" << LL_ENDL;
+        sFSSharedShadowStatUpdates = 0;
+        sFSSharedShadowStatGroups = 0;
+        sFSSharedShadowStatInfos = 0;
+        sFSSharedShadowStatCascades = 0;
+        sFSSharedShadowStatCascadeInfos = 0;
+        timer.reset();
+    }
+    else if (!batch_stats)
+    {
+        sFSSharedShadowStatUpdates = 0;
+        sFSSharedShadowStatGroups = 0;
+        sFSSharedShadowStatInfos = 0;
+        sFSSharedShadowStatCascades = 0;
+        sFSSharedShadowStatCascadeInfos = 0;
+    }
 }
 // </FS:Trish>
 
@@ -13483,7 +13785,17 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
         updateCull(shadow_cam, result);
     }
 
-    stateSort(shadow_cam, result);
+    // <FS:Trish> FSPerfShadowSharedStateSort: the rebuilds and the render map are done, see fsShadowSharedSortBegin
+    //stateSort(shadow_cam, result);
+    if (mFSShadowSharedSort && !do_cull)
+    {
+        fsShadowSharedSortCascade(shadow_cam, result);
+    }
+    else
+    {
+        stateSort(shadow_cam, result);
+    }
+    // </FS:Trish>
     } // <FS:Trish/> FSPerfProfileLogInterval
 
     //generate shadow map
@@ -17656,6 +17968,65 @@ static void bucketShadowCull(LLCullResult& src, LLCamera& cam, LLCullResult& dst
     }
 }
 
+// <FS:Trish> FSPerfShadowSharedStateSort: bucketShadowCull over the shared sort's copy of the union's visible
+// groups (the same groups in the same order), which also appends each taken group's draw infos to the
+// cascade's render map, as the cascade's postSort would have.
+static void fs_bucket_shared_shadow_cull(LLCullResult& src, LLCamera& cam, LLCullResult& dst, F32 min_caster_size)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    FS_RECORD_BLOCK_TIME(FTM_FS_SHADOW_CASCADE_FILTER);
+    dst.clear();
+
+    const FSSharedShadowGroup* groups = sFSSharedShadowGroups.data();
+    const size_t group_count = sFSSharedShadowGroups.size();
+    const std::pair<U32, LLDrawInfo*>* infos = sFSSharedShadowInfos.data();
+    U64 pushed = 0;
+    for (size_t n = 0; n < group_count; ++n)
+    {
+        if (n + 8 < group_count)
+        {
+            _mm_prefetch((const char*)groups[n + 8].mGroup, _MM_HINT_T0);
+            _mm_prefetch((const char*)groups[n + 8].mGroup->getObjectBounds(), _MM_HINT_T0);
+        }
+        const FSSharedShadowGroup& entry = groups[n];
+        LLSpatialGroup* group = entry.mGroup;
+        if (!group->isDead() &&
+            !LLPipeline::isShadowCasterTooSmall(group, min_caster_size) &&
+            shadowGroupInCascade(group, cam))
+        {
+            dst.pushVisibleGroup(group);
+            for (U32 k = entry.mBegin; k < entry.mEnd; ++k)
+            {
+                dst.pushDrawInfo(infos[k].first, infos[k].second);
+            }
+            pushed += entry.mEnd - entry.mBegin;
+        }
+    }
+    ++sFSSharedShadowStatCascades;
+    sFSSharedShadowStatCascadeInfos += pushed;
+
+    // the rest exactly as bucketShadowCull
+    for (LLCullResult::sg_iterator i = src.beginDrawableGroups(), end = src.endDrawableGroups(); i != end; ++i)
+    {
+        LLSpatialGroup* group = *i;
+        if (!group->isDead() &&
+            !LLPipeline::isShadowCasterTooSmall(group, min_caster_size) &&
+            shadowGroupInCascade(group, cam))
+        {
+            dst.pushDrawableGroup(group);
+        }
+    }
+    for (LLCullResult::drawable_iterator i = src.beginVisibleList(), end = src.endVisibleList(); i != end; ++i)
+    {
+        dst.pushDrawable(*i);
+    }
+    for (LLCullResult::bridge_iterator i = src.beginVisibleBridge(), end = src.endVisibleBridge(); i != end; ++i)
+    {
+        dst.pushBridge(*i);
+    }
+}
+// </FS:Trish>
+
 // <FS:Trish> FSRenderShadowReduceWhileMoving: while the camera turns or travels fast, the sun cascades
 // past the first leave out more of the small casters, and the far ones the alpha masked casters, whose
 // shadows can't be made out in motion. Everything is back a quarter second after the camera settles.
@@ -18184,6 +18555,14 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 set_current_projection(saved_proj);
 
                 have_union_cull = true;
+
+                // <FS:Trish> FSPerfShadowSharedStateSort: the cascades' rebuild and draw map work, once
+                static LLCachedControl<bool> shared_state_sort(gSavedSettings, "FSPerfShadowSharedStateSort", false);
+                if (shared_state_sort)
+                {
+                    fsShadowSharedSortBegin(ucam, sUnionShadowResult);
+                }
+                // </FS:Trish>
             }
         }
 
@@ -18671,8 +19050,17 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 static LLCullResult result[4];
                 if (have_union_cull)
                 {   // re-bucket the shared union cull down to this cascade's frustum
+                    // <FS:Trish>
                     //bucketShadowCull(sUnionShadowResult, shadow_cam, result[j]);
-                    bucketShadowCull(sUnionShadowResult, shadow_cam, result[j], min_caster_size); // <FS:Trish/>
+                    if (mFSShadowSharedSort) // FSPerfShadowSharedStateSort: with the cascade's render map
+                    {
+                        fs_bucket_shared_shadow_cull(sUnionShadowResult, shadow_cam, result[j], min_caster_size);
+                    }
+                    else
+                    {
+                        bucketShadowCull(sUnionShadowResult, shadow_cam, result[j], min_caster_size);
+                    }
+                    // </FS:Trish>
                 }
                 sShadowMinCasterSize = have_union_cull ? 0.f : min_caster_size; // <FS:Trish/> used by LLOctreeCullShadow
                 fsShadowCacheBeginCascade(j, proj[j], view[j]); // <FS:Trish/> FSPerfShadowStaticCache
@@ -18697,6 +19085,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         fsParallelShadowCullFlush(); // <FS:Trish/> FSPerfParallelShadowCull: cull and draw the deferred cascades
         fsShadowSinglePassFinish(); // <FS:Trish/> FSPerfShadowSinglePass: the recorded casters, once for all cascades
         } // <FS:Trish/> FSPerfProfileLogInterval
+        fsShadowSharedSortEnd(); // <FS:Trish/> FSPerfShadowSharedStateSort: its draw info list is for this loop only
         mColoredShadowCascade = -1; // <FS:Trish/> not for the projector shadows below
     }
 

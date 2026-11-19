@@ -178,6 +178,8 @@
     <boolean>1</boolean>
     <key>FSPerfShadowPointCloudFromCull</key>
     <boolean>1</boolean>
+    <key>FSPerfShadowSharedStateSort</key>
+    <boolean>1</boolean>
     <key>FSPerfShadowSinglePass</key>
     <boolean>1</boolean>
     <key>FSPerfShadowStaticCache</key>

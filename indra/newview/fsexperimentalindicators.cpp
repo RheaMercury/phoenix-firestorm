@@ -433,6 +433,7 @@ namespace
         { "FSPerfAlphaResortOnly", CS, VN },
         { "FSPerfRebuildTimeBudget", CS, VN },
         { "FSPerfShadowPointCloudFromCull", CS, VN },
+        { "FSPerfShadowSharedStateSort", CS, VN },
         { "FSPerfRepresentativeFragmentTest", CS, VN },
         { "FSPerfAlphaGlowSkip", CS, VN },
         { "FSRenderOcclusionAfterOpaque", CS, VN },

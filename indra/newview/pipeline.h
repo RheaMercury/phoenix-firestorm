@@ -353,6 +353,13 @@ public:
     void fsShadowSinglePassFinish();
     void fsReleaseShadowSinglePass();
     // </FS:Trish>
+    // <FS:Trish> FSPerfShadowSharedStateSort: with RenderShadowCullMode 1, the sun cascades' state sort runs
+    // once over the union cull; each cascade then only takes its groups' draw infos and marks its drawables
+    bool                    mFSShadowSharedSort = false;    // the sun cascade loop uses the shared sort
+    void fsShadowSharedSortBegin(LLCamera& camera, LLCullResult& union_result);
+    void fsShadowSharedSortCascade(LLCamera& camera, LLCullResult& result);
+    void fsShadowSharedSortEnd();
+    // </FS:Trish>
     // <FS:Trish> FSPerfParallelShadowCull (fsparallelcull.cpp): the sun cascade loop sets every cascade up and
     // defers its draw, then the cascades' octree culls run on worker threads and the deferred draws follow
     bool                    mFSParallelCullActive = false;
