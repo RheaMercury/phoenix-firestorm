@@ -105,6 +105,7 @@
 #include "fsfloaterposestand.h"
 #include "fsfloaterteleporthistory.h"
 #include "fslslbridge.h"
+#include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fsradar.h"
 #include "llavataractions.h"
 #include "lldiskcache.h"
@@ -606,6 +607,14 @@ static bool handleUploadBakedTexOldChanged(const LLSD& newvalue)
     LLPipeline::sForceOldBakedUpload = newvalue.asBoolean();
     return true;
 }
+
+// <FS:Trish> FSRenderGPUOcclusionCulling: turned on, the scene's batches are rebuilt to get their boxes
+static bool handleGPUOcclusionCullingChanged(const LLSD& newvalue)
+{
+    FSGPUOcclusion::onSettingChanged(newvalue.asBoolean());
+    return true;
+}
+// </FS:Trish>
 
 static bool handleRepartition(const LLSD&)
 {
@@ -1568,6 +1577,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenLegacy", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw legacy programs
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenMaterials", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw material programs
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenShadowAlpha", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw alpha shadow programs
+    setting_setup_signal_listener(gSavedSettings, "FSRenderGPUOcclusionCulling", handleGPUOcclusionCullingChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "RenderPerformanceTest", handleRenderPerfTestChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderAvatarCloth", handleSetShaderChanged);
     setting_setup_signal_listener(gSavedSettings, "ChatConsoleFontSize", handleChatFontSizeChanged);

@@ -135,6 +135,7 @@ set(viewer_SOURCE_FILES
     fsgpudrivenmaterials.cpp
     fsgpudrivenpbr.cpp
     fsgpudrivenshadowalpha.cpp
+    fsgpuocclusion.cpp
     fsgpuworkdiag.cpp
     fsinventorycustomtabs.cpp
     fsfloaterassetblacklist.cpp
@@ -1060,6 +1061,7 @@ set(viewer_HEADER_FILES
     fsgpudrivenmaterials.h
     fsgpudrivenpbr.h
     fsgpudrivenshadowalpha.h
+    fsgpuocclusion.h
     fsgpuworkdiag.h
     fsinventorycustomtabs.h
     fsfloaterassetblacklist.h

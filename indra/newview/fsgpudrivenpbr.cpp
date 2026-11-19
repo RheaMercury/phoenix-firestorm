@@ -88,6 +88,14 @@
 // runs before the multi-draws. A batch without avatar, skin or palette yet is skipped, as the stock loop skips
 // it. All palettes of the pass go into the buffer before it draws (FSSkinPaletteBuffer::place), the stock
 // fallbacks' too; should the buffer still be replaced mid pass, the multi-draws left are drawn the stock way.
+//
+// FSRenderGPUOcclusionCulling (fsgpuocclusion.h), the main camera's passes only: the pass's commands go through
+// the phase 1 cull first, and the multi-draws read the culled copy (sIndirectOverride), which keeps only the
+// batches visible last frame. The pass's ops are kept, and once every opaque pool has drawn, replay_phase_two
+// draws them again with the phase 2 commands (the batches found visible only then) from copies of the pass's
+// records, matrices and materials (sReplayPass). Stock ops are drawn in phase 1 only, as before. A rigged pass
+// keeps its batches and records too: should the palette buffer be replaced before phase 2, their palettes are
+// put in it again and the records' offsets rewritten (FSGPUOcclusion::refreshPalettes).
 
 #include "llviewerprecompiledheaders.h"
 
@@ -98,6 +106,7 @@
 #include "fsgddarena.h"
 #include "fsgddcommon.h"
 #include "fsgpudrivenmaterials.h"
+#include "fsgpuocclusion.h"
 #include "fsskinpalettebuffer.h"
 
 #include "lldrawpool.h"
@@ -117,6 +126,7 @@
 #include "pipeline.h"
 
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <sstream>
 #include <mutex>
@@ -243,6 +253,40 @@ namespace
     FSGDDMatrixTable sMatrices;
     std::vector<Material> sMaterials;
     std::vector<LLDrawInfo*> sCommandParams; // per command: its batch (verify, and the stock fallback)
+
+    // FSRenderGPUOcclusionCulling: the indirect buffer the multi-draws read instead of sIndirectBuffer (at offset
+    // 0; 0 for none), the occlusion pass whose input copies setup_inputs binds (phase 2; -1 for none), the
+    // cull entries, and per frame what each culled pass's phase 2 needs
+    GLuint sIndirectOverride = 0;
+    S32 sReplayPass = -1;
+    std::vector<FSGPUOcclusion::CullEntry> sCullEntries;
+    S32 sCullPass = -1;     // phase 1: the occlusion index of the pass being drawn (-1 for none)
+    std::vector<FSGPUOcclusion::Range> sRanges;    // its multi-draw ops' commands, in order
+    struct Replay
+    {
+        std::vector<Op> mOps;               // the multi-draw ops (no stock ops)
+        bool mRigged = false;
+        // rigged: the palette offsets' generation, the batches (one per command) and a copy of the records
+        U32 mGeneration = 0;
+        std::vector<LLDrawInfo*> mParams;
+        std::vector<U32> mRecords;
+    };
+    std::vector<Replay> sReplays;
+    // FSRenderGPUOcclusionCulling: the multi-draw ops (by range) of the pass being drawn that phase 1 drew the stock
+    // way after all (the palette buffer replaced, a program failed to bind): its phase 2 leaves them out, or it
+    // drew their batches a second time
+    std::vector<U8> sStockRanges;
+
+    void mark_stock(U32 range)
+    {
+        if (sStockRanges.size() <= range)
+        {
+            sStockRanges.resize(range + 1, 0);
+        }
+        sStockRanges[range] = 1;
+    }
+    U32 sReplayFrame = 0;
+    U32 sReplayUsed = 0;    // sReplays of this frame
     struct MaterialInfo
     {
         U32 mIndex;
@@ -1615,17 +1659,39 @@ namespace
             // multi-draw doesn't: left unset it is all zeros and every rigged vertex collapses to one point.
             gGL.syncMatrices();
         }
-        sMatrices.bindBase(FS_GDD_PBR_MATRIX_BINDING);
-        sMaterialBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING);
+        if (sReplayPass >= 0)
+        {   // FSRenderGPUOcclusionCulling phase 2: the copies of this pass's inputs
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATRIX_BINDING, FSGPUOcclusion::replayMatrices(sReplayPass));
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING, FSGPUOcclusion::replayMaterials(sReplayPass));
+        }
+        else
+        {
+            sMatrices.bindBase(FS_GDD_PBR_MATRIX_BINDING);
+            sMaterialBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING);
+        }
         if (sRiggedPass)
         {   // the palette buffer whole; the records hold the offsets
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_SKIN_BINDING, FSSkinPaletteBuffer::glName());
         }
-        sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
+        if (sIndirectOverride)
+        {
+            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectOverride);
+        }
+        else
+        {
+            sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
+        }
         const GLuint record = (GLuint)sRecordAttrib[which];
-        sRecordBuffer.bind(GL_ARRAY_BUFFER);
+        if (sReplayPass >= 0)
+        {
+            glBindBuffer(GL_ARRAY_BUFFER, FSGPUOcclusion::replayRecords(sReplayPass));
+        }
+        else
+        {
+            sRecordBuffer.bind(GL_ARRAY_BUFFER);
+        }
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sRecordBuffer.at(0));
+        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sReplayPass >= 0 ? (const void*)0 : sRecordBuffer.at(0));
         glVertexAttribDivisor(record, 1);
         sPassArena->bindForDraw(FS_GDD_PBR_ATTRIBS | (sRiggedPass ? LLVertexBuffer::MAP_WEIGHT4 : 0));
     }
@@ -1645,6 +1711,67 @@ namespace
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING, 0);  // also unbinds the generic binding
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         LLVertexBuffer::unbind();   // the next setBuffer() binds and sets up its own attributes again
+    }
+
+    // Where the multi-draws find the command `offset` bytes in
+    const void* indirect_at(size_t offset)
+    {
+        return sIndirectOverride ? (const void*)offset : sIndirectBuffer.at(offset);
+    }
+
+    // FSRenderGPUOcclusionCulling: phase 1 for the pass just uploaded; the multi-draws then read its culled
+    // commands. The pass's occlusion index, or -1 when it isn't culled.
+    S32 cull_phase_one()
+    {
+        sCullEntries.resize(sCommandParams.size());
+        for (size_t c = 0; c < sCommandParams.size(); ++c)
+        {
+            FSGPUOcclusion::makeEntry(*sCommandParams[c], sCullEntries[c]);
+        }
+        sRanges.clear();
+        for (const Op& op : sOps)
+        {
+            if (op.mKind != OP_STOCK && op.mCount)
+            {
+                sRanges.push_back({ op.mFirst, op.mCount });
+            }
+        }
+        FSGPUOcclusion::PassInputs inputs;
+        inputs.mRanges = sRanges.data();
+        inputs.mRangeCount = (U32)sRanges.size();
+        inputs.mKind = sRiggedPass ? FSGPUOcclusion::KIND_RIGGED : FSGPUOcclusion::KIND_PBR;
+        inputs.mCommands = sIndirectBuffer.name();
+        inputs.mCommandsOffset = sIndirectBuffer.offset();
+        inputs.mCommandCount = (U32)sCommands.size();
+        inputs.mRecords = sRecordBuffer.name();
+        inputs.mRecordsOffset = sRecordBuffer.offset();
+        inputs.mRecordBytes = sRecords.size() * sizeof(Record);
+        inputs.mRecordStride = sizeof(Record) / sizeof(U32);
+        inputs.mMatrixField = 0;    // Record::mMatrix: the modelview, the modelview projection after it
+        inputs.mMVPOffset = 1;
+        inputs.mMatrices = sMatrices.buffer().name();
+        inputs.mMatricesOffset = sMatrices.buffer().offset();
+        inputs.mMatrixBytes = sMatrices.size() * sizeof(glm::mat4);
+        inputs.mMaterials = sMaterialBuffer.name();
+        inputs.mMaterialsOffset = sMaterialBuffer.offset();
+        inputs.mMaterialBytes = sMaterials.size() * sizeof(Material);
+        const S32 pass = FSGPUOcclusion::cullPhaseOne(inputs, sCullEntries);
+        sIndirectOverride = pass >= 0 ? FSGPUOcclusion::phaseOneCommands(pass) : 0;
+        sCullPass = sIndirectOverride ? pass : -1;
+        return pass;
+    }
+
+    // One multi-draw op, the range-th of the pass's: FSRenderGPUOcclusionCulling packs a culled pass's ranges
+    void multi_draw(const Op& op, U32 range)
+    {
+        const S32 occ = sReplayPass >= 0 ? sReplayPass : sCullPass;
+        if (sIndirectOverride && occ >= 0 && op.mCount)
+        {
+            FSGPUOcclusion::drawRange(occ, sReplayPass >= 0, range, op.mFirst, op.mCount);
+            return;
+        }
+        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, indirect_at((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
+                                    (GLsizei)op.mCount, 0);
     }
 
     // One batch the stock way: pushGLTFBatch, or for a rigged pass pushRiggedGLTFBatch (its palette's range
@@ -1674,8 +1801,9 @@ namespace
     }
 
     // Draws the ops. The stock program is bound on entry and on return. False if a GPU-driven program
-    // couldn't be bound before anything was drawn (then nothing was).
-    bool execute(U32& calls, U32& switches)
+    // couldn't be bound before anything was drawn (then nothing was). cull: FSRenderGPUOcclusionCulling phase 1
+    // for this pass (occ: its occlusion index, or -1 when it wasn't culled).
+    bool execute(U32& calls, U32& switches, bool cull, S32& occ)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr execute");
         LL_PROFILE_GPU_ZONE("gdd pbr");
@@ -1689,6 +1817,17 @@ namespace
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         LLVertexBuffer::sGLRenderBuffer = 0;    // or the next setBuffer of the buffer it named skips binding it
 
+        sStockRanges.clear();
+        occ = cull ? cull_phase_one() : -1;
+        struct ResetOverride    // the next pass reads its own commands again, however this one ends
+        {
+            ~ResetOverride()
+            {
+                sIndirectOverride = 0;
+                sCullPass = -1;
+            }
+        } reset_override;
+
         LLGLSLShader* stock = sStockProgram;
         const U32 base = sRiggedPass ? FS_GDD_PBR_RIGGED : 0;
         S32 current = -1;                       // GPU-driven program bound (program()), -1 stock
@@ -1697,9 +1836,11 @@ namespace
         LLViewerTexture* stock_tex = nullptr;
         LLFetchedGLTFMaterial* bound_mat = nullptr;     // last material bound for gFSGDDPBRProgram
         LLViewerTexture* bound_tex = nullptr;
+        U32 next_range = 0;                     // the pass's multi-draw ops so far (multi_draw)
 
         for (const Op& op : sOps)
         {
+            const U32 range = op.mKind != OP_STOCK && op.mCount ? next_range++ : 0;
             if (op.mKind == OP_STOCK)
             {
                 if (current >= 0)
@@ -1719,6 +1860,10 @@ namespace
             {   // the palette buffer was replaced after the offsets were taken (not expected: place() put every
                 // palette of the pass in it); the run the stock way, which binds each palette again
                 LL_WARNS_ONCE("Rendering") << "FSPerfGPUDrivenRigged: the palette buffer was replaced mid PBR pass" << LL_ENDL;
+                if (op.mCount)
+                {
+                    mark_stock(range);
+                }
                 if (current >= 0)
                 {
                     finish_inputs(current);
@@ -1753,6 +1898,7 @@ namespace
                     // the stock way, in order
                     LL_WARNS_ONCE("Rendering") << "FSPerfGPUDrivenPBR: a program failed to bind mid pass" << LL_ENDL;
                     stock_mat = nullptr;
+                    U32 rest_range = op.mCount ? range : next_range;   // this op's range, or the next one
                     for (size_t i = &op - sOps.data(); i < sOps.size(); ++i)
                     {
                         const Op& rest = sOps[i];
@@ -1762,6 +1908,10 @@ namespace
                         }
                         else
                         {
+                            if (rest.mCount)
+                            {
+                                mark_stock(rest_range++);
+                            }
                             for (U32 c = rest.mFirst; c < rest.mFirst + rest.mCount; ++c)
                             {
                                 push_stock(*sCommandParams[c], stock_mat, stock_tex);
@@ -1785,8 +1935,7 @@ namespace
                 bound_tex = op.mTex;
             }
             LLGLDisable cull_face(op.mDoubleSided ? GL_CULL_FACE : 0);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, sIndirectBuffer.at((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
-                                        (GLsizei)op.mCount, 0);
+            multi_draw(op, range);
             ++calls;
             drew = true;
         }
@@ -1837,6 +1986,126 @@ namespace
                                       << sStatMismatches << " mismatches so far" << LL_ENDL;
             }
         }
+    }
+
+    // FSRenderGPUOcclusionCulling phase 2 of a pass (FSGPUOcclusion::flushPhaseTwo): its multi-draws again,
+    // reading the phase 2 commands and the copies of its inputs. Stock ops were drawn in phase 1.
+    void replay_phase_two(S32 occ, U32 user)
+    {
+        if (user >= sReplayUsed || sReplayFrame != LLFrameTimer::getFrameCount())
+        {
+            return;
+        }
+        Replay& replay = sReplays[user];
+        LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr phase 2");
+        LL_PROFILE_GPU_ZONE("gdd pbr phase 2");
+        if (replay.mRigged && FSSkinPaletteBuffer::generation() != replay.mGeneration &&
+            !FSGPUOcclusion::refreshPalettes(occ, replay.mParams, replay.mRecords, sizeof(Record) / sizeof(U32), 3,
+                                             replay.mGeneration))
+        {   // not expected: place() found no buffer, or it never held still
+            LL_WARNS_ONCE("Rendering") << "FSRenderGPUOcclusionCulling: the joint palettes of a rigged PBR pass could not be "
+                                       << "put in the palette buffer again for its phase 2" << LL_ENDL;
+            return;
+        }
+        sRiggedPass = replay.mRigged;
+        sPassArena = sRiggedPass ? &sRiggedArena : &sArena;
+        const U32 base = sRiggedPass ? FS_GDD_PBR_RIGGED : 0;
+        sReplayPass = occ;
+        sIndirectOverride = FSGPUOcclusion::replayCommands(occ);
+        LLVertexBuffer::unbind();
+        LLGLDepthTest depth(GL_TRUE, GL_TRUE);
+        LLGLDisable blend(GL_BLEND);
+
+        S32 current = -1;
+        LLFetchedGLTFMaterial* bound_mat = nullptr;
+        LLViewerTexture* bound_tex = nullptr;
+        U32 calls = 0;
+        U32 next_range = 0;
+        for (const Op& op : replay.mOps)
+        {
+            const U32 range = next_range++;     // replay.mOps are the pass's multi-draw ops, in order
+            if (!op.mCount)
+            {   // drawn the stock way in phase 1 (keep_for_phase_two)
+                continue;
+            }
+            const S32 which = (S32)(base + (op.mKind == OP_BINDLESS ? 1 : 0));
+            if (current != which)
+            {
+                if (current >= 0)
+                {
+                    finish_inputs(current);
+                    current = -1;
+                }
+                program(which).mUniformsDirty = true;
+                if (!bind_program(which))
+                {   // not expected: it drew in phase 1 this frame
+                    LL_WARNS_ONCE("Rendering") << "FSRenderGPUOcclusionCulling: a PBR program failed to bind in phase 2" << LL_ENDL;
+                    continue;
+                }
+                current = which;
+                setup_inputs(which);
+                bound_mat = nullptr;
+            }
+            if (op.mKind == OP_BOUND && (op.mMat != bound_mat || op.mTex != bound_tex))
+            {
+                op.mMat->bind(op.mTex);
+                bound_mat = op.mMat;
+                bound_tex = op.mTex;
+            }
+            LLGLDisable cull_face(op.mDoubleSided ? GL_CULL_FACE : 0);
+            multi_draw(op, range);
+            ++calls;
+        }
+        if (current >= 0)
+        {
+            finish_inputs(current);
+        }
+        sReplayPass = -1;
+        sIndirectOverride = 0;
+        sStatCalls += calls;
+        STOP_GLERROR;
+    }
+
+    // Keeps the ops of a pass phase 1 culled, for its phase 2
+    void keep_for_phase_two(S32 occ)
+    {
+        const U32 frame = LLFrameTimer::getFrameCount();
+        if (sReplayFrame != frame)
+        {
+            sReplayFrame = frame;
+            sReplayUsed = 0;
+        }
+        if (sReplayUsed >= sReplays.size())
+        {
+            sReplays.resize(sReplayUsed + 1);
+        }
+        Replay& replay = sReplays[sReplayUsed];
+        replay.mOps.clear();
+        U32 range = 0;
+        for (const Op& op : sOps)
+        {
+            if (op.mKind != OP_STOCK && op.mCount)
+            {   // one drawn the stock way stays, with no commands, so the ranges keep their numbers
+                replay.mOps.push_back(op);
+                if (range < sStockRanges.size() && sStockRanges[range])
+                {
+                    replay.mOps.back().mCount = 0;
+                }
+                ++range;
+            }
+        }
+        replay.mRigged = sRiggedPass;
+        replay.mParams.clear();
+        replay.mRecords.clear();
+        if (sRiggedPass)
+        {   // to put the palettes in the buffer again, should it be replaced before phase 2
+            replay.mGeneration = sPaletteGeneration;
+            replay.mParams = sCommandParams;
+            replay.mRecords.resize(sRecords.size() * (sizeof(Record) / sizeof(U32)));
+            memcpy(replay.mRecords.data(), sRecords.data(), sRecords.size() * sizeof(Record));
+        }
+        FSGPUOcclusion::addReplay(occ, &replay_phase_two, sReplayUsed);
+        ++sReplayUsed;
     }
 
     void log_stats()
@@ -1975,9 +2244,17 @@ bool draw_pbr(U32 type, bool rigged)
 
     U32 calls = 0;
     U32 switches = 0;
-    if (!execute(calls, switches))
+    // FSRenderGPUOcclusionCulling: the main camera's passes; not while verifying, which compares against
+    // everything the stock path draws
+    const bool cull = !verify && FSGPUOcclusion::passActive();
+    S32 occ = -1;
+    if (!execute(calls, switches, cull, occ))
     {
         return false;
+    }
+    if (occ >= 0)
+    {
+        keep_for_phase_two(occ);
     }
 
     if (verify)

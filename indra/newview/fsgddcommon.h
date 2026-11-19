@@ -87,6 +87,9 @@ public:
     void bindBase(GLenum target, GLuint index) const;
     // A byte offset into the data as the bound buffer sees it: indirect command and attribute offsets
     const void* at(size_t offset) const { return (const void*)(mOffset + offset); }
+    // Where the data is now (FSRenderGPUOcclusionCulling copies it from there)
+    GLuint name() const                 { return mName; }
+    size_t offset() const               { return mOffset; }
 
     // Deletes the own buffer; ring slices belong to the ring.
     void release();
@@ -239,6 +242,8 @@ public:
 
     void bindBase(GLuint index) const   { mStore->mBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, index); }
     size_t size() const                 { return mStore->mMatrices.size(); }
+    // The buffer the table went to at its last upload
+    const FSGDDBuffer& buffer() const   { return mStore->mBuffer; }
     // The own table's buffer; fsGDDCommonReleaseGL releases the shared ones.
     void release()                      { mOwn.mBuffer.release(); }
 

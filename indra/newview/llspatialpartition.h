@@ -162,6 +162,14 @@ public:
     U32 mFSShadowSPIndex = 0;
     const void* mFSShadowSPList = nullptr;
     // </FS:Trish>
+    // <FS:Trish> FSRenderGPUOcclusionCulling (fsgpuocclusion.h): the batch's box in the space its vertices are
+    // in (what mModelMatrix maps from), valid while mFSHasBounds; the content serial its vertex buffer had when
+    // the box was first used; its visibility slot (0: none yet)
+    LLVector4a mFSBounds[2];
+    U32 mFSBoundsSerial = 0;
+    U32 mFSOcclusionSlot = 0;
+    bool mFSHasBounds = false;
+    // </FS:Trish>
 
     struct CompareTexture
     {

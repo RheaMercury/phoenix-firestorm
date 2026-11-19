@@ -98,6 +98,7 @@
 #include "fsdata.h"
 #include "fsdynamicresolution.h" // <FS:Trish/> Dynamic resolution
 #include "fsvrs.h" // <FS:Trish/> Variable rate shading
+#include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 
 // <FS:PP> Render chat range spheres in 3D world
@@ -1216,7 +1217,9 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
             gGL.setColorMask(true, true);
             FSVRS::beginGBuffer(for_snapshot); // <FS:Trish/> Variable rate shading: main camera G-buffer only
+            FSGPUOcclusion::beginFrame(for_snapshot); // <FS:Trish/> FSRenderGPUOcclusionCulling: main camera G-buffer only
             gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
+            FSGPUOcclusion::endFrame(); // <FS:Trish/> FSRenderGPUOcclusionCulling
             FSVRS::endGBuffer(); // <FS:Trish/> Variable rate shading
         }
 

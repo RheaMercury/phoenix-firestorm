@@ -58,6 +58,7 @@
 // <FS:Beq> improved normals debug
 #include "llformat.h"
 #include "llselectmgr.h"
+#include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 // </FS:Beq>
 
 extern bool gShiftFrame;
@@ -4285,6 +4286,7 @@ LLDrawInfo::~LLDrawInfo()
     {
         gPipeline.checkReferences(this);
     }
+    FSGPUOcclusion::releaseSlot(mFSOcclusionSlot); // <FS:Trish/> FSRenderGPUOcclusionCulling
 }
 
 LLColor4U LLDrawInfo::getDebugColor() const

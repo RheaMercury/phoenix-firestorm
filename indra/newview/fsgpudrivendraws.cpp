@@ -64,6 +64,7 @@
 #include "fsgpudrivenalpha.h"
 #include "fsgpudrivenpbr.h"
 #include "fsgpudrivenshadowalpha.h"
+#include "fsgpuocclusion.h"
 
 #include "fsshadowsinglepass.h"
 #include "lldrawpool.h"
@@ -145,6 +146,7 @@ void fsGDDReleaseGL()
     fsGDDPBRReleaseGL();
     fsGDDShadowAlphaReleaseGL();
     release_shadow_gl();
+    FSGPUOcclusion::releaseGL();    // FSRenderGPUOcclusionCulling: its buffers, pyramid and programs
     fsGDDCommonReleaseGL();     // after the passes: the upload ring and the shared matrix tables
 }
 
@@ -156,6 +158,7 @@ void fsGDDUnloadShaders()
     fsGDDAlphaUnloadShaders();      // and the alpha pass's
     fsGDDPBRUnloadShaders();    // releases the PBR GL objects too
     fsGDDShadowAlphaUnloadShaders();
+    FSGPUOcclusion::releaseGL();    // its compute programs are built again when next wanted
     fsGDDCommonReleaseGL();     // the upload ring and the shared matrix tables
 }
 

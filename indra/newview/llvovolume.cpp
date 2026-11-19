@@ -101,6 +101,7 @@
 #include "fsparallelgeometry.h" // <FS:Trish/> parallel geometry fill
 #include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
 #include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
+#include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 
 const F32 FORCE_SIMPLE_RENDER_AREA = 512.f;
 const F32 FORCE_CULL_AREA = 8.f;
@@ -6123,6 +6124,7 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         info->mCount += facep->getIndicesCount();
         info->mEnd += facep->getGeomCount();
         info->mFSGlowFree = info->mFSGlowFree && glow_free; // <FS:Trish/>
+        FSGPUOcclusion::extendBatchBounds(*info, facep); // <FS:Trish/> FSRenderGPUOcclusionCulling
 
         if (index < FACE_DO_NOT_BATCH_TEXTURES && index >= info->mTextureList.size())
         {
@@ -6171,6 +6173,7 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         draw_info->mShaderMask = shader_mask;
         draw_info->mAvatar = facep->mAvatar;
         draw_info->mSkinInfo = facep->mSkinInfo;
+        FSGPUOcclusion::initBatchBounds(*draw_info, facep); // <FS:Trish/> FSRenderGPUOcclusionCulling
 
         if (gltf_mat)
         {
@@ -6850,6 +6853,11 @@ void LLVolumeGeometryManager::rebuildMesh(LLSpatialGroup* group)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("rebuildMesh - gen draw info");
 
+            // <FS:Trish> FSRenderGPUOcclusionCulling: the vertices are rewritten in place below, and the
+            // batches' boxes may no longer hold them
+            FSGPUOcclusion::invalidateGroupBounds(group);
+            // </FS:Trish>
+
             group->mBuilt = 1.f;
 
             static std::vector<LLVertexBuffer*> locked_buffer;
@@ -6938,6 +6946,14 @@ void LLVolumeGeometryManager::rebuildMesh(LLSpatialGroup* group)
                 LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("rebuildMesh - flush");
                 LLVertexBuffer::flushBuffers();
             }
+
+            // <FS:Trish> FSRenderGPUOcclusionCulling: the vertices are written (and uploaded); the batches get their
+            // boxes again from their faces' extents, unless the group is to be rebuilt whole after a failed fill
+            if (!group->hasState(LLSpatialGroup::GEOM_DIRTY))
+            {
+                FSGPUOcclusion::refreshGroupBounds(group);
+            }
+            // </FS:Trish>
 
             group->clearState(LLSpatialGroup::MESH_DIRTY | LLSpatialGroup::NEW_DRAWINFO);
         }

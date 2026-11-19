@@ -47,6 +47,7 @@
 #include "llrender.h"
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
+#include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "llstartup.h"
 #include "llwindow.h"   // swapBuffers()
 
@@ -5258,6 +5259,11 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
             iter1 = iter2;
             stop_glerror();
         }
+
+        // <FS:Trish> FSRenderGPUOcclusionCulling: every opaque pool has drawn; the batches the GPU-driven passes
+        // left out in phase 1 are tested against this depth and the visible ones drawn
+        FSGPUOcclusion::flushPhaseTwo();
+        // </FS:Trish>
 
         // <FS:Trish> FSRenderOcclusionAfterOpaque: every pool that writes the G-buffer is drawn (those after
         // them, glow, water and alpha, have no deferred passes), so the depth is complete here. The results are
