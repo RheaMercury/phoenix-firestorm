@@ -747,8 +747,8 @@ namespace
             {   // the stock loop would still bind for these; it gets them
                 reason = R_EMPTY;
             }
-            else if (LLRenderPass::fsFadeInHidden(params) > 0.f)
-            {   // <FS:Trish/> fade-in: its fs_fade_hide uniform is set per batch, the stock way
+            else if (LLRenderPass::fsFadeInHidden(params) > 0.f || (rigged && LLRenderPass::fsSkinExcluded(params.mAvatar.get())))
+            {   // <FS:Trish/> fade-in (fs_fade_hide) and animesh skin marking (fs_skin_exclude) are set per batch, the stock way
                 reason = R_FADING;
             }
             else

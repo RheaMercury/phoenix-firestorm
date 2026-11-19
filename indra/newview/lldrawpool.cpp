@@ -574,6 +574,15 @@ void LLRenderPass::applyModelMatrix(const LLDrawInfo& params)
     fsApplyFadeIn(params); // <FS:Trish/>
 }
 
+// <FS:Trish> Skin SSS: animesh is no avatar skin, see fs_upload_palette
+// static
+bool LLRenderPass::fsSkinExcluded(const LLVOAvatar* avatar)
+{
+    static LLCachedControl<bool> skin_sss(gSavedSettings, "FSRenderSkinSSS", false);
+    return skin_sss && avatar && avatar->isControlAvatar();
+}
+// </FS:Trish>
+
 // <FS:Trish> Fade-in (FSRenderFadeIn): an object's batches carry the time its faces were first
 // batched for as long as it fades in (LLVolumeGeometryManager::registerFace); the world programs
 // dissolve it into view with a screen-door pattern (fsFadeInF.glsl) as this falls from 1 to 0
@@ -735,8 +744,16 @@ static inline bool fs_palette_uploaded(U32 serial)
 
 // Uploads a palette to the bound program unless it has this build already, or with
 // FSPerfRiggedPaletteBuffer writes it into this frame's palette buffer (once) and binds its range
-static inline void fs_upload_palette(const LLVOAvatar::MatrixPaletteCache& mpc, U32 count)
+static inline void fs_upload_palette(const LLVOAvatar* avatar, const LLVOAvatar::MatrixPaletteCache& mpc, U32 count)
 {
+    // Skin SSS: animesh rigged mesh doesn't mark its pixels as avatar skin (see LLShaderMgr::loadShaderFile).
+    // Set with every palette, so the program always has the value of the avatar it draws now.
+    static LLCachedControl<bool> skin_sss(gSavedSettings, "FSRenderSkinSSS", false);
+    if (skin_sss)
+    {
+        static LLStaticHashedString s_skin_exclude("fs_skin_exclude");
+        LLGLSLShader::sCurBoundShaderPtr->uniform1f(s_skin_exclude, LLRenderPass::fsSkinExcluded(avatar) ? 1.f : 0.f);
+    }
     if (FSSkinPaletteBuffer::active())
     {
         FSSkinPaletteBuffer::bind(mpc.mFSBuildSerial, mpc.mGLMp.data(), count, mpc.mSkinOrigin);
@@ -785,7 +802,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
         return false;
     }
 
-    fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+    fs_upload_palette(avatar, mpc, count); // <FS:Trish/> once per program, or into the palette buffer
 
     return true;
 }
@@ -825,7 +842,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+        fs_upload_palette(avatar, mpc, count); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;
@@ -867,7 +884,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+        fs_upload_palette(avatar, mpc, count); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;

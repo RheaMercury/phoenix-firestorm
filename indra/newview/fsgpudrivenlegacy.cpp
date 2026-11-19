@@ -734,8 +734,8 @@ namespace
             {   // pushBatch draws nothing for these; it may still bind, so it gets them
                 reason = R_EMPTY;
             }
-            else if (LLRenderPass::fsFadeInHidden(params) > 0.f)
-            {   // <FS:Trish/> fade-in: its fs_fade_hide uniform is set per batch, the stock way
+            else if (LLRenderPass::fsFadeInHidden(params) > 0.f || (sRiggedPass && LLRenderPass::fsSkinExcluded(params.mAvatar.get())))
+            {   // <FS:Trish/> fade-in (fs_fade_hide) and animesh skin marking (fs_skin_exclude) are set per batch, the stock way
                 reason = R_FADING;
             }
             else
