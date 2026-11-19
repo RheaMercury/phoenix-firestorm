@@ -50,6 +50,11 @@ vec3 fsDeband(vec3 c); // fsDebandF.glsl
 uniform sampler2D bloomMap;
 uniform float bloom_strength;   // 0 = off
 uniform float bloom_levels;
+// <FS:Trish> FSRenderBicubicUpsample: the half resolution bloom filtered up smoothly
+#ifdef FS_BICUBIC
+vec4 fsBicubicBSpline(sampler2D tex, vec2 uv); // fsBicubicF.glsl
+#endif
+// </FS:Trish>
 
 // Colour grading
 uniform int grade_enabled;
@@ -187,7 +192,13 @@ void main()
     {
         // The chain sums every level, so divide by their count for the average blur. It holds
         // only what passed the threshold, so it adds light around bright areas.
+        // <FS:Trish> FSRenderBicubicUpsample
+#ifdef FS_BICUBIC
+        vec3 bloom = fsBicubicBSpline(bloomMap, vary_fragcoord).rgb / max(bloom_levels, 1.0);
+#else
         vec3 bloom = texture(bloomMap, vary_fragcoord).rgb / max(bloom_levels, 1.0);
+#endif
+        // </FS:Trish>
         diff.rgb += bloom * bloom_strength;
         // Halation: on film, light from bright highlights goes through the emulsion, reflects
         // off the back of the film and exposes the red layer around them again: a warm glow

@@ -50,6 +50,10 @@ uniform mat4 fs_ind_to_prev_view;           // this frame's camera space to last
 uniform mat4 fs_ind_proj;                   // the projection (last frame's is taken to be the same)
 uniform float fs_ind_history;               // weight of the history, 0 when there is none
 
+#ifdef FS_BICUBIC
+vec4 fsCatmullRom(sampler2D tex, vec2 uv); // fsBicubicF.glsl, FSRenderBicubicUpsample
+#endif
+
 void main()
 {
     ivec2 size = textureSize(fs_indirect_gi, 0);
@@ -112,6 +116,10 @@ void main()
             if (all(greaterThanEqual(prev_tc, vec2(0.0))) && all(lessThanEqual(prev_tc, vec2(1.0))))
             {
                 gi_h = texture(fs_indirect_gi_history, prev_tc);
+#ifdef FS_BICUBIC
+                // a sharp history (the light only, clamped below); depth and bend stay bilinear
+                gi_h.rgb = fsCatmullRom(fs_indirect_gi_history, prev_tc).rgb;
+#endif
                 bend_h = texture(fs_indirect_bent_history, prev_tc).xyz;
                 // the history saw another surface there (disocclusion): start over
                 float prev_z = -prev_view.z;

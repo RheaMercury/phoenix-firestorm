@@ -27911,6 +27911,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderBicubicUpsample</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Third-order filtering (GPU Gems 2 ch. 20) for the effects drawn at reduced resolution and the temporal histories: the sun ray, underwater ray, projector light and point light fog composites weigh 4x4 low resolution texels by a cubic B-spline (keeping their depth-aware weights), the bloom is filtered up with a 4-fetch cubic B-spline, and the projector light, indirect light and sun shadow filter histories are fetched with Catmull-Rom so they stay sharp. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderFadeIn</key>
     <map>
       <key>Comment</key>

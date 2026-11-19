@@ -260,6 +260,7 @@ namespace
         { "FSRenderFoliageStrength", CL, VM },
         { "FSRenderSoftParticles", CL, VM },
         { "FSRenderSoftParticlesDistance", CL, VN },
+        { "FSRenderBicubicUpsample", CL, VN },
 
         // Rendering
         { "FSRenderSpecularAA", CL, VM },

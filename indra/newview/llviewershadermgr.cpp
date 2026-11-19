@@ -479,6 +479,21 @@ static void add_fade_in(LLGLSLShader* shader)
 }
 // </FS:Trish>
 
+// <FS:Trish> Bicubic upsampling (FSRenderBicubicUpsample): the cubic filters of fsBicubicF.glsl for
+// the programs that filter a reduced resolution buffer up (sun ray and projector light composites,
+// the bloom fetch of the tone mapper) or fetch a history between texels (the projector light,
+// indirect light and sun shadow temporal passes)
+static void add_bicubic(LLGLSLShader* shader)
+{
+    static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderBicubicUpsample", false);
+    if (enabled)
+    {
+        shader->addPermutation("FS_BICUBIC", "1");
+        shader->mShaderFiles.push_back(make_pair("deferred/fsBicubicF.glsl", GL_FRAGMENT_SHADER));
+    }
+}
+// </FS:Trish>
+
 // <FS:Trish> Soft particles (FSRenderSoftParticles): the depth fade (fsSoftParticlesF.glsl) for the
 // programs particles are drawn with: world alpha, fullbright alpha and glow, never the rigged or HUD
 // ones. Call after make_rigged_variant, so the skinned copy stays as it was.
@@ -2785,6 +2800,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         {
             gDeferredBlurLightProgram.mShaderFiles.push_back(make_pair("deferred/fsShadowScreenFilterF.glsl", GL_FRAGMENT_SHADER));
             gDeferredBlurLightProgram.addPermutation("FS_SHADOW_SCREEN_FILTER", "1");
+            add_bicubic(&gDeferredBlurLightProgram); // its history fetch
         }
         // </FS:Trish>
 
@@ -3315,6 +3331,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gFSIndirectTemporalProgram.mShaderFiles.push_back(make_pair("deferred/fsIndirectTemporalF.glsl", GL_FRAGMENT_SHADER));
             gFSIndirectTemporalProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
 
+            add_bicubic(&gFSIndirectTemporalProgram);
             if (gFSIndirectHalfProgram.createShader() && gFSIndirectTemporalProgram.createShader())
             {
                 gDeferredSoftenProgram.addPermutation("FS_INDIRECT", "1");
@@ -3748,6 +3765,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredPostTonemapProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
         gDeferredPostTonemapProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredTonemap.glsl", GL_FRAGMENT_SHADER));
         gDeferredPostTonemapProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        add_bicubic(&gDeferredPostTonemapProgram); // <FS:Trish/> the bloom fetch
         success = gDeferredPostTonemapProgram.createShader();
         llassert(success);
     }
@@ -3781,6 +3799,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredPostTonemapGammaCorrectProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredTonemap.glsl", GL_FRAGMENT_SHADER));
         gDeferredPostTonemapGammaCorrectProgram.mShaderFiles.push_back(make_pair("deferred/fsDebandF.glsl", GL_FRAGMENT_SHADER)); // <FS:Trish/> Debanding dither
         gDeferredPostTonemapGammaCorrectProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        add_bicubic(&gDeferredPostTonemapGammaCorrectProgram); // <FS:Trish/> the bloom fetch
         success = gDeferredPostTonemapGammaCorrectProgram.createShader();
         llassert(success);
     }
@@ -3817,6 +3836,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredPostTonemapLegacyGammaCorrectProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredTonemap.glsl", GL_FRAGMENT_SHADER));
         gDeferredPostTonemapLegacyGammaCorrectProgram.mShaderFiles.push_back(make_pair("deferred/fsDebandF.glsl", GL_FRAGMENT_SHADER)); // <FS:Trish/> Debanding dither
         gDeferredPostTonemapLegacyGammaCorrectProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        add_bicubic(&gDeferredPostTonemapLegacyGammaCorrectProgram); // <FS:Trish/> the bloom fetch
         success = gDeferredPostTonemapLegacyGammaCorrectProgram.createShader();
         llassert(success);
     }
@@ -3887,6 +3907,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             if (post.mShader == &gFSUnderwaterRaysProgram)
             {
                 post.mShader->mShaderFiles.push_back(make_pair("deferred/fsCausticsF.glsl", GL_FRAGMENT_SHADER)); // the caustic pattern
+            }
+            if (post.mShader == &gFSSunRaysCompositeProgram || post.mShader == &gFSSpotVolumetricCompositeProgram ||
+                post.mShader == &gFSVolumetricCompositeProgram || post.mShader == &gFSSpotVolumetricTemporalProgram)
+            {
+                add_bicubic(post.mShader); // reduced resolution upsample, history fetch
             }
             post.mShader->mShaderLevel = mShaderLevel[SHADER_DEFERRED];
             if (!post.mShader->createShader())

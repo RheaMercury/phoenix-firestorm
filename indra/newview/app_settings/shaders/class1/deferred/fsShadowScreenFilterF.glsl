@@ -41,6 +41,10 @@ uniform float fs_shadow_history_weight; // weight of the history, 0 when there i
 uniform mat4 fs_shadow_to_prev_view;    // this frame's camera space to last frame's
 uniform mat4 fs_shadow_proj;            // the projection (last frame's is taken to be the same)
 
+#ifdef FS_BICUBIC
+vec4 fsCatmullRom(sampler2D tex, vec2 uv); // fsBicubicF.glsl, FSRenderBicubicUpsample
+#endif
+
 float getDepth(vec2 pos_screen);
 bool isFarDepth(float d);
 vec4 getNorm(vec2 pos_screen);
@@ -141,6 +145,9 @@ float fsScreenFilterTemporal(float shadow, vec2 range, vec3 pos)
         return shadow;
     }
     vec2 h = texture(fs_shadow_history, prev_tc).rg;
+#ifdef FS_BICUBIC
+    h.r = fsCatmullRom(fs_shadow_history, prev_tc).r; // sharp history, clamped below; depth stays bilinear
+#endif
     float prev_z = -prev_view.z;
     float rel = abs(h.g - prev_z) / max(prev_z, 0.1);
     float w = h.g > 0.0 ? fs_shadow_history_weight * (1.0 - smoothstep(0.02, 0.08, rel)) : 0.0;

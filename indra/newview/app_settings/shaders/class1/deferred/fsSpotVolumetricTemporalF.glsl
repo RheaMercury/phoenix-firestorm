@@ -45,6 +45,10 @@ uniform float fs_vol_history;       // weight of the history, 0 when there is no
 
 const float SKY_DIST = 65000.0;
 
+#ifdef FS_BICUBIC
+vec4 fsCatmullRom(sampler2D tex, vec2 uv); // fsBicubicF.glsl, FSRenderBicubicUpsample
+#endif
+
 void main()
 {
     ivec2 size = textureSize(diffuseRect, 0);
@@ -91,6 +95,11 @@ void main()
     }
 
     vec4 hist = texture(specularRect, prev_tc);
+#ifdef FS_BICUBIC
+    // a sharp history that doesn't blur a little more every frame; the distance for the test
+    // below stays bilinear, a cubic would ring across depth steps
+    hist.rgb = fsCatmullRom(specularRect, prev_tc).rgb;
+#endif
     // the history saw another surface there (disocclusion): start over
     float rel = abs(hist.a - cur.a) / max(cur.a, 0.1);
     float w = fs_vol_history * (1.0 - smoothstep(0.05, 0.2, rel));

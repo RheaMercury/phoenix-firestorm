@@ -1152,7 +1152,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="3896"
+                 height="3964"
                  layout="topleft"
                  left="0"
                  name="experimental_effects_settings"
@@ -4151,6 +4151,42 @@
                      tool_tip="EXPERIMENTAL. How far in front of a surface, in meters, a particle starts to fade. Larger is softer; too large makes small particles near the ground look washed out."
                      top="3854"
                      width="100" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_upsampling"
+                     top="3896"
+                     width="340">
+                        Upsampling
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_upsampling"
+                     tool_tip="Set every option in &quot;Upsampling&quot; back to its default value."
+                     top="3895"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderBicubicUpsample" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderBicubicUpsample"
+                     follows="left|top"
+                     height="20"
+                     label="Bicubic upsampling of rays, light cones, bloom and histories"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderbicubicupsample"
+                     tool_tip="EXPERIMENTAL. Smoother filtering of the effects drawn at reduced resolution: sun rays, underwater rays, projector light cones and point lights in fog lose the faint blocky grid at their edges, bloom is filtered up smoothly, and the temporal passes (projector light, indirect light, sun shadow filter) keep their history sharp instead of blurring it a little every frame. Costs a few extra texture reads per pixel in those passes. Rebuilds shaders."
+                     top="3922"
+                     width="475" />
                 </panel>
             </scroll_container>
         </panel>
