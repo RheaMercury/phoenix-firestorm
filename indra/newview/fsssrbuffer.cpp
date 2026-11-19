@@ -117,19 +117,30 @@ namespace
             LLTexUnit* unit = gGL.getTexUnit(0);
             unit->bindManual(LLTexUnit::TT_TEXTURE, mTexture, true);
             clear_glerror();
-            for (U32 level = 0; level < levels; ++level)
+            // Immutable storage where available: its levels are fixed, which drivers check attachments
+            // against most reliably
+            if (glTexStorage2D && gGLManager.mGLVersion >= 4.19f)
             {
-                glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA16F, llmax(width >> level, 1U), llmax(height >> level, 1U), 0, GL_RGBA,
-                             GL_HALF_FLOAT, nullptr);
+                glTexStorage2D(GL_TEXTURE_2D, (GLsizei)levels, GL_RGBA16F, (GLsizei)width, (GLsizei)height);
             }
+            else
+            {
+                for (U32 level = 0; level < levels; ++level)
+                {
+                    glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA16F, llmax(width >> level, 1U), llmax(height >> level, 1U), 0,
+                                 GL_RGBA, GL_HALF_FLOAT, nullptr);
+                }
+            }
+            // An attached level must lie in [BASE_LEVEL, MAX_LEVEL]: AMD drivers hold to that and report a
+            // framebuffer on level 1 and up incomplete while MAX_LEVEL is 0 (NVIDIA doesn't), so the
+            // checks below see the whole chain; MAX_LEVEL goes back to 0 after them
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)levels - 1);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
             bool ok = glGetError() == GL_NO_ERROR;
-            unit->unbind(LLTexUnit::TT_TEXTURE);
 
             mFBOs.resize(levels, 0);
             glGenFramebuffers((GLsizei)levels, mFBOs.data());
@@ -139,11 +150,23 @@ namespace
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mTexture, level);
                 ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
             }
+
+            // The blur mips render each level with only the one above it visible (BASE = MAX = level - 1).
+            // A driver that holds to the attachment range rejects those draws; then no blur mips are built
+            // and the result is read at level 0, rather than from levels never drawn.
+            mMipsRenderable = false;
+            if (ok && levels > 1)
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, mFBOs[1]);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+                mMipsRenderable = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+            }
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+            unit->unbind(LLTexUnit::TT_TEXTURE);
             glBindFramebuffer(GL_FRAMEBUFFER, LLRenderTarget::sCurFBO);
 
             if (!ok)
             {
-                LL_WARNS("Render") << "SSR buffer " << width << "x" << height << " could not be allocated" << LL_ENDL;
                 release();
                 return false;
             }
@@ -153,6 +176,8 @@ namespace
             mLevels = levels;
             return true;
         }
+
+        bool mMipsRenderable = false;
 
         void drawLevel(U32 level, LLVertexBuffer* screen_triangle)
         {
@@ -168,6 +193,13 @@ namespace
     U32 sIndex = 0;             // the latest resolved
     U32 sFrame = 0;             // frame it was resolved in, 0 none
     U32 sBuiltLevels = 0;       // its levels that hold blur mips
+
+    // A size the buffers could not be made at: not tried again every frame (each try makes and frees
+    // the textures and waits for the render thread on the error check) but after a while or at a new size
+    constexpr F64 FAILED_RETRY_SECONDS = 30.0;
+    U32 sFailedX = 0;
+    U32 sFailedY = 0;
+    F64 sFailedAt = 0.0;
 
     void restoreTarget()
     {
@@ -244,23 +276,41 @@ bool FSSSRBuffer::render(LLRenderTarget* screen)
     bool history = temporal && sFrame != 0 && sFrame + 1 == frame && sResolved[0].matches(res_x, res_y) &&
                    sResolved[1].matches(res_x, res_y);
 
+    const F64 now = LLFrameTimer::getElapsedSeconds();
+    if (sFailedX == res_x && sFailedY == res_y && now - sFailedAt < FAILED_RETRY_SECONDS)
+    {
+        return false;
+    }
+    auto failed = [&](const char* what)
+    {
+        if (sFailedX != res_x || sFailedY != res_y)
+        {   // once per size, not at every retry
+            LL_WARNS("Render") << "SSR " << what << " " << res_x << "x" << res_y << " could not be allocated; reflections are traced per pixel, tried again in "
+                               << (S32)FAILED_RETRY_SECONDS << " s" << LL_ENDL;
+        }
+        sFailedX = res_x;
+        sFailedY = res_y;
+        sFailedAt = now;
+        release();
+        return false;
+    };
     if (!sTrace.isComplete() || sTrace.getWidth() != res_x || sTrace.getHeight() != res_y)
     {
         sTrace.release();
         if (!sTrace.allocate(res_x, res_y, GL_RGBA16F))
         {
-            release();
-            return false;
+            return failed("trace target");
         }
     }
     for (MipTexture& resolved : sResolved)
     {
         if (!resolved.matches(res_x, res_y) && !resolved.allocate(res_x, res_y))
         {
-            release();
-            return false;
+            return failed("buffer");
         }
     }
+    sFailedX = 0;
+    sFailedY = 0;
 
     LLVertexBuffer* triangle = gPipeline.mScreenTriangleVB;
     LLGLDisable blend(GL_BLEND);
@@ -314,7 +364,7 @@ bool FSSSRBuffer::render(LLRenderTarget* screen)
     // 3. Blur mips. Compositing fades SSR out at the maximum roughness, so the levels above the
     // one it reads there are never sampled.
     U32 built = 1;
-    if (!coneTrace())
+    if (!coneTrace() && dst.mMipsRenderable)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - ssr mips");
         LL_PROFILE_GPU_ZONE("ssr mips");
