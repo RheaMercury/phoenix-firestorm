@@ -1793,9 +1793,10 @@ void LLVertexBuffer::flush_vbo(GLenum target, U32 start, U32 end, void* data, U8
     {
         // <FS:Trish> bound above when it matters (without DSA)
         //llassert(target == GL_ARRAY_BUFFER ? sGLRenderBuffer == mGLBuffer : sGLRenderIndices == mGLIndices);
+        // </FS:Trish>
 
-        // <FS:Trish> Skin once per frame: vertex data changed. Indices too: the GPU-driven arenas
-        // keep copies of both and compare this serial.
+        // <FS:Trish> Vertex data changed, or indices: the GPU-driven arenas keep copies of both and
+        // compare this serial.
         mFSContentSerial = ++sFSNextContentSerial;
         // </FS:Trish>
 

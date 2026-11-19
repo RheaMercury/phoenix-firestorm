@@ -173,7 +173,9 @@ uniform float shadow_light_size;
 
 #define PCSS_PCF_TAPS   12
 #define PCSS_PCF_RADIUS 1.5     // kernel radius in shadow map texels
-#define PCSS_PLANE_STEP 0.05    // metres: tangent step that measures the receiver plane
+// <FS:Trish> the tangent step is PCF_RPDB_STEP, see pcssDepthGradient
+//#define PCSS_PLANE_STEP 0.05    // metres: tangent step that measures the receiver plane
+// </FS:Trish>
 #define PCSS_RPDB_MAX   0.004   // cap of the receiver-plane bias, shadow depth units
 #define PCSS_GRAD_MAX   1.0e4   // depth gradient used where the plane is edge-on to the light
 
@@ -202,27 +204,34 @@ float pcssNoise(vec2 frag)
 // Receiver plane in shadow texture space: d(depth)/d(uv) of the surface (view space position
 // pos, normal norm) under the projective shadow matrix m, from two tangent steps. c is the
 // pixel's own projected and divided position.
+// <FS:Trish> The same plane as the PCF's (pcfDepthGradient, the same 5 cm step), capped; every
+// caller takes its absolute value, which the PCF's already is.
+//vec2 pcssDepthGradient(mat4 m, vec3 pos, vec3 norm, vec3 c)
+//{
+//    if (dot(norm, norm) < 1.0e-8)
+//    {
+//        return vec2(0.0); // no normal (sky): constant bias only
+//    }
+//    vec3 n = normalize(norm);
+//    vec3 t1 = normalize(cross(n, abs(n.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
+//    vec3 t2 = cross(n, t1);
+//    vec4 a = m * vec4(pos + t1 * PCSS_PLANE_STEP, 1.0);
+//    vec4 b = m * vec4(pos + t2 * PCSS_PLANE_STEP, 1.0);
+//    vec3 d1 = a.xyz / a.w - c;
+//    vec3 d2 = b.xyz / b.w - c;
+//    float det = d1.x * d2.y - d1.y * d2.x;
+//    if (abs(det) < 1.0e-14)
+//    {
+//        return vec2(PCSS_GRAD_MAX);
+//    }
+//    vec2 g = vec2(d1.z * d2.y - d1.y * d2.z, d1.x * d2.z - d1.z * d2.x) / det;
+//    return clamp(g, vec2(-PCSS_GRAD_MAX), vec2(PCSS_GRAD_MAX));
+//}
 vec2 pcssDepthGradient(mat4 m, vec3 pos, vec3 norm, vec3 c)
 {
-    if (dot(norm, norm) < 1.0e-8)
-    {
-        return vec2(0.0); // no normal (sky): constant bias only
-    }
-    vec3 n = normalize(norm);
-    vec3 t1 = normalize(cross(n, abs(n.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
-    vec3 t2 = cross(n, t1);
-    vec4 a = m * vec4(pos + t1 * PCSS_PLANE_STEP, 1.0);
-    vec4 b = m * vec4(pos + t2 * PCSS_PLANE_STEP, 1.0);
-    vec3 d1 = a.xyz / a.w - c;
-    vec3 d2 = b.xyz / b.w - c;
-    float det = d1.x * d2.y - d1.y * d2.x;
-    if (abs(det) < 1.0e-14)
-    {
-        return vec2(PCSS_GRAD_MAX);
-    }
-    vec2 g = vec2(d1.z * d2.y - d1.y * d2.z, d1.x * d2.z - d1.z * d2.x) / det;
-    return clamp(g, vec2(-PCSS_GRAD_MAX), vec2(PCSS_GRAD_MAX));
+    return min(pcfDepthGradient(m, pos, norm, c), vec2(PCSS_GRAD_MAX));
 }
+// </FS:Trish>
 
 // Fraction (0..1) of the kernel radius that keeps every tap, with its bilinear footprint,
 // inside the map: the kernel shrinks towards the map's edges (the cascade blend hides it).

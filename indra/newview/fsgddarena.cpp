@@ -29,17 +29,17 @@
 
 #include "fsgddarena.h"
 
-#include "llframetimer.h" // <FS:Trish/> shrink interval
+#include "llframetimer.h" // shrink interval
 #include "llgl.h"
 #include "fsglstream.h"
 #include "llviewercontrol.h"
-#include "llviewertexture.h" // <FS:Trish/> sFreeVRAMMegabytes
+#include "llviewertexture.h" // sFreeVRAMMegabytes
 
 namespace
 {
     constexpr U32 FS_GDD_COPIES_PER_FRAME = 2048;   // vertex buffers copied into an arena per frame, at most
     constexpr U32 FS_GDD_EVICT_AFTER = 600;         // frames an entry may go unused before it is dropped
-    // <FS:Trish> An arena only grows, doubling, so after a crowd or a big region has left it holds video memory
+    // An arena only grows, doubling, so after a crowd or a big region has left it holds video memory
     // it no longer uses. Holding at least this much and using less than a third of it at a sweep, it is dropped
     // and refills at the size it needs (copies on the GPU, at most FS_GDD_COPIES_PER_FRAME a frame; what isn't
     // back yet is drawn the old way meanwhile). It grows back in one step to what was in use and a quarter more
@@ -62,7 +62,6 @@ namespace
     // its first allocation would be dropped and refilled to the same size at every sweep.
     constexpr U32 FS_GDD_FIRST_VERTS = 1u << 20;
     constexpr U32 FS_GDD_FIRST_INDICES = 3u << 20;
-    // </FS:Trish>
 
     // A growth that isn't checked at once (FS_GDD_GROW_CHECK_FREE_MB) is checked in stream order instead,
     // without waiting: the render thread (or the main thread, without one) reads the new buffer's size, and
@@ -197,7 +196,7 @@ FSGDDArena::FSGDDArena(const char* name, const std::vector<U32>& types, const ch
     // every arena should have a slot: raise FS_ARENA_SLOTS when adding one
     llassert(mSlot < LLVertexBuffer::FS_ARENA_SLOTS);
     mVBs.resize(mTypes.size(), 0);
-    mVBBytes.resize(mTypes.size(), 0); // <FS:Trish/>
+    mVBBytes.resize(mTypes.size(), 0);
     for (U32 type : mTypes)
     {
         if (!(optional_mask & (1u << type)))
@@ -269,12 +268,9 @@ bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U3
         return false;
     }
     glBindBuffer(GL_COPY_WRITE_BUFFER, grown);
-    // <FS:Trish> Checked only when video memory is short: the check waits for the render thread
+    // Checked only when video memory is short: the check waits for the render thread
     const bool check = LLViewerTexture::sFreeVRAMMegabytes < (F32)(new_bytes >> 20) + FS_GDD_GROW_CHECK_FREE_MB;
     // clear older errors first, so the check below sees only this allocation's GL_OUT_OF_MEMORY
-    //clear_glerror();
-    //glBufferData(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, GL_STATIC_DRAW);
-    //if (glGetError() != GL_NO_ERROR)
     if (check)
     {
         clear_glerror();
@@ -290,7 +286,6 @@ bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U3
         }
     }
     if (failed)
-    // </FS:Trish>
     {
         glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         glDeleteBuffers(1, &grown);
@@ -308,11 +303,11 @@ bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U3
         glDeleteBuffers(1, &buffer);
     }
     buffer = grown;
-    setBufferBytes(buffer_bytes, new_bytes); // <FS:Trish/>
+    setBufferBytes(buffer_bytes, new_bytes);
     return true;
 }
 
-// <FS:Trish> What the arenas hold counts as vertex memory (LLVertexBuffer::getBytesAllocated), so the
+// What the arenas hold counts as vertex memory (LLVertexBuffer::getBytesAllocated), so the
 // texture budget sees it: with FSTextureUseLiveVRAM it would otherwise pass for another program's memory,
 // measured only while there is room, and an arena growing while the GPU is full went unnoticed.
 void FSGDDArena::setBufferBytes(U64& buffer_bytes, U64 bytes)
@@ -331,7 +326,6 @@ U64 FSGDDArena::usedBytes() const
 {
     return (U64)mVerts.used() * mStride + (U64)mIndices.used() * sizeof(U16);
 }
-// </FS:Trish>
 
 void FSGDDArena::evict(U32 frame, U32 unused_frames)
 {
@@ -381,13 +375,10 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
 
         if (attempt == 0)
         {   // grow, doubling, up to the limit; every attribute buffer by the same number of vertices
-            //const U32 want_verts = llmin(max_verts, llmax(mVerts.capacity() * 2, llmax(verts * 4, (U32)(1u << 20))));
-            //const U32 want_indices = llmin(max_indices, llmax(mIndices.capacity() * 2, llmax(indices * 4, (U32)(3u << 20))));
-            // <FS:Trish> and after a drop, straight back to the size it had in use (mRefillVerts)
+            // and after a drop, straight back to the size it had in use (mRefillVerts)
             const U32 want_verts = llmin(max_verts, llmax(llmax(mVerts.capacity() * 2, mRefillVerts), llmax(verts * 4, FS_GDD_FIRST_VERTS)));
             const U32 want_indices = llmin(max_indices, llmax(llmax(mIndices.capacity() * 2, mRefillIndices), llmax(indices * 4, FS_GDD_FIRST_INDICES)));
-            // </FS:Trish>
-            // <FS:Trish> Growing allocates the bigger buffer beside the old one and copies into it, and
+            // Growing allocates the bigger buffer beside the old one and copies into it, and
             // the arenas are not part of the texture budget. With video memory already at its target the
             // driver has to evict to make room: on Linux NVIDIA that blocked inside the allocation for
             // 10-30 s, once past the 60 s watchdog. Only grow into real headroom; what doesn't fit is
@@ -403,7 +394,6 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 }
             }
             constexpr F32 GROW_HEADROOM_MB = 256.f;
-            //const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes;
             const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes &&
                               LLFrameTimer::getElapsedSeconds() >= mGrowBlockedUntil; // nor after a growth failed
             if (!room)
@@ -411,9 +401,7 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 mRefillVerts = 0;
                 mRefillIndices = 0;
             }
-            // </FS:Trish>
-            //if (!verts_fit && want_verts > mVerts.capacity())
-            if (grow_verts && room) // <FS:Trish/>
+            if (grow_verts && room)
             {
                 bool grown = true;
                 for (size_t i = 0; i < mTypes.size() && grown; ++i)
@@ -424,16 +412,15 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 if (grown)
                 {
                     mVerts.grow(want_verts);
-                    mRefillVerts = 0; // <FS:Trish/>
+                    mRefillVerts = 0;
                 }
                 // else: the buffers that did grow hold the old range at the old offsets, still consistent
             }
-            //if (!indices_fit && want_indices > mIndices.capacity() &&
-            if (grow_indices && room && // <FS:Trish/>
+            if (grow_indices && room &&
                 growBuffer(mIB, mIBBytes, mIndices.capacity() * (U32)sizeof(U16), want_indices * (U32)sizeof(U16)))
             {
                 mIndices.grow(want_indices);
-                mRefillIndices = 0; // <FS:Trish/>
+                mRefillIndices = 0;
             }
         }
         else if (attempt == 1)
@@ -460,7 +447,7 @@ void FSGDDArena::beginFrame(U32 frame)
     }
     mFrame = frame;
     mCopies = 0;
-    // <FS:Trish> A growth the driver gave no storage (checked in stream order, see verify_grown): what the
+    // A growth the driver gave no storage (checked in stream order, see verify_grown): what the
     // arena holds can't be trusted. Drop it all and draw the old way until growing is allowed again.
     if (mSlot < 32 && (sGrowFailedSlots.load(std::memory_order_relaxed) & (1u << mSlot)))
     {
@@ -472,12 +459,11 @@ void FSGDDArena::beginFrame(U32 frame)
         mRefillIndices = 0;
         mGrowBlockedUntil = LLFrameTimer::getElapsedSeconds() + FS_GDD_GROW_BLOCK_SECONDS;
     }
-    // </FS:Trish>
     if (frame - mLastSweep >= 120)
     {   // forget the copies of buffers that stopped being drawn (or were freed)
         mLastSweep = frame;
         evict(frame, FS_GDD_EVICT_AFTER);
-        // <FS:Trish> and give back what the arena grew to but no longer uses. Here, before this frame's first
+        // and give back what the arena grew to but no longer uses. Here, before this frame's first
         // lookup: no command of this frame refers to it yet, and the driver keeps the buffers the last
         // frame's commands read alive until they are drawn.
         const U64 first_bytes = (U64)FS_GDD_FIRST_VERTS * mStride + (U64)FS_GDD_FIRST_INDICES * sizeof(U16);
@@ -497,7 +483,6 @@ void FSGDDArena::beginFrame(U32 frame)
             mRefillVerts = used_verts + used_verts / FS_GDD_REFILL_SHARE;
             mRefillIndices = used_indices + used_indices / FS_GDD_REFILL_SHARE;
         }
-        // </FS:Trish>
     }
 }
 
@@ -708,15 +693,7 @@ bool FSGDDArena::verifyEntry(const LLVertexBuffer* vb, FSGDDArenaEntry& entry)
 
 void FSGDDArena::releaseGL()
 {
-    //for (GLuint& buffer : mVBs)
-    //{
-    //    if (buffer)
-    //    {
-    //        glDeleteBuffers(1, &buffer);
-    //        buffer = 0;
-    //    }
-    //}
-    // <FS:Trish> and no longer counted as vertex memory
+    // the buffers deleted, and no longer counted as vertex memory
     for (size_t i = 0; i < mVBs.size(); ++i)
     {
         if (mVBs[i])
@@ -727,7 +704,6 @@ void FSGDDArena::releaseGL()
         setBufferBytes(mVBBytes[i], 0);
     }
     setBufferBytes(mIBBytes, 0);
-    // </FS:Trish>
     if (mIB)
     {
         glDeleteBuffers(1, &mIB);

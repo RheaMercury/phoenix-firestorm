@@ -70,14 +70,12 @@ namespace FSGLStream
     // LLGLManager loaded them, before any other GL thread could be mid-call
     // through a proxy that does not exist yet. Idempotent.
     bool install();
-    bool isInstalled();
 
     // Moves the context to a new render thread and starts recording.
     bool start(const ContextOps& ops);
     // Replays what is left, moves the context back to the main thread and
     // joins the render thread. GL calls go straight to the driver afterwards.
     void stop();
-    bool isRunning();
 
     // True on the main thread while its GL calls are recorded.
     bool isRecording();
@@ -145,7 +143,6 @@ namespace FSGLStream
 
     struct Stats
     {
-        U32 mPresents = 0;
         U64 mRecordedCalls = 0;
         U64 mRecordedBytes = 0;
         U64 mSyncCalls = 0;

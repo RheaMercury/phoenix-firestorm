@@ -41,8 +41,6 @@ namespace FSRenderThread
     // Start of LLAppViewer::cleanup, before any GL teardown: replays what is
     // left and moves the context back to the main thread.
     void shutdown();
-
-    bool isActive();
 }
 
 #endif // FS_RENDERTHREAD_H

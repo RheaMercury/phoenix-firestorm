@@ -242,9 +242,4 @@ namespace FSRenderThread
         LLImageGLThread::sEnabledMedia = sPrevThreadedMedia;
         sActive = false;
     }
-
-    bool isActive()
-    {
-        return sActive;
-    }
 }

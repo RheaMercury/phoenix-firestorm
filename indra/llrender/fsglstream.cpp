@@ -4003,11 +4003,6 @@ namespace FSGLStream
         return true;
     }
 
-    bool isInstalled()
-    {
-        return sInstalled;
-    }
-
     bool start(const ContextOps& ops)
     {
         if (!sInstalled || sRunning)
@@ -4063,11 +4058,6 @@ namespace FSGLStream
         }
         resetStreamState();
         LL_INFOS("FSRenderThread") << "Render thread stopped; GL is back on the main thread" << LL_ENDL;
-    }
-
-    bool isRunning()
-    {
-        return sRunning;
     }
 
     bool isRecording()
@@ -4244,7 +4234,6 @@ namespace FSGLStream
     Stats takeStats()
     {
         Stats s;
-        s.mPresents = sStatPresents;
         s.mRecordedCalls = sStatCalls;
         s.mRecordedBytes = sStatBytes;
         s.mSyncCalls = sStatSyncs;
@@ -4356,10 +4345,8 @@ bool fs_render_thread_info(void*& handle, uintptr_t& stack_low, uintptr_t& stack
 namespace FSGLStream
 {
     bool install() { return false; }
-    bool isInstalled() { return false; }
     bool start(const ContextOps&) { return false; }
     void stop() {}
-    bool isRunning() { return false; }
     bool isRecording() { return false; }
     void runSync(const std::function<void()>& fn) { fn(); }
     DirectScope::DirectScope() {}
