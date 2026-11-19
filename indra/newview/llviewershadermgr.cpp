@@ -371,6 +371,15 @@ static bool use_pcss_shadows()
 }
 // </Vulkanstorm>
 
+// <FS:Trish> FSRenderShadowScreenFilter: the PCSS sun program with its blocker search (GL 3.3),
+// its shadowUtil.glsl build and the light map blur filter the sun shadow over its penumbra on the
+// screen (fsshadowscreenfilter.cpp)
+static bool fs_shadow_screen_filter_built()
+{
+    return gSavedSettings.getBOOL("FSRenderShadowScreenFilter") && use_pcss_shadows() && gGLManager.mGLVersion >= 3.29f;
+}
+// </FS:Trish>
+
 // <FS:Trish> Cloud and contact shadows: extra terms of the deferred sun shadow, in
 // fsShadowExtrasF.glsl, which joins the sun programs only while one of them is on
 static void add_sun_shadow_extras(LLGLSLShader& shader)
@@ -1549,6 +1558,12 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         {   // sampler objects (GL 3.3): plain depth reads for the blocker search; without
             // them the PCSS build is the fixed-radius rotated PCF
             pcss_attribs["PCSS_SHADOW_FETCH"] = "1";
+            // <FS:Trish> FSRenderShadowScreenFilter
+            if (fs_shadow_screen_filter_built())
+            {
+                pcss_attribs["FS_SHADOW_SCREEN_FILTER"] = "1";
+            }
+            // </FS:Trish>
         }
         S32 level = 1;
         const GLuint pcss = loadShaderFile(util, level, GL_FRAGMENT_SHADER, &pcss_attribs, -1);
@@ -2672,6 +2687,12 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gDeferredSunProgram.addPermutation("PCSS_SHADOW", "1");
         }
         // </Vulkanstorm>
+        // <FS:Trish> FSRenderShadowScreenFilter: writes the penumbra radius as a second output
+        if (fs_shadow_screen_filter_built())
+        {
+            gDeferredSunProgram.addPermutation("FS_SHADOW_SCREEN_FILTER", "1");
+        }
+        // </FS:Trish>
 
         success = gDeferredSunProgram.createShader();
         llassert(success);
@@ -2712,6 +2733,13 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         {
             gDeferredBlurLightProgram.mShaderFiles.push_back(make_pair("deferred/fsShadowExtrasF.glsl", GL_FRAGMENT_SHADER));
             gDeferredBlurLightProgram.addPermutation("FS_CONTACT_SHADOWS", "1");
+        }
+        // </FS:Trish>
+        // <FS:Trish> FSRenderShadowScreenFilter: the sun shadow blurred over its penumbra, and its history
+        if (fs_shadow_screen_filter_built())
+        {
+            gDeferredBlurLightProgram.mShaderFiles.push_back(make_pair("deferred/fsShadowScreenFilterF.glsl", GL_FRAGMENT_SHADER));
+            gDeferredBlurLightProgram.addPermutation("FS_SHADOW_SCREEN_FILTER", "1");
         }
         // </FS:Trish>
 

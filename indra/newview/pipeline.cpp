@@ -133,6 +133,7 @@
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "fsshadowdepthfit.h" // <FS:Trish/>
+#include "fsshadowscreenfilter.h" // <FS:Trish/>
 
 #include "llenvironment.h"
 
@@ -1688,6 +1689,7 @@ void LLPipeline::releaseGLBuffers()
     mSceneMap.release();
     FSSSRHiZ::release(); // <FS:Trish/>
     FSShadowDepthFit::release(); // <FS:Trish/>
+    FSShadowScreenFilter::release(); // <FS:Trish/>
 
     mWaterExclusionMask.release();
 
@@ -12026,7 +12028,12 @@ void LLPipeline::renderDeferredLighting()
                 //LLRenderTarget* fs_gtao_half = skip_ssao ? nullptr : fs_render_gtao_half(deferred_light_target);
                 LLRenderTarget* fs_gtao_half = (skip_ssao || RenderSSAOFactor == 0.f) ? nullptr : fs_render_gtao_half(deferred_light_target);
                 // </FS:Trish>
+                // <FS:Trish> FSRenderShadowScreenFilter: the light map plus penumbra target pair, made
+                // before the program binds its textures
+                FSShadowScreenFilter::beginSunPass(sun_shader, *deferred_light_target, fs_light_map_blurred());
+                // </FS:Trish>
                 bindDeferredShader(sun_shader, deferred_light_target);
+                FSShadowScreenFilter::bindSun(sun_shader); // <FS:Trish/>
 
                 // A projector slot with no shadow-casting light is never read back (see
                 // PROJECTOR_SHADOW_INDEX in setupSpotLight), so let the shader skip its PCF taps.
@@ -12097,6 +12104,7 @@ void LLPipeline::renderDeferredLighting()
                 fs_unbind_sun_shadow_extras(sun_shader);
                 // </FS:Trish>
                 unbindDeferredShader(sun_shader);
+                FSShadowScreenFilter::endSunPass(); // <FS:Trish/>
             }
             deferred_light_target->flush();
         }
@@ -12149,6 +12157,7 @@ void LLPipeline::renderDeferredLighting()
             gDeferredBlurLightProgram.uniform1f(sDistFactor, dist_factor);
             gDeferredBlurLightProgram.uniform3fv(sKern, kern_length, gauss[0].mV);
             gDeferredBlurLightProgram.uniform1f(sKernScale, blur_size * (kern_length / 2.f - 0.5f));
+            FSShadowScreenFilter::bindBlur(gDeferredBlurLightProgram, false); // <FS:Trish/> sun shadow over its penumbra
 
             {
                 LLGLDisable   blend(GL_BLEND);
@@ -12158,6 +12167,7 @@ void LLPipeline::renderDeferredLighting()
             }
 
             screen_target->flush();
+            FSShadowScreenFilter::unbindBlur(); // <FS:Trish/>
             unbindDeferredShader(gDeferredBlurLightProgram);
 
             bindDeferredShader(gDeferredBlurLightProgram, screen_target);
@@ -12166,6 +12176,11 @@ void LLPipeline::renderDeferredLighting()
 
             gDeferredBlurLightProgram.uniform2f(sDelta, 0.f, 1.f);
             fs_bind_contact_shadow(gDeferredBlurLightProgram, true); // <FS:Trish/> applied to the blurred sun shadow
+            // <FS:Trish> FSRenderShadowScreenFilter: the second pass, and with the temporal option the
+            // light map plus history target pair
+            FSShadowScreenFilter::beginBlurSecond(*deferred_light_target);
+            FSShadowScreenFilter::bindBlur(gDeferredBlurLightProgram, true);
+            // </FS:Trish>
 
             {
                 LLGLDisable   blend(GL_BLEND);
@@ -12173,6 +12188,10 @@ void LLPipeline::renderDeferredLighting()
                 mScreenTriangleVB->setBuffer();
                 mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
             }
+            // <FS:Trish> FSRenderShadowScreenFilter
+            FSShadowScreenFilter::unbindBlur();
+            FSShadowScreenFilter::endBlurSecond();
+            // </FS:Trish>
             deferred_light_target->flush();
             unbindDeferredShader(gDeferredBlurLightProgram);
         }

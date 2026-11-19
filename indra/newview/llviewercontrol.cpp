@@ -1532,6 +1532,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderShadowDetail", handleSetShaderChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredSSAO", handleSetShaderChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderShadowPCSS", handleSetShaderChanged); // <Vulkanstorm/> PCSS
+    setting_setup_signal_listener(gSavedSettings, "FSRenderShadowScreenFilter", handleSetShaderChanged); // <FS:Trish/> shadowUtil.glsl, sun and blur permutation
     setting_setup_signal_listener(gSavedSettings, "FSRenderSpecularAA", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderFadeIn", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderGTAO", handleSetShaderChanged); // <FS:Trish/>

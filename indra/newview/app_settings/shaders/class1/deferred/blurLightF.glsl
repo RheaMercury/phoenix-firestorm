@@ -25,7 +25,18 @@
 
 /*[EXTRA_CODE_HERE]*/
 
+// <FS:Trish> FSRenderShadowScreenFilter: the second pass also writes the filtered sun shadow and
+// its depth, as next frame's history (fsShadowScreenFilterF.glsl)
+//out vec4 frag_color;
+#if defined(FS_SHADOW_SCREEN_FILTER)
+out vec4 frag_data[2];
+#define frag_color frag_data[0]
+float fsScreenFilterShadow(float blurred, vec2 tc, vec3 pos, vec3 norm, out vec2 range);
+float fsScreenFilterTemporal(float shadow, vec2 range, vec3 pos);
+#else
 out vec4 frag_color;
+#endif
+// </FS:Trish>
 
 uniform sampler2D lightMap;
 
@@ -60,6 +71,9 @@ void main()
     if (isFarDepth(depth))
     {
         frag_color = max(ccol, vec4(0));
+#if defined(FS_SHADOW_SCREEN_FILTER)
+        frag_data[1] = vec4(1.0, 0.0, 0.0, 1.0); // <FS:Trish/> no depth: never taken as history
+#endif
         return;
     }
 
@@ -133,6 +147,15 @@ void main()
 
     col /= defined_weight.xyxx;
     //col.y *= col.y;
+    // <FS:Trish> FSRenderShadowScreenFilter: the sun shadow over its penumbra, then the history,
+    // both before the contact shadows below
+#if defined(FS_SHADOW_SCREEN_FILTER)
+    vec2 fs_range;
+    col.r = fsScreenFilterShadow(col.r, vary_fragcoord.xy, pos, norm.xyz, fs_range);
+    col.r = fsScreenFilterTemporal(col.r, fs_range, pos);
+    frag_data[1] = vec4(clamp(col.r, 0.0, 1.0), -pos.z, 0.0, 1.0);
+#endif
+    // </FS:Trish>
 #if defined(FS_CONTACT_SHADOWS)
     col.r = fsContactShadowTerm(col.r, pos, norm.xyz); // only in the second (vertical) pass
 #endif

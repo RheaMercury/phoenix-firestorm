@@ -354,6 +354,47 @@ float pcssBlockerDepth(sampler2D depthMap, vec3 c, float z_bias, vec2 grad, vec2
     return count > 0.0 ? sum / count : -1.0;
 }
 
+// <FS:Trish> FSRenderShadowScreenFilter (fsShadowScreenFilterF.glsl): while fs_screen_filter is set,
+// the sun's contact hardening keeps its blocker search but looks the shadow up with a narrow four
+// tap kernel, and hands the penumbra's width to the screen-space filter that runs after this pass
+// as a radius in screen pixels. Built into the PCSS build alone, and only with the setting on.
+#if defined(FS_SHADOW_SCREEN_FILTER)
+uniform int fs_screen_filter;
+float fs_pcss_radius_px = 0.0;      // of the last pcssSunContactShadow
+float fs_sun_penumbra_px = 0.0;     // of the last sampleDirectionalShadow, weighted over its cascades
+
+#define FS_SCREEN_FILTER_MAX_PX 64.0
+
+// for the sun program's second target
+float fsSunShadowPenumbra()
+{
+    return fs_sun_penumbra_px;
+}
+
+// four rotated taps one texel out, each a hardware 2x2 comparison
+float fsNarrowPCF(sampler2DShadow shadowMap, vec3 c, vec2 grad, vec2 texel, vec2 rot)
+{
+    const vec2 k[4] = vec2[4](vec2(0.7071, 0.7071), vec2(-0.7071, 0.7071), vec2(-0.7071, -0.7071), vec2(0.7071, -0.7071));
+    float shadow = 0.0;
+    for (int i = 0; i < 4; ++i)
+    {
+        vec2 off = vec2(rot.x * k[i].x - rot.y * k[i].y, rot.y * k[i].x + rot.x * k[i].y) * texel * PCSS_PCF_RADIUS_MIN;
+        float rpdb = min(dot(grad, abs(off)), PCSS_RPDB_MAX);
+        shadow += texture(shadowMap, vec3(c.xy + off, c.z - rpdb));
+    }
+    return shadow * 0.25;
+}
+
+// a length on the receiver at view space position pos, in screen pixels (inv_proj[1][1] is one
+// over the projection's vertical scale)
+float fsScreenPixels(float metres, vec3 pos)
+{
+    float px_per_m = 0.5 * screen_res.y / (abs(inv_proj[1][1]) * max(-pos.z, 0.01));
+    return min(metres * px_per_m, FS_SCREEN_FILTER_MAX_PX);
+}
+#endif
+// </FS:Trish>
+
 // Sun cascade with contact hardening. light_dir: towards the light; d_max: farthest blocker.
 // Penumbra (full width, metres on the receiver) = blocker distance * light size; the PCF disc
 // takes that width as its diameter, which gives a disc light's edge profile.
@@ -372,6 +413,9 @@ float pcssSunContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m
     vec2 search = pcssClampExtent(s_uv * shadow_light_size * d_max, texel, PCSS_SEARCH_RADIUS_MIN, r_max);
     search *= pcssEdgeScale(c.xy, search, texel);
     float z_blocker = pcssBlockerDepth(depthMap, c, z_bias, grad, search, rot);
+#if defined(FS_SHADOW_SCREEN_FILTER)
+    fs_pcss_radius_px = 0.0; // <FS:Trish/> no blocker, no penumbra
+#endif
     if (z_blocker < 0.0)
     {
         // no blocker in the search: one comparison tap at the centre still catches a caster
@@ -381,6 +425,16 @@ float pcssSunContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m
 
     float w_world = max(c.z - z_blocker, 0.0) / max(s_z, 1.0e-8) * shadow_light_size;
     vec2 extent = pcssClampExtent(0.5 * w_world * s_uv, texel, PCSS_PCF_RADIUS_MIN, r_max);
+    // <FS:Trish> FSRenderShadowScreenFilter: the same (clamped) radius goes to the screen filter
+#if defined(FS_SHADOW_SCREEN_FILTER)
+    if (fs_screen_filter != 0)
+    {
+        vec2 r_m = extent / max(s_uv, vec2(1.0e-6));
+        fs_pcss_radius_px = fsScreenPixels(max(r_m.x, r_m.y), pos);
+        return fsNarrowPCF(shadowMap, vec3(c.xy, c.z + z_bias), grad, texel, rot);
+    }
+#endif
+    // </FS:Trish>
     extent *= pcssEdgeScale(c.xy, extent, texel);
     return pcssPCF(shadowMap, vec3(c.xy, c.z + z_bias), grad, extent, rot);
 }
@@ -472,6 +526,12 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
 {
 #if defined(SUN_SHADOW)
     float shadow = 0.0f;
+    // <FS:Trish> FSRenderShadowScreenFilter
+#if defined(FS_SHADOW_SCREEN_FILTER)
+    float fs_pen_sum = 0.0;
+    fs_sun_penumbra_px = 0.0;
+#endif
+    // </FS:Trish>
     vec3 light_dir = normalize((sun_up_factor == 1) ? sun_dir : moon_dir);
 
     float dp_directional_light = max(0.0, dot(norm.xyz, light_dir));
@@ -551,6 +611,9 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             //w = clamp(w, 0.0, 1.0);
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
             float contrib = pcssSunContactShadow(shadowMap1, shadowDepth1, shadow_matrix[1], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST1)*w;
+#if defined(FS_SHADOW_SCREEN_FILTER)
+            fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
+#endif
 #elif defined(PCSS_SHADOW)
             float contrib = pcssShadow(shadowMap1, 1, lpos, spos.xyz, norm)*w;
 #else
@@ -572,6 +635,9 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             //w = clamp(w, 0.0, 1.0);
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
             float contrib = pcssSunContactShadow(shadowMap0, shadowDepth0, shadow_matrix[0], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST0)*w;
+#if defined(FS_SHADOW_SCREEN_FILTER)
+            fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
+#endif
 #elif defined(PCSS_SHADOW)
             float contrib = pcssShadow(shadowMap0, 0, lpos, spos.xyz, norm)*w;
 #else
@@ -585,6 +651,11 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
         }
 
         shadow /= weight;
+        // <FS:Trish> FSRenderShadowScreenFilter
+#if defined(FS_SHADOW_SCREEN_FILTER)
+        fs_sun_penumbra_px = max(fs_pen_sum / weight, 0.0);
+#endif
+        // </FS:Trish>
 #if defined(FS_SHADOW_EDGE_FADE)
         // <FS:Trish> FSRenderShadowFitDepth
         //shadow = fsShadowEdgeFade(shadow, spos.z); // replaces the linear ramp over the far half of cascade 3

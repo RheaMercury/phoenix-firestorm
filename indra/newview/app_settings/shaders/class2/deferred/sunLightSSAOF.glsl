@@ -24,7 +24,17 @@
 
 /*[EXTRA_CODE_HERE]*/
 
+// <FS:Trish> FSRenderShadowScreenFilter: a second target takes the sun shadow's penumbra radius
+// (screen pixels) for the screen-space filter that follows (fsShadowScreenFilterF.glsl)
+//out vec4 frag_color;
+#if defined(FS_SHADOW_SCREEN_FILTER)
+out vec4 frag_data[2];
+#define frag_color frag_data[0]
+float fsSunShadowPenumbra(); // shadowUtil.glsl, PCSS build
+#else
 out vec4 frag_color;
+#endif
+// </FS:Trish>
 
 //class 2 -- shadows and SSAO
 
@@ -61,6 +71,9 @@ void main()
     if (isFarDepth(depth))
     {
         frag_color = vec4(1.0);
+#if defined(FS_SHADOW_SCREEN_FILTER)
+        frag_data[1] = vec4(0.0); // <FS:Trish/>
+#endif
         return;
     }
 
@@ -84,4 +97,7 @@ void main()
     col.a = spot_shadow_inactive.y != 0 ? 1.0 : sampleSpotShadow(pos.xyz, norm.xyz, 1, pos_screen);
 
     frag_color = clamp(col, vec4(0), vec4(1));
+#if defined(FS_SHADOW_SCREEN_FILTER)
+    frag_data[1] = vec4(fsSunShadowPenumbra(), 0.0, 0.0, 1.0); // <FS:Trish/>
+#endif
 }

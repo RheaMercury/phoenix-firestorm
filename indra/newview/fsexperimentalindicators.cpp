@@ -333,6 +333,8 @@ namespace
         { "FSRenderAlphaWBOIT", CM, VM },
         { "RenderShadowPCSS", CH, VL },
         { "RenderShadowPCSSLightSize", CL, VM },
+        { "FSRenderShadowScreenFilter", CL, VM },
+        { "FSRenderShadowScreenFilterTemporal", CL, VL },
         { "FSPerfShadowMergedBatches", CS, VN },
         { "FSPerfShadowStaticCache", CS, VN },
         { "FSPerfShadowStaticCacheSunAngle", CS, VN },

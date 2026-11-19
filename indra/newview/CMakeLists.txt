@@ -230,6 +230,7 @@ set(viewer_SOURCE_FILES
     fsscrolllistctrl.cpp
     fsslurlcommand.cpp
     fsshadowdepthfit.cpp
+    fsshadowscreenfilter.cpp
     fsshadowsinglepass.cpp
     fsskinpalettebuffer.cpp
     fsssrbuffer.cpp
@@ -1156,6 +1157,7 @@ set(viewer_HEADER_FILES
     fsslurl.h
     fsslurlcommand.h
     fsshadowdepthfit.h
+    fsshadowscreenfilter.h
     fsshadowsinglepass.h
     fsskinpalettebuffer.h
     fsssrbuffer.h
