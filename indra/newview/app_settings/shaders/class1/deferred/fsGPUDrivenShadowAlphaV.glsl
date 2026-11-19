@@ -122,7 +122,8 @@ void main()
 
     uvec2 head = fs_gdd_tex[fs_gdd_draw.z];
     // an index past the draw's textures samples a unit left from an earlier draw on the stock path; the last one here
-    uint index = min(uint(max(texture_index, 0)), head.y - 1u);
+    // (and a count of 0, which is never sent, can't wrap past the list)
+    uint index = min(uint(max(texture_index, 0)), max(head.y, 1u) - 1u);
     fs_gdd_diffuse = fs_gdd_tex[fs_gdd_draw.z + 1u + index];
     fs_gdd_minimum_alpha = uintBitsToFloat(head.x);
     fs_gdd_mode = mode;

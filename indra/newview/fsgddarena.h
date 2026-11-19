@@ -162,7 +162,13 @@ private:
     void limits(U32 frame, U32& max_verts, U32& max_indices);
     bool allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset, U32& index_offset);
     void evict(U32 frame, U32 unused_frames);
-    bool growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U32 new_bytes);
+    // A growth allocates the bigger buffers beside the old ones, which stay the ones drawn from until the
+    // driver is known to have given the new ones storage (commitGrowth); one growth at a time
+    bool startGrowth(bool verts, U32 want);
+    GLuint allocBuffer(U32 new_bytes, bool& checked);
+    bool resolveGrowth();           // true when no growth is waiting any more
+    void commitGrowth();
+    void dropGrowth();
     void setBufferBytes(U64& buffer_bytes, U64 bytes);
     void fail(U32 reason, U32* out);
 
@@ -177,6 +183,14 @@ private:
     U32 mRefillVerts = 0;           // after a drop, the size it grows back to in one step (allocate)
     U32 mRefillIndices = 0;
     F64 mGrowBlockedUntil = -1.0;   // after a growth the driver gave no storage: no growing before then (seconds)
+    // The growth waiting for its check: the new vertex buffers (one per type) or index buffer, and the size
+    // they are for (vertices or indices). Its checks count up the arena slot's counters (fsgddarena.cpp).
+    std::vector<GLuint> mGrowBuffers;
+    std::vector<U64> mGrowBytes;
+    bool mGrowVerts = false;
+    U32 mGrowWant = 0;
+    U32 mGrowChecksAsked = 0;       // checks recorded for this arena's slot, ever
+    U32 mGrowFailedBefore = 0;      // the slot's failed checks when the waiting growth started
     U32 mTypeMask = 0;              // the types a buffer must have
     U32 mStride = 0;                // sum of the types' sizes
     std::string mBudgetSetting;
@@ -187,6 +201,10 @@ private:
     FSGDDRangeAllocator mVerts;     // in vertices
     FSGDDRangeAllocator mIndices;   // in indices
     std::unordered_map<const LLVertexBuffer*, FSGDDArenaEntry> mEntries;
+    // Ranges of entries dropped in the frame they were drawn (their buffer changed): vertex, vertices, index,
+    // indices. Given back at the next frame: commands of this frame (FSRenderGPUOcclusionCulling's phase 2
+    // replays) still read them.
+    std::vector<U32> mHeld;
     U32 mFrame = 0;
     U32 mCopies = 0;                // this frame
     U32 mLastSweep = 0;

@@ -98,7 +98,7 @@ void main()
     mat4 texture_matrix0 = fs_gdd_matrix[fs_gdd_draw.y];
     uvec2 fs_gdd_head = fs_gdd_tex[fs_gdd_draw.z];
     // an index past the draw's textures samples a unit left from an earlier draw on the stock path; the last one here
-    uint fs_gdd_index = min(uint(max(texture_index, 0)), fs_gdd_head.y - 1u);
+    uint fs_gdd_index = min(uint(max(texture_index, 0)), max(fs_gdd_head.y, 1u) - 1u); // <FS:Trish/> a count of 0 (never sent) can't wrap past the list
     fs_gdd_diffuse = fs_gdd_tex[fs_gdd_draw.z + 1u + fs_gdd_index];
     fs_gdd_minimum_alpha = uintBitsToFloat(fs_gdd_head.x);
 #endif

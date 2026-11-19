@@ -64,10 +64,14 @@ namespace
     constexpr U32 FS_GDD_FIRST_INDICES = 3u << 20;
 
     // A growth that isn't checked at once (FS_GDD_GROW_CHECK_FREE_MB) is checked in stream order instead,
-    // without waiting: the render thread (or the main thread, without one) reads the new buffer's size, and
-    // a buffer the driver gave no storage sets its arena's bit here. The arena drops everything at its next
-    // frame (beginFrame) and doesn't grow for FS_GDD_GROW_BLOCK_SECONDS.
-    std::atomic<U32> sGrowFailedSlots{ 0 };
+    // without waiting: the render thread (or the main thread, without one) reads the new buffer's size and
+    // counts the check, and a failed one, for its arena's slot here. Until all its checks are back the arena
+    // keeps drawing from its old buffers (a buffer the driver gave no storage was drawn from for a frame or
+    // two before); then the new ones replace them, or are dropped and it doesn't grow for
+    // FS_GDD_GROW_BLOCK_SECONDS.
+    constexpr U32 FS_GDD_CHECK_SLOTS = 32;
+    std::atomic<U32> sGrowChecked[FS_GDD_CHECK_SLOTS] = {};
+    std::atomic<U32> sGrowFailed[FS_GDD_CHECK_SLOTS] = {};
     constexpr F64 FS_GDD_GROW_BLOCK_SECONDS = 60.0;
 
     // value: buffer name << 32 | arena slot << 24 | expected size in KB (up to 16 GB)
@@ -76,16 +80,35 @@ namespace
         const GLuint buffer = (GLuint)(value >> 32);
         const U32 slot = (U32)(value >> 24) & 0xff;
         const U64 expected = (value & 0xffffff) << 10;
-        if (!buffer || !glGetNamedBufferParameteriv || slot >= 32)
+        if (slot >= FS_GDD_CHECK_SLOTS)
         {
             return;
         }
-        GLint size = 0;
-        glGetNamedBufferParameteriv(buffer, GL_BUFFER_SIZE, &size);
-        if ((U64)(U32)size < expected)
+        // a buffer already deleted (its arena dropped meanwhile) is not checked: its growth is gone
+        if (buffer && glIsBuffer(buffer))
         {
-            sGrowFailedSlots.fetch_or(1u << slot, std::memory_order_relaxed);
+            GLint size = 0;
+            if (glGetNamedBufferParameteriv)
+            {
+                glGetNamedBufferParameteriv(buffer, GL_BUFFER_SIZE, &size);
+            }
+            else
+            {
+                // GL 4.3/4.4 (GPU-driven drawing runs there, DSA is loaded from 4.5): without this the
+                // check never failed and a buffer with no storage was drawn from. Bound to the copy-read
+                // target and put back, so the binding the recorder tracks stays true.
+                GLint prev = 0;
+                glGetIntegerv(GL_COPY_READ_BUFFER_BINDING, &prev);
+                glBindBuffer(GL_COPY_READ_BUFFER, buffer);
+                glGetBufferParameteriv(GL_COPY_READ_BUFFER, GL_BUFFER_SIZE, &size);
+                glBindBuffer(GL_COPY_READ_BUFFER, (GLuint)prev);
+            }
+            if ((U64)(U32)size < expected)
+            {
+                sGrowFailed[slot].fetch_add(1, std::memory_order_relaxed);
+            }
         }
+        sGrowChecked[slot].fetch_add(1, std::memory_order_release);
     }
 }
 
@@ -259,16 +282,19 @@ void FSGDDArena::fail(U32 reason, U32* out)
     }
 }
 
-bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U32 new_bytes)
+// A buffer of new_bytes for a growth, 0 if the driver gave it no storage. checked: that is known now (video
+// memory is short and glGetError was asked, or it can't be checked later); otherwise its check is recorded
+// in stream order and comes back at a later frame (resolveGrowth).
+GLuint FSGDDArena::allocBuffer(U32 new_bytes, bool& checked)
 {
     GLuint grown = 0;
     glGenBuffers(1, &grown);
     if (!grown)
     {
-        return false;
+        return 0;
     }
     glBindBuffer(GL_COPY_WRITE_BUFFER, grown);
-    // Checked only when video memory is short: the check waits for the render thread
+    // Checked at once only when video memory is short: that check waits for the render thread
     const bool check = LLViewerTexture::sFreeVRAMMegabytes < (F32)(new_bytes >> 20) + FS_GDD_GROW_CHECK_FREE_MB;
     // clear older errors first, so the check below sees only this allocation's GL_OUT_OF_MEMORY
     if (check)
@@ -276,35 +302,143 @@ bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U3
         clear_glerror();
     }
     glBufferData(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, GL_STATIC_DRAW);
-    bool failed = check && glGetError() != GL_NO_ERROR;
-    if (!check && mSlot < 32)
-    {   // checked without waiting; without the render thread that is right here
-        FSGLStream::recordCall(&verify_grown, ((U64)grown << 32) | ((U64)mSlot << 24) | (U64)(new_bytes >> 10));
-        if (!FSGLStream::isRecording())
-        {
-            failed = (sGrowFailedSlots.fetch_and(~(1u << mSlot), std::memory_order_relaxed) & (1u << mSlot)) != 0;
-        }
-    }
+    const bool failed = check && glGetError() != GL_NO_ERROR;
+    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
     if (failed)
     {
-        glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
         glDeleteBuffers(1, &grown);
+        return 0;
+    }
+    checked = check || mSlot >= FS_GDD_CHECK_SLOTS;
+    if (!checked)
+    {   // checked without waiting; without the render thread that is right here
+        ++mGrowChecksAsked;
+        FSGLStream::recordCall(&verify_grown, ((U64)grown << 32) | ((U64)mSlot << 24) | (U64)(new_bytes >> 10));
+    }
+    return grown;
+}
+
+// Grows the vertex buffers (verts) or the index buffer to want vertices or indices. The bigger buffers
+// replace the old ones once the driver is known to have given them storage: right away when that is known
+// at once, otherwise at a later frame (resolveGrowth, from beginFrame). Until then the arena draws from the
+// old buffers, and what doesn't fit is drawn the old way. True when it grew now.
+bool FSGDDArena::startGrowth(bool verts, U32 want)
+{
+    // one growth at a time, and only once the checks of earlier ones are back, so the failed checks
+    // counted from here are this growth's
+    if (!mGrowBuffers.empty() ||
+        (mSlot < FS_GDD_CHECK_SLOTS &&
+         sGrowChecked[mSlot].load(std::memory_order_acquire) != mGrowChecksAsked))
+    {
         return false;
     }
-    if (buffer && old_bytes)
-    {   // keep what is in there, the entries' offsets stay valid
-        glBindBuffer(GL_COPY_READ_BUFFER, buffer);
-        glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, old_bytes);
-        glBindBuffer(GL_COPY_READ_BUFFER, 0);
+    mGrowVerts = verts;
+    mGrowWant = want;
+    mGrowFailedBefore = mSlot < FS_GDD_CHECK_SLOTS ? sGrowFailed[mSlot].load(std::memory_order_relaxed) : 0;
+    bool all_checked = true;
+    const size_t count = verts ? mTypes.size() : 1;
+    for (size_t i = 0; i < count; ++i)
+    {
+        const U64 bytes = verts ? (U64)want * LLVertexBuffer::sTypeSize[mTypes[i]] : (U64)want * sizeof(U16);
+        bool checked = false;
+        const GLuint grown = allocBuffer((U32)bytes, checked);
+        if (!grown)
+        {   // no storage: the old buffers stay as they are
+            dropGrowth();
+            return false;
+        }
+        mGrowBuffers.push_back(grown);
+        mGrowBytes.push_back(bytes);
+        all_checked = all_checked && checked;
     }
-    glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-    if (buffer)
+    if (all_checked || !FSGLStream::isRecording())
+    {   // known now (without the render thread the checks ran right away)
+        const U32 before = verts ? mVerts.capacity() : mIndices.capacity();
+        resolveGrowth();
+        return (verts ? mVerts.capacity() : mIndices.capacity()) > before;
+    }
+    return false;
+}
+
+// The waiting growth, once its checks are back: put in place, or dropped when the driver gave a buffer no
+// storage (the arena keeps its old buffers and doesn't grow for a while). True when nothing waits any more.
+bool FSGDDArena::resolveGrowth()
+{
+    if (mGrowBuffers.empty())
+    {
+        return true;
+    }
+    if (mSlot < FS_GDD_CHECK_SLOTS)
+    {
+        if ((S32)(sGrowChecked[mSlot].load(std::memory_order_acquire) - mGrowChecksAsked) < 0)
+        {
+            return false; // not back yet: keep drawing from the old buffers
+        }
+        if (sGrowFailed[mSlot].load(std::memory_order_relaxed) != mGrowFailedBefore)
+        {
+            LL_WARNS("FSGPUDriven") << mName << ": the driver could not make room to grow it (out of video memory); "
+                                    << "it keeps its current size, what doesn't fit goes the old way, and it doesn't "
+                                    << "grow for " << (S32)FS_GDD_GROW_BLOCK_SECONDS << " s" << LL_ENDL;
+            dropGrowth();
+            mRefillVerts = 0;
+            mRefillIndices = 0;
+            mGrowBlockedUntil = LLFrameTimer::getElapsedSeconds() + FS_GDD_GROW_BLOCK_SECONDS;
+            return true;
+        }
+    }
+    commitGrowth();
+    return true;
+}
+
+// The new buffers take what the old ones hold now (copied on the GPU, in stream order after everything
+// written to them so far; the entries' offsets stay valid) and replace them. The old ones are deleted: the
+// driver keeps them alive for the draws already recorded that read them.
+void FSGDDArena::commitGrowth()
+{
+    for (size_t i = 0; i < mGrowBuffers.size(); ++i)
+    {
+        GLuint& buffer = mGrowVerts ? mVBs[i] : mIB;
+        U64& buffer_bytes = mGrowVerts ? mVBBytes[i] : mIBBytes;
+        const U64 old_bytes = mGrowVerts ? (U64)mVerts.capacity() * LLVertexBuffer::sTypeSize[mTypes[i]]
+                                         : (U64)mIndices.capacity() * sizeof(U16);
+        if (buffer && old_bytes)
+        {
+            glBindBuffer(GL_COPY_READ_BUFFER, buffer);
+            glBindBuffer(GL_COPY_WRITE_BUFFER, mGrowBuffers[i]);
+            glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, (GLsizeiptr)old_bytes);
+            glBindBuffer(GL_COPY_READ_BUFFER, 0);
+            glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+        }
+        if (buffer)
+        {
+            glDeleteBuffers(1, &buffer);
+        }
+        buffer = mGrowBuffers[i];
+        setBufferBytes(buffer_bytes, mGrowBytes[i]);
+    }
+    if (mGrowVerts)
+    {
+        mVerts.grow(mGrowWant);
+        mRefillVerts = 0;
+    }
+    else
+    {
+        mIndices.grow(mGrowWant);
+        mRefillIndices = 0;
+    }
+    mGrowBuffers.clear();
+    mGrowBytes.clear();
+    mFullFrame = U32_MAX; // room again this frame
+}
+
+void FSGDDArena::dropGrowth()
+{
+    for (GLuint buffer : mGrowBuffers)
     {
         glDeleteBuffers(1, &buffer);
     }
-    buffer = grown;
-    setBufferBytes(buffer_bytes, new_bytes);
-    return true;
+    mGrowBuffers.clear();
+    mGrowBytes.clear();
 }
 
 // What the arenas hold counts as vertex memory (LLVertexBuffer::getBytesAllocated), so the
@@ -401,26 +535,15 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 mRefillVerts = 0;
                 mRefillIndices = 0;
             }
+            // A growth that has to wait for its check goes on drawing from the old buffers meanwhile; the
+            // other one (vertices or indices) starts after it
             if (grow_verts && room)
             {
-                bool grown = true;
-                for (size_t i = 0; i < mTypes.size() && grown; ++i)
-                {
-                    const U32 size = LLVertexBuffer::sTypeSize[mTypes[i]];
-                    grown = growBuffer(mVBs[i], mVBBytes[i], mVerts.capacity() * size, want_verts * size);
-                }
-                if (grown)
-                {
-                    mVerts.grow(want_verts);
-                    mRefillVerts = 0;
-                }
-                // else: the buffers that did grow hold the old range at the old offsets, still consistent
+                startGrowth(true, want_verts);
             }
-            if (grow_indices && room &&
-                growBuffer(mIB, mIBBytes, mIndices.capacity() * (U32)sizeof(U16), want_indices * (U32)sizeof(U16)))
+            if (grow_indices && room && LLFrameTimer::getElapsedSeconds() >= mGrowBlockedUntil)
             {
-                mIndices.grow(want_indices);
-                mRefillIndices = 0;
+                startGrowth(false, want_indices);
             }
         }
         else if (attempt == 1)
@@ -447,18 +570,15 @@ void FSGDDArena::beginFrame(U32 frame)
     }
     mFrame = frame;
     mCopies = 0;
-    // A growth the driver gave no storage (checked in stream order, see verify_grown): what the
-    // arena holds can't be trusted. Drop it all and draw the old way until growing is allowed again.
-    if (mSlot < 32 && (sGrowFailedSlots.load(std::memory_order_relaxed) & (1u << mSlot)))
-    {
-        sGrowFailedSlots.fetch_and(~(1u << mSlot), std::memory_order_relaxed);
-        LL_WARNS("FSGPUDriven") << mName << ": the driver could not make room to grow it (out of video memory); dropped, "
-                                << "its draws go the old way for " << (S32)FS_GDD_GROW_BLOCK_SECONDS << " s" << LL_ENDL;
-        releaseGL();
-        mRefillVerts = 0;
-        mRefillIndices = 0;
-        mGrowBlockedUntil = LLFrameTimer::getElapsedSeconds() + FS_GDD_GROW_BLOCK_SECONDS;
+    for (size_t i = 0; i + 3 < mHeld.size(); i += 4)
+    {   // last frame's commands are all recorded
+        mVerts.release(mHeld[i], mHeld[i + 1]);
+        mIndices.release(mHeld[i + 2], mHeld[i + 3]);
     }
+    mHeld.clear();
+    // A growth whose check (in stream order, see verify_grown) is back: its buffers replace the old ones,
+    // or are dropped. Here, before this frame's first lookup, so the whole frame draws from one set.
+    resolveGrowth();
     if (frame - mLastSweep >= 120)
     {   // forget the copies of buffers that stopped being drawn (or were freed)
         mLastSweep = frame;
@@ -549,8 +669,16 @@ FSGDDArenaEntry* FSGDDArena::find(LLVertexBuffer* vb, U32 frame, U32* reason)
         // changed since it was copied (or another buffer at the same address). Only this buffer can
         // remember the node (it is the key), so clear its pointer rather than moving the epoch on, which
         // would make every buffer look its entry up in the map again.
-        mVerts.release(entry.mVertex, entry.mNumVerts);
-        mIndices.release(entry.mIndex, entry.mNumIndices);
+        if (entry.mLastFrame == frame)
+        {   // drawn this frame: a copy put in its place now would change what this frame's commands still
+            // to be drawn read (the occlusion culling's phase 2 replays them after every opaque pool)
+            mHeld.insert(mHeld.end(), { entry.mVertex, entry.mNumVerts, entry.mIndex, entry.mNumIndices });
+        }
+        else
+        {
+            mVerts.release(entry.mVertex, entry.mNumVerts);
+            mIndices.release(entry.mIndex, entry.mNumIndices);
+        }
         mEntries.erase(it);
         vb->setFSArenaEntry(mSlot, nullptr, mEpoch);
     }
@@ -572,9 +700,12 @@ FSGDDArenaEntry* FSGDDArena::find(LLVertexBuffer* vb, U32 frame, U32* reason)
     }
     if (!allocate(entry.mNumVerts, entry.mNumIndices, frame, entry.mVertex, entry.mIndex))
     {
-        LL_WARNS_ONCE("Rendering") << mName << ": the arena is full (" << vertexMB() << " MB vertices, " << indexMB()
-                                   << " MB indices, limit " << mBudgetSetting << "), what doesn't fit is drawn the old way"
-                                   << LL_ENDL;
+        if (mGrowBuffers.empty())   // else it is growing, once the driver is known to have given it the room
+        {
+            LL_WARNS_ONCE("Rendering") << mName << ": the arena is full (" << vertexMB() << " MB vertices, " << indexMB()
+                                       << " MB indices, limit " << mBudgetSetting << "), what doesn't fit is drawn the old way"
+                                       << LL_ENDL;
+        }
         fail(FAIL_FULL, reason);
         return nullptr;
     }
@@ -693,6 +824,7 @@ bool FSGDDArena::verifyEntry(const LLVertexBuffer* vb, FSGDDArenaEntry& entry)
 
 void FSGDDArena::releaseGL()
 {
+    dropGrowth(); // a growth still waiting for its check goes too
     // the buffers deleted, and no longer counted as vertex memory
     for (size_t i = 0; i < mVBs.size(); ++i)
     {
@@ -712,6 +844,7 @@ void FSGDDArena::releaseGL()
     mVerts.reset();
     mIndices.reset();
     mEntries.clear();
+    mHeld.clear();
     ++mEpoch;
     mCopies = 0;
     mFullFrame = U32_MAX;

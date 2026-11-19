@@ -226,6 +226,8 @@ void main()
     int cluster = clusterOf(tc, -pos.z);
     int first = int(texelFetch(fs_cl_lists, cluster * 2).r);
     int count = int(texelFetch(fs_cl_lists, cluster * 2 + 1).r);
+    // a cluster lists each light at most once: a broken list can't loop for long (a GPU timeout)
+    count = min(count, textureSize(fs_cl_lights) / 2);
 
     if (count <= 0)
     {
