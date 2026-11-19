@@ -63,10 +63,11 @@
 // once per GL context: if a driver keeps the texture immutable, bindless is not used). Handles are looked up
 // by the texture's current GL name every pass, so a reallocated texture (a new name) gets a new handle. Making
 // a handle needs the GL thread, so while FSRenderThread records, a missing handle is queued (the batch takes
-// bound textures this time), the queued ones are made together on the render thread at the next frame's first
-// lookup without waiting for it, and filed at a later frame's first lookup once made. Only
-// fetched textures with three or four components that are complete, not waiting for their options to be
-// applied, and not media get handles; a batch with any other texture is drawn with bound textures.
+// bound textures this time, unless the image's previous texture still has a handle: see previous_handle), the
+// queued ones are made together on the render thread at the next frame's first lookup without waiting for it,
+// and filed at a later frame's first lookup once made. Only fetched textures (any channel count) that are
+// complete, uncompressed, not waiting for their options to be applied, and not media get handles; a batch with
+// any other texture is drawn with bound textures. Why lookups found no handle is in the 10 s stats line.
 //
 // FSPerfGPUDrivenPBRVerify: after the pass, the batches it drew from the arena are drawn again the stock way
 // with colour and depth writes off and depth test GL_LESS under a GL_SAMPLES_PASSED query: a sample passes
@@ -341,6 +342,7 @@ namespace
         GLuint64 mHandle = 0;           // 0: the driver gave none at mLastFrame (no sampler then), tried again later
         bool mResident = false;
         U32 mLastFrame = 0;
+        const LLImageGL* mOwner = nullptr;  // the image the handle was made for (compared, never used)
     };
 
     // A handle wanted while the render thread records: made with the others at the next frame's first lookup
@@ -375,6 +377,22 @@ namespace
     U32 sStatHandlesMade = 0;
     U32 sStatHandleFailures = 0;
     U32 sStatUnlocks = 0;
+    // Why texture_handle gave no handle (per lookup: the GDD passes look a texture up once per pass), and how
+    // often the handle of the image's previous texture stood in while its new one was being made
+    enum ENoHandle : U32
+    {
+        NH_NOT_FETCHED = 0,     // not a fetched (or LOD) texture
+        NH_NOT_LOADED,          // no GL texture yet
+        NH_NOT_2D,
+        NH_OPTIONS,             // its filtering and wrapping not applied yet (at its next stock bind)
+        NH_MOVED,               // moved off a locked texture by a partial update a short while ago
+        NH_COMPRESSED,
+        NH_FAILED,              // the driver gave none; tried again later
+        NH_PENDING,             // being made (asked for this frame or the last)
+        NH_COUNT
+    };
+    U32 sStatNoHandle[NH_COUNT] = {};
+    U32 sStatPreviousHandle = 0;
     S32 sBindlessTested = 0;                                    // 0 not yet, 1 works, -1 doesn't
     U32 sLastHandleSweep = 0;
     // Moves on whenever a handle stops being usable (dropped, or made non resident), which invalidates the
@@ -433,6 +451,29 @@ namespace
         }
 #endif
         slots.clear();
+    }
+
+    // A texture locked for a handle it didn't get (the driver gave none, or the request was dropped) and that has
+    // no other handle: unlocked, so its next change goes ahead in place instead of moving it to a copy (and,
+    // for a partial update, keeping it without a handle for a while). sHandleMutex held, main thread.
+    void release_unused_lock(U32 name)
+    {
+        if (sHandlesInFlight.count(name))
+        {
+            return;
+        }
+        auto it = sHandles.find(name);
+        if (it != sHandles.end())
+        {
+            for (const HandleSlot& slot : it->second)
+            {
+                if (slot.mHandle)
+                {
+                    return;
+                }
+            }
+        }
+        LLImageGL::fsReleaseLock(name);
     }
 
     // sHandleMutex held
@@ -676,15 +717,19 @@ namespace
 
     // Files a handle just made under name, or (handle 0) that the driver gave none, so the pair isn't asked
     // for again every frame. sHandleMutex held, main thread.
-    void add_slot(U32 name, const SamplerState& state, GLuint sampler, GLuint64 handle, U32 frame)
+    void add_slot(U32 name, const SamplerState& state, GLuint sampler, GLuint64 handle, U32 frame, const LLImageGL* owner)
     {
         HandleSlot slot;
         slot.mState = state;
         slot.mLastFrame = frame;
+        slot.mOwner = owner;
         if (!handle)
         {
             glDeleteSamplers(1, &sampler);
             ++sStatHandleFailures;
+            sHandles[name].push_back(slot);
+            release_unused_lock(name);
+            return;
         }
         else
         {
@@ -746,11 +791,12 @@ namespace
                 }
                 if (keep)
                 {
-                    add_slot(request.mName, request.mState, request.mSampler, batch->mHandles[i], frame);
+                    add_slot(request.mName, request.mState, request.mSampler, batch->mHandles[i], frame, gl);
                 }
                 else
                 {   // changed since or made twice: deleting the sampler deletes the handle
                     glDeleteSamplers(1, &request.mSampler);
+                    release_unused_lock(request.mName);
                 }
             }
             finished.emplace_back(batch);
@@ -785,7 +831,8 @@ namespace
             for (HandleRequest& request : texture.second)
             {
                 LLImageGL* gl = request.mTex->getGLTexture();
-                if (!gl || gl->getTexName() != request.mName || gl->getFSTexOptionsDirty() || gl->getComponents() < 3 ||
+                // one and two channel textures too: their swizzle is texture state, which the handle keeps
+                if (!gl || gl->getTexName() != request.mName || gl->getFSTexOptionsDirty() ||
                     gl->getTarget() != LLTexUnit::TT_TEXTURE || !(sampler_state(gl) == request.mState))
                 {   // changed since: asked for again if still wanted
                     continue;
@@ -826,6 +873,43 @@ namespace
     }
 #endif
 
+    // While the image's new texture has no handle yet (asked for, made over the next frame or two), the handle
+    // of its previous texture, if that one is still there (deleted 3 frames after the image let go of it, which
+    // also drops its handles) and was sampled the same way: the batch keeps its multi-draw instead of falling
+    // back to the stock path, drawing the previous levels (the same image, at the old resolution) for those
+    // frames. sHandleMutex held, main thread.
+    GLuint64 previous_handle(LLViewerTexture* tex, const LLImageGL* gl, U32 name, const SamplerState& state, U32 frame)
+    {
+        const U32 previous = tex->mFSGDDCacheName;
+        if (!previous || previous == name || memcmp(tex->mFSGDDCacheState, &state, sizeof(state)))
+        {
+            return 0;
+        }
+        auto it = sHandles.find(previous);
+        if (it == sHandles.end())
+        {
+            return 0;
+        }
+        for (HandleSlot& slot : it->second)
+        {
+            if (slot.mHandle && slot.mOwner == gl && slot.mState == state)
+            {
+#if FS_GDD_BINDLESS_API
+                if (!slot.mResident)
+                {
+                    fsMakeResident(slot.mHandle);
+                    slot.mResident = true;
+                    ++sResident;
+                }
+#endif
+                slot.mLastFrame = frame;
+                ++sStatPreviousHandle;
+                return slot.mHandle;
+            }
+        }
+        return 0;
+    }
+
     // The resident handle of tex as the stock path would sample it, or 0 if it can't have one. While the
     // render thread records, a missing handle is queued (0 this time) and made at the next frame's first
     // lookup together with the others: one wait for the render thread per frame, not one per texture.
@@ -838,17 +922,25 @@ namespace
         }
         const S8 type = tex->getType();
         LLImageGL* gl = tex->getGLTexture();
-        if ((type != LLViewerTexture::FETCHED_TEXTURE && type != LLViewerTexture::LOD_TEXTURE) || !gl)
+        if (type != LLViewerTexture::FETCHED_TEXTURE && type != LLViewerTexture::LOD_TEXTURE)
         {
+            ++sStatNoHandle[NH_NOT_FETCHED];
             return 0;
         }
-        const U32 name = gl->getTexName();
-        // <FS:Trish> nor for a texture that moved off a locked one (it keeps changing), nor a compressed one
+        const U32 name = gl ? gl->getTexName() : 0;
+        // <FS:Trish> nor for a texture that moved off a locked one (it keeps changing), nor a compressed one; one
+        // and two channel textures do get handles (their swizzle is texture state, which the handle keeps)
         //if (!name || gl->getTarget() != LLTexUnit::TT_TEXTURE || gl->getComponents() < 3 || gl->getFSTexOptionsDirty())
-        if (!name || gl->getTarget() != LLTexUnit::TT_TEXTURE || gl->getComponents() < 3 || gl->getFSTexOptionsDirty() ||
+        if (!name || gl->getTarget() != LLTexUnit::TT_TEXTURE || gl->getFSTexOptionsDirty() ||
             gl->getFSNoBindless() || gl->fsIsCompressed())
         // </FS:Trish>
         {   // a texture with pending options gets them at its next bind, which would drop its handle mid pass
+            const ENoHandle reason = !name ? NH_NOT_LOADED
+                                   : gl->getTarget() != LLTexUnit::TT_TEXTURE ? NH_NOT_2D
+                                   : gl->getFSTexOptionsDirty() ? NH_OPTIONS
+                                   : gl->getFSNoBindless() ? NH_MOVED
+                                   : NH_COMPRESSED;
+            ++sStatNoHandle[reason];
             return 0;
         }
         const SamplerState state = sampler_state(gl);
@@ -885,6 +977,7 @@ namespace
                 {   // the driver gave none
                     if (frame - slot.mLastFrame < FS_GDD_HANDLE_RETRY_FRAMES)
                     {
+                        ++sStatNoHandle[NH_FAILED];
                         return 0;
                     }
                     slots.erase(slots.begin() + i);
@@ -918,26 +1011,35 @@ namespace
                 {
                 }
             }
-            add_slot(name, state, sampler, handle, frame);
+            add_slot(name, state, sampler, handle, frame, gl);
             update_handle_count();
+            if (!handle)
+            {
+                ++sStatNoHandle[NH_FAILED];
+            }
             return handle;
         }
 
-        if (handle_in_flight(name, state))
+        bool asked = handle_in_flight(name, state);
+        auto queued = sHandleQueue.find(name);
+        if (!asked && queued != sHandleQueue.end())
         {
-            return 0;
-        }
-        std::vector<HandleRequest>& queued = sHandleQueue[name];
-        for (const HandleRequest& request : queued)
-        {
-            if (request.mState == state)
+            for (const HandleRequest& request : queued->second)
             {
-                return 0;
+                asked = asked || request.mState == state;
             }
         }
-        queued.push_back({ tex, name, state, 0 });
-        update_handle_count();
-        return 0;
+        if (!asked)
+        {
+            sHandleQueue[name].push_back({ tex, name, state, 0 });
+            update_handle_count();
+        }
+        const GLuint64 previous = previous_handle(tex, gl, name, state, frame);
+        if (!previous)
+        {
+            ++sStatNoHandle[NH_PENDING];
+        }
+        return previous;
 #else
         return 0;
 #endif
@@ -1878,6 +1980,19 @@ namespace
             std::lock_guard<std::mutex> lock(sHandleMutex);
             handle_textures = (U32)sHandles.size();
         }
+        // texture lookups without a handle by cause, across every GDD pass (PBR, materials, legacy, alpha, shadows)
+        static const char* no_handle_names[NH_COUNT] = { "not a fetched texture", "not loaded", "not 2D", "options pending",
+                                                         "moved by a partial update", "compressed", "driver gave none",
+                                                         "being made" };
+        std::ostringstream no_handle;
+        for (U32 r = 0; r < NH_COUNT; ++r)
+        {
+            if (sStatNoHandle[r])
+            {
+                no_handle << (no_handle.tellp() ? ", " : "") << no_handle_names[r] << " " << sStatNoHandle[r];
+                sStatNoHandle[r] = 0;
+            }
+        }
         LL_INFOS("FSGPUDrivenPBR") << "GPU-driven PBR, last 10 s: " << sStatPasses << " passes, " << sStatBatches
                                    << " batches (" << sStatBindless << " bindless, " << sStatBound
                                    << " bound textures) in " << sStatCalls << " multi-draw calls, "
@@ -1889,10 +2004,12 @@ namespace
                                    << sRiggedArena.entries() << " buffers, " << sRiggedArena.uploads() << " copies; bindless "
                                    << handle_textures << " textures, " << sResident << " resident handles, "
                                    << sStatHandlesMade << " made, " << sStatHandleFailures << " failed, "
-                                   << sStatUnlocks << " dropped for texture changes; " << sStatMismatches
+                                   << sStatUnlocks << " dropped for texture changes, " << sStatPreviousHandle
+                                   << " lookups served by the previous texture's handle; lookups without a handle: "
+                                   << (no_handle.tellp() ? no_handle.str() : std::string("none")) << "; " << sStatMismatches
                                    << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatBindless = sStatBound = sStatCalls = sStatSwitches = 0;
-        sStatHandlesMade = sStatHandleFailures = sStatUnlocks = 0;
+        sStatHandlesMade = sStatHandleFailures = sStatUnlocks = sStatPreviousHandle = 0;
         sArena.clearCounts();
         sRiggedArena.clearCounts();
     }

@@ -120,6 +120,9 @@ public:
     // Main thread. The bindless code locks a texture before it asks for its handle.
     static void fsLockTexture(U32 tex_name, LLImageGL* owner);
     static bool fsIsTextureLocked(U32 tex_name);
+    // Main thread. For a texture locked for a handle that never came (the driver gave none, or the request was
+    // dropped): it has no handle, so it can change in place again instead of moving at its next change.
+    static void fsReleaseLock(U32 tex_name);
     // Before changing this image's texture in place: if it is locked, move to a fresh texture (a copy of the
     // current levels when copy_contents), bound on unit 0 and then on bind_unit. True when it moved.
     bool fsMakeWritable(bool copy_contents, S32 bind_unit = 0);
@@ -160,8 +163,9 @@ public:
     // before setting address_mode or filter_option (-1 for the one not set). A locked texture that already has
     // that value doesn't move: true then, and the caller skips setting it (the locked texture can't take it).
     static bool fsMakeNameWritable(U32 tex_name, S32 bind_unit, S32 address_mode, S32 filter_option, bool has_mips);
-    // A texture that moved gets no handle for a while, longer each time it moves again (one that keeps changing
-    // is copied rarely), and again right away once it gets a fresh texture the usual way
+    // A texture that moved with its levels copied (a partial update) gets no handle for a while, longer each time
+    // it moves again (one that keeps changing is copied rarely), and again right away once it gets a fresh
+    // texture the usual way or is respecified whole (a move without a copy costs nothing to repeat)
     bool getFSNoBindless() const                { return sLastFrameTime < mFSNoBindlessUntil; }
     bool fsIsCompressed()                       { return isCompressed(); }
     F32 mFSNoBindlessUntil = 0.f;               // sLastFrameTime until which it gets no handle

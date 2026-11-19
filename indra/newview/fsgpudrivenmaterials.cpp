@@ -44,7 +44,7 @@
 //
 // One GPU-driven program per stock permutation, so the passes stay as they are: the batches of each pass are
 // drawn in their stock order, one glMultiDrawElementsIndirect per run of batches from the arena. A batch that
-// can't come from it (rigged, empty, a texture missing or without a handle (not loaded, one or two channels,
+// can't come from it (rigged, empty, a texture missing or without a handle (not loaded, being made,
 // options pending, media), 32 bit indices, buffer mapped or lacking an attribute the program reads, arena
 // full or the copy budget used up) is drawn by the stock code in its place. Blended passes stay entirely stock.
 //

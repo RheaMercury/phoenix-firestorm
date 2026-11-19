@@ -237,6 +237,70 @@ bool LLImageGL::fsIsTextureLocked(U32 tex_name)
 }
 
 //static
+void LLImageGL::fsReleaseLock(U32 tex_name)
+{
+    if (!tex_name || !sFSAnyLocked.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    LLMutexLock lock(&sFSLockedMutex);
+    sFSLocked.erase(tex_name);
+    sFSAnyLocked.store(!sFSLocked.empty(), std::memory_order_relaxed);
+}
+
+namespace
+{
+    // The format setManualImage gives a one or two channel texture in a core profile (red or red/green with a
+    // swizzle, or expanded to RGB(A) before GL 3.3), so a texture made outside it matches one made through it:
+    // glCopyImageSubData needs the same format, and the swizzle is texture state a fresh texture doesn't have.
+    void fs_stored_format(S32& intformat, U32& pixformat, U32 pixtype, const GLint*& swizzle)
+    {
+        static const GLint alpha_mask[] = { GL_ZERO, GL_ZERO, GL_ZERO, GL_RED };
+        static const GLint luminance_mask[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
+        static const GLint luminance_alpha_mask[] = { GL_RED, GL_RED, GL_RED, GL_GREEN };
+        swizzle = nullptr;
+        if (!LLRender::sGLCoreProfile)
+        {
+            return;
+        }
+        if (gGLManager.mGLVersion >= CONVERSION_SCRATCH_BUFFER_GL_VERSION)
+        {
+            if (pixformat == GL_ALPHA)
+            {
+                swizzle = alpha_mask;
+                pixformat = GL_RED;
+                intformat = GL_R8;
+            }
+            else if (pixformat == GL_LUMINANCE)
+            {
+                swizzle = luminance_mask;
+                pixformat = GL_RED;
+                intformat = GL_R8;
+            }
+            else if (pixformat == GL_LUMINANCE_ALPHA)
+            {
+                swizzle = luminance_alpha_mask;
+                pixformat = GL_RG;
+                intformat = GL_RG8;
+            }
+        }
+        else if (pixtype == GL_UNSIGNED_BYTE)
+        {
+            if (pixformat == GL_ALPHA || pixformat == GL_LUMINANCE_ALPHA)
+            {
+                pixformat = GL_RGBA;
+                intformat = GL_RGBA8;
+            }
+            else if (pixformat == GL_LUMINANCE)
+            {
+                pixformat = GL_RGBA;
+                intformat = GL_RGB8;
+            }
+        }
+    }
+}
+
+//static
 bool LLImageGL::fsMakeNameWritable(U32 tex_name, S32 bind_unit, S32 address_mode, S32 filter_option, bool has_mips)
 {
     if (!tex_name || !sFSAnyLocked.load(std::memory_order_relaxed))
@@ -283,6 +347,15 @@ bool LLImageGL::fsMakeWritable(bool copy_contents, S32 bind_unit)
     const S32 levels = (mHasMipMaps && mCurrentDiscardLevel >= 0) ? llmax(mMaxDiscardLevel - mCurrentDiscardLevel + 1, 1) : 1;
     glTexParameteri(mTarget, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(mTarget, GL_TEXTURE_MAX_LEVEL, levels - 1);
+    // One and two channel textures: the format and swizzle setManualImage gave the locked one
+    S32 format_internal = mFormatInternal;
+    U32 format_primary = mFormatPrimary;
+    const GLint* swizzle = nullptr;
+    fs_stored_format(format_internal, format_primary, mFormatType, swizzle);
+    if (swizzle)
+    {
+        glTexParameteriv(mTarget, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+    }
 
     if (copy_contents && mCurrentDiscardLevel >= 0 && mTarget == GL_TEXTURE_2D && !isCompressed())
     {
@@ -295,8 +368,8 @@ bool LLImageGL::fsMakeWritable(bool copy_contents, S32 bind_unit)
         // the last, and those kept whatever the memory held: pieces of other textures.
         for (S32 level = 0; level < levels; ++level)
         {
-            glTexImage2D(mTarget, level, mFormatInternal, llmax(width >> level, 1), llmax(height >> level, 1), 0,
-                         mFormatPrimary, mFormatType, nullptr);
+            glTexImage2D(mTarget, level, format_internal, llmax(width >> level, 1), llmax(height >> level, 1), 0,
+                         format_primary, mFormatType, nullptr);
         }
         for (S32 level = 0; level < levels; ++level)
         {
@@ -313,11 +386,22 @@ bool LLImageGL::fsMakeWritable(bool copy_contents, S32 bind_unit)
 
     mTexName = fresh;
     mTexOptionsDirty = true;    // filtering and wrapping go onto the new texture at its next bind
-    // No handle for 5 seconds, doubling each time it moves again up to 5 minutes
-    constexpr F32 NO_BINDLESS_FIRST = 5.f;
-    constexpr F32 NO_BINDLESS_MAX = 300.f;
-    mFSNoBindlessUntil = sLastFrameTime + llmin(NO_BINDLESS_FIRST * (F32)(1u << llmin((U32)mFSMoves, 6u)), NO_BINDLESS_MAX);
-    mFSMoves = (U8)llmin((U32)mFSMoves + 1, 255u);
+    // No handle for 5 seconds, doubling each time it moves again up to 5 minutes: a partial update copies the
+    // levels at every move, so one that keeps changing is copied rarely. A move without a copy (the texture is
+    // respecified whole next: scaleDown, setImage) is only a new name, like a fresh upload, which may have a
+    // handle right away; holding it back left textures the texture bias rescales without handles for 5 seconds
+    // to 5 minutes.
+    if (copy_contents)
+    {
+        constexpr F32 NO_BINDLESS_FIRST = 5.f;
+        constexpr F32 NO_BINDLESS_MAX = 300.f;
+        mFSNoBindlessUntil = sLastFrameTime + llmin(NO_BINDLESS_FIRST * (F32)(1u << llmin((U32)mFSMoves, 6u)), NO_BINDLESS_MAX);
+        mFSMoves = (U8)llmin((U32)mFSMoves + 1, 255u);
+    }
+    else
+    {
+        mFSNoBindlessUntil = 0.f;
+    }
     // The old texture is deleted after the usual delay, as anything recorded before now may still use it
     deleteTextures(1, &old_name);
     if (bind_unit > 0)
