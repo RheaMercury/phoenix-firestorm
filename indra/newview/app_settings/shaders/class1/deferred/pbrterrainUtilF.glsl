@@ -60,6 +60,13 @@ in vec3 vary_vertex_normal;
 
 vec3 srgb_to_linear(vec3 c);
 
+// <FS:Trish> Terrain anti-tiling (fsTerrainAntiTilingF.glsl, FSRenderTerrainAntiTiling)
+#ifdef FS_TERRAIN_ANTI_TILING
+vec4 fsAntiTileSampleColor(sampler2D tex, vec2 uv, vec2 ddx, vec2 ddy, out vec3 hex_w);
+vec3 fsAntiTileSampleNormal(sampler2D tex, vec2 uv, vec2 ddx, vec2 ddy, vec3 hex_w);
+#endif
+// </FS:Trish>
+
 // A relatively agressive threshold for terrain material mixing sampling
 // cutoff. This ensures that only one or two materials are used in most places,
 // making PBR terrain blending more performant. Should be greater than 0 to work.
@@ -168,7 +175,14 @@ PBRMix sample_pbr(
     PBRMix mix;
     // Base colour and emissive are sRGB-encoded and bound without hardware decode, so convert
     // them to linear here. Data slots (orm, normal) are linear and read raw.
+    // <FS:Trish> Terrain anti-tiling: base colour and normal through fsTerrainAntiTilingF
+#ifdef FS_TERRAIN_ANTI_TILING
+    vec3 fs_hex_w;
+    mix.col = fsAntiTileSampleColor(tex_col, uv, uv_ddx, uv_ddy, fs_hex_w);
+#else
     mix.col = textureGrad(tex_col, uv, uv_ddx, uv_ddy);
+#endif
+    // </FS:Trish>
     mix.col.rgb = srgb_to_linear(mix.col.rgb);
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_OCCLUSION)
     mix.orm = textureGrad(tex_orm, uv, uv_ddx, uv_ddy).xyz;
@@ -176,7 +190,13 @@ PBRMix sample_pbr(
     mix.rm = textureGrad(tex_orm, uv, uv_ddx, uv_ddy).yz;
 #endif
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_NORMAL)
+    // <FS:Trish> Terrain anti-tiling: the normal from the same cells, turned with them
+#ifdef FS_TERRAIN_ANTI_TILING
+    mix.vNt = fsAntiTileSampleNormal(tex_vNt, uv, uv_ddx, uv_ddy, fs_hex_w);
+#else
     mix.vNt = textureGrad(tex_vNt, uv, uv_ddx, uv_ddy).xyz*2.0-1.0;
+#endif
+    // </FS:Trish>
 #endif
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_EMISSIVE)
     mix.emissive = srgb_to_linear(textureGrad(tex_emissive, uv, uv_ddx, uv_ddy).xyz);

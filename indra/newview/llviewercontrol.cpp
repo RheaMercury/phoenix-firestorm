@@ -1539,6 +1539,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSRenderAlphaCoverage", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderSoftParticles", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderBicubicUpsample", handleSetShaderChanged); // <FS:Trish/>
+    setting_setup_signal_listener(gSavedSettings, "FSRenderTerrainAntiTiling", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderAlphaCoverageStrength", [](const LLSD&) { LLViewerShaderMgr::fsMarkAllUniformsDirty(); }); // <FS:Trish/> a uniform, the shadow programs need a nudge
     setting_setup_signal_listener(gSavedSettings, "FSRenderGTAO", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderGTAOSlices", handleSetShaderChanged); // <FS:Trish/>

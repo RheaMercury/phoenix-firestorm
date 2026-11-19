@@ -41,15 +41,34 @@ in vec4 vary_texcoord1;
 void mirrorClip(vec3 position);
 vec4 encodeNormal(vec3 n, float env, float gbuffer_flag);
 
+// <FS:Trish> Terrain anti-tiling (fsTerrainAntiTilingF.glsl, FSRenderTerrainAntiTiling)
+#ifdef FS_TERRAIN_ANTI_TILING
+vec4 fsAntiTileSampleColor(sampler2D tex, vec2 uv, vec2 ddx, vec2 ddy, out vec3 hex_w);
+#endif
+// </FS:Trish>
+
 void main()
 {
     mirrorClip(pos);
     /// Note: This should duplicate the blending functionality currently used for the terrain rendering.
 
+    // <FS:Trish> Terrain anti-tiling: the four layers share one coordinate and its cells
+#ifdef FS_TERRAIN_ANTI_TILING
+    vec2 fs_uv = vary_texcoord0.xy;
+    vec2 fs_ddx = dFdx(fs_uv);
+    vec2 fs_ddy = dFdy(fs_uv);
+    vec3 fs_hex_w;
+    vec4 color0 = fsAntiTileSampleColor(detail_0, fs_uv, fs_ddx, fs_ddy, fs_hex_w);
+    vec4 color1 = fsAntiTileSampleColor(detail_1, fs_uv, fs_ddx, fs_ddy, fs_hex_w);
+    vec4 color2 = fsAntiTileSampleColor(detail_2, fs_uv, fs_ddx, fs_ddy, fs_hex_w);
+    vec4 color3 = fsAntiTileSampleColor(detail_3, fs_uv, fs_ddx, fs_ddy, fs_hex_w);
+#else
     vec4 color0 = texture(detail_0, vary_texcoord0.xy);
     vec4 color1 = texture(detail_1, vary_texcoord0.xy);
     vec4 color2 = texture(detail_2, vary_texcoord0.xy);
     vec4 color3 = texture(detail_3, vary_texcoord0.xy);
+#endif
+    // </FS:Trish>
 
     float alpha1 = texture(alpha_ramp, vary_texcoord0.zw).a;
     float alpha2 = texture(alpha_ramp,vary_texcoord1.xy).a;

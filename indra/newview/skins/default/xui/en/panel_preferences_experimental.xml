@@ -4210,7 +4210,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1826"
+                 height="1972"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -5190,8 +5190,131 @@
                      height="18"
                      layout="topleft"
                      left="15"
-                     name="fs_heading_fade_in"
+                     name="fs_heading_terrain"
                      top="1384"
+                     width="340">
+                        Terrain
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_terrain"
+                     tool_tip="Set every option in &quot;Terrain&quot; back to its default value."
+                     top="1383"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderTerrainAntiTiling,FSRenderTerrainAntiTilingStrength,FSRenderTerrainAntiTilingHexDistance,FSRenderTerrainAntiTilingNoRotation" />
+                    </button>
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderterrainantitiling_label"
+                     tool_tip="EXPERIMENTAL. Breaks up the visible repetition of the terrain textures, on legacy and PBR terrain. Macro variation: each texture is blended with a copy of itself at a much larger scale, by soft noise, with a slight brightness and hue jitter; one extra texture read per layer. Hex tiling: near the camera the texture is laid out on hexagonal cells, each shifted and turned at random and blended along the texture's own contrast, so no repeat is left to see; three reads per layer for colour and normal, macro variation beyond the distance below. Rebuilds shaders."
+                     top="1410"
+                     width="305">
+                        Hide texture repetition on terrain
+                    </text>
+                    <combo_box
+                     control_name="FSRenderTerrainAntiTiling"
+                     follows="left|top"
+                     height="20"
+                     layout="topleft"
+                     left="330"
+                     name="fs_fsrenderterrainantitiling"
+                     tool_tip="EXPERIMENTAL. Breaks up the visible repetition of the terrain textures, on legacy and PBR terrain. Macro variation: each texture is blended with a copy of itself at a much larger scale, by soft noise, with a slight brightness and hue jitter; one extra texture read per layer. Hex tiling: near the camera the texture is laid out on hexagonal cells, each shifted and turned at random and blended along the texture's own contrast, so no repeat is left to see; three reads per layer for colour and normal, macro variation beyond the distance below. Rebuilds shaders."
+                     top="1408"
+                     width="160">
+                        <combo_box.item
+                         label="Off"
+                         name="terrain_anti_tiling_off"
+                         value="0" />
+                        <combo_box.item
+                         label="Macro variation"
+                         name="terrain_anti_tiling_macro"
+                         value="1" />
+                        <combo_box.item
+                         label="Hex tiling"
+                         name="terrain_anti_tiling_hex"
+                         value="2" />
+                    </combo_box>
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderterrainantitilingstrength_label"
+                     tool_tip="EXPERIMENTAL. How strong the terrain anti-tiling is: how much of the large-scale copy and brightness jitter is mixed in, and how far the hex cells are shifted and turned."
+                     top="1438"
+                     width="285">
+                        Strength
+                    </text>
+                    <spinner
+                     control_name="FSRenderTerrainAntiTilingStrength"
+                     decimal_digits="2"
+                     enabled_control="FSRenderTerrainAntiTiling"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderterrainantitilingstrength"
+                     tool_tip="EXPERIMENTAL. How strong the terrain anti-tiling is: how much of the large-scale copy and brightness jitter is mixed in, and how far the hex cells are shifted and turned."
+                     top="1436"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderterrainantitilinghexdistance_label"
+                     tool_tip="EXPERIMENTAL. Hex tiling is used within this distance of the camera, in meters, and macro variation beyond it. Farther costs more GPU time on wide terrain views."
+                     top="1466"
+                     width="285">
+                        Hex tiling distance (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderTerrainAntiTilingHexDistance"
+                     decimal_digits="0"
+                     enabled_control="FSRenderTerrainAntiTiling"
+                     follows="left|top"
+                     height="20"
+                     increment="4"
+                     layout="topleft"
+                     left="330"
+                     max_val="512"
+                     min_val="4"
+                     name="fs_fsrenderterrainantitilinghexdistance"
+                     tool_tip="EXPERIMENTAL. Hex tiling is used within this distance of the camera, in meters, and macro variation beyond it. Farther costs more GPU time on wide terrain views."
+                     top="1464"
+                     width="100" />
+                    <check_box
+                     control_name="FSRenderTerrainAntiTilingNoRotation"
+                     enabled_control="FSRenderTerrainAntiTiling"
+                     follows="left|top"
+                     height="20"
+                     label="Don't turn the textures (for paving, planks, crops)"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderterrainantitilingnorotation"
+                     tool_tip="EXPERIMENTAL. Shift the terrain textures without turning them. For textures with a direction, such as paving, planks, rows of crops or ripples in sand."
+                     top="1492"
+                     width="455" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_fade_in"
+                     top="1530"
                      width="340">
                         Fade-in
                     </text>
@@ -5203,7 +5326,7 @@
                      left="370"
                      name="reset_fs_heading_fade_in"
                      tool_tip="Set every option in &quot;Fade-in&quot; back to its default value."
-                     top="1383"
+                     top="1529"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5218,7 +5341,7 @@
                      left="15"
                      name="fs_fsrenderfadein"
                      tool_tip="EXPERIMENTAL. Objects dissolve smoothly into view once they have loaded, the way games fade in streamed scenery, instead of popping in. Applies after login, teleports and when new objects come into range. Attachments and HUDs are not faded. Very little GPU cost."
-                     top="1410"
+                     top="1556"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5227,7 +5350,7 @@
                      left="35"
                      name="fs_fsrenderfadeintime_label"
                      tool_tip="EXPERIMENTAL. How many seconds a new object takes to fade fully into view."
-                     top="1438"
+                     top="1584"
                      width="285">
                         Fade time (seconds)
                     </text>
@@ -5244,7 +5367,7 @@
                      min_val="0.1"
                      name="fs_fsrenderfadeintime"
                      tool_tip="EXPERIMENTAL. How many seconds a new object takes to fade fully into view."
-                     top="1436"
+                     top="1582"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5253,7 +5376,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_local_lights"
-                     top="1478"
+                     top="1624"
                      width="340">
                         Local lights
                     </text>
@@ -5265,7 +5388,7 @@
                      left="370"
                      name="reset_fs_heading_local_lights"
                      tool_tip="Set every option in &quot;Local lights&quot; back to its default value."
-                     top="1477"
+                     top="1623"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5280,7 +5403,7 @@
                      left="15"
                      name="fs_fsrenderclusteredlights"
                      tool_tip="EXPERIMENTAL. Lights all local point lights in one pass: the screen is cut into tiles and depth slices, and each pixel is lit only by the lights that can reach its slice. Instead of one pass per light, so places with many lights (clubs, events, cities at night) cost much less GPU and CPU time. Lighting should look the same. Projectors and spotlights are unchanged."
-                     top="1504"
+                     top="1650"
                      width="475" />
                     <check_box
                      control_name="FSRenderClusteredLightsDebug"
@@ -5292,7 +5415,7 @@
                      left="35"
                      name="fs_fsrenderclusteredlightsdebug"
                      tool_tip="EXPERIMENTAL. Tints lit surfaces by how many lights their tile and depth slice lists: blue for one, through green to red for 32 or more. For checking where lights pile up; turn it off for normal viewing."
-                     top="1530"
+                     top="1676"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5301,7 +5424,7 @@
                      layout="topleft"
                      left="15"
                      name="rendering_heading"
-                     top="1572"
+                     top="1718"
                      width="340">
                         Rendering workarounds
                     </text>
@@ -5313,7 +5436,7 @@
                      left="370"
                      name="reset_rendering_heading"
                      tool_tip="Set every option in &quot;Rendering and diagnostics&quot; back to its default value."
-                     top="1571"
+                     top="1717"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5328,7 +5451,7 @@
                      left="15"
                      name="render_alpha_blend_shadows"
                      tool_tip="Render alpha-blended objects into shadow maps; animated transparent effects may be expensive shadow casters"
-                     top="1595"
+                     top="1741"
                      width="475" />
                     <check_box
                      control_name="RLVaDebugSphereUseOpaqueDepth"
@@ -5339,7 +5462,7 @@
                      left="15"
                      name="rlva_debug_sphere_opaque_depth"
                      tool_tip="Use a pre-alpha depth snapshot so alpha wearables do not punch through the RLVa sphere effect"
-                     top="1623"
+                     top="1769"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableShaderCache"
@@ -5350,7 +5473,7 @@
                      left="15"
                      name="render_amd_disable_shader_cache"
                      tool_tip="Bypass viewer shader binary caching on Windows AMD; restart required"
-                     top="1669"
+                     top="1815"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableTextureThreading"
@@ -5361,7 +5484,7 @@
                      left="15"
                      name="render_amd_disable_texture_threading"
                      tool_tip="Force main-thread texture and media uploads on Windows AMD; restart required"
-                     top="1692"
+                     top="1838"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedDirectNormals"
@@ -5372,7 +5495,7 @@
                      left="15"
                      name="render_rigged_direct_normals"
                      tool_tip="Transform rigged mesh normals and tangents as directions; restart required"
-                     top="1715"
+                     top="1861"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedLocalOrigin"
@@ -5383,7 +5506,7 @@
                      left="15"
                      name="render_rigged_local_origin"
                      tool_tip="Test avatar-root-relative rigged mesh skinning; restart required"
-                     top="1738"
+                     top="1884"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedPreciseMath"
@@ -5394,7 +5517,7 @@
                      left="15"
                      name="render_rigged_precise_math"
                      tool_tip="Test precise arithmetic and invariant positions in skinning shaders; restart required and may reduce performance"
-                     top="1761"
+                     top="1907"
                      width="475" />
                     <check_box
                      control_name="RenderGLMultiThreadedTexturesNVIDIA"
@@ -5405,7 +5528,7 @@
                      left="15"
                      name="render_nvidia_threaded_textures"
                      tool_tip="Create textures on a background OpenGL context on NVIDIA GPUs, whatever threaded textures is set to; restart required"
-                     top="1784"
+                     top="1930"
                      width="475" />
                 </panel>
             </scroll_container>

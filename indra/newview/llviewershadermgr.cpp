@@ -479,6 +479,24 @@ static void add_fade_in(LLGLSLShader* shader)
 }
 // </FS:Trish>
 
+// <FS:Trish> Terrain anti-tiling (FSRenderTerrainAntiTiling): 0 off, 1 macro variation, 2 hex tiling
+static S32 fs_terrain_anti_tiling_mode()
+{
+    static LLCachedControl<S32> mode(gSavedSettings, "FSRenderTerrainAntiTiling", 0);
+    return llclamp((S32)mode, 0, 2);
+}
+
+// Every program that links a terrain fragment shader (legacy, PBR, and the paint map bake, which links
+// pbrterrainUtilF.glsl) gets the functions it calls while the global define is set
+static void add_terrain_anti_tiling(LLGLSLShader* shader)
+{
+    if (LLGLSLShader::sGlobalDefines.count("FS_TERRAIN_ANTI_TILING"))
+    {
+        shader->mShaderFiles.push_back(make_pair("deferred/fsTerrainAntiTilingF.glsl", GL_FRAGMENT_SHADER));
+    }
+}
+// </FS:Trish>
+
 // <FS:Trish> Bicubic upsampling (FSRenderBicubicUpsample): the cubic filters of fsBicubicF.glsl for
 // the programs that filter a reduced resolution buffer up (sun ray and projector light composites,
 // the bloom fetch of the tone mapper) or fetch a history between texels (the projector light,
@@ -1475,6 +1493,16 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         attribs["TERRAIN_PBR_DETAIL"] = llformat("%d", detail);
     }
 
+    // <FS:Trish> Terrain anti-tiling (fsTerrainAntiTilingF.glsl): a global define because the shared
+    // pbrterrainUtilF.glsl reads it. 1 macro variation, 2 hex tiling; strength, hex distance and
+    // rotation are the uniform fs_terrain_anti_tiling (uploadValueUniforms).
+    const S32 fs_anti_tiling = fs_terrain_anti_tiling_mode();
+    if (fs_anti_tiling > 0)
+    {
+        attribs["FS_TERRAIN_ANTI_TILING"] = llformat("%d", fs_anti_tiling);
+    }
+    // </FS:Trish>
+
     // <FS:Trish> Skin SSS: avatar g-buffer writers mark their pixels, see LLShaderMgr::loadShaderFile
     static LLCachedControl<bool> fs_skin_sss(gSavedSettings, "FSRenderSkinSSS", false);
     if (fs_skin_sss)
@@ -2433,6 +2461,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
             add_common_permutations(shader);
             add_specular_aa(shader); // <FS:Trish/>
+            add_terrain_anti_tiling(shader); // <FS:Trish/>
 
             success = success && shader->createShader();
             llassert(success);
@@ -3621,6 +3650,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredTerrainProgram.mShaderFiles.push_back(make_pair("deferred/terrainF.glsl", GL_FRAGMENT_SHADER));
 
         add_common_permutations(&gDeferredTerrainProgram);
+        add_terrain_anti_tiling(&gDeferredTerrainProgram); // <FS:Trish/>
 
         gDeferredTerrainProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
         success = gDeferredTerrainProgram.createShader();
@@ -4896,6 +4926,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
             shader->mShaderLevel = mShaderLevel[SHADER_INTERFACE];
             const U32 value_range = (1 << bit_depth) - 1;
             shader->addPermutation("TERRAIN_PAINT_PRECISION", llformat("%d", value_range));
+            add_terrain_anti_tiling(shader); // <FS:Trish/>
             success = success && shader->createShader();
             //llassert(success);
             if (!success)
@@ -5121,6 +5152,16 @@ void LLViewerShaderMgr::uploadValueUniforms(LLGLSLShader& shader)
     }
 
     fs_upload_height_fog_uniforms(shader);
+
+    // FSRenderTerrainAntiTiling: strength, hex tiling distance, cell rotation
+    if (LLGLSLShader::sGlobalDefines.count("FS_TERRAIN_ANTI_TILING"))
+    {
+        static LLCachedControl<F32> strength(gSavedSettings, "FSRenderTerrainAntiTilingStrength", 0.75f);
+        static LLCachedControl<F32> distance(gSavedSettings, "FSRenderTerrainAntiTilingHexDistance", 48.f);
+        static LLCachedControl<bool> no_rotation(gSavedSettings, "FSRenderTerrainAntiTilingNoRotation", false);
+        static LLStaticHashedString sAntiTiling("fs_terrain_anti_tiling");
+        shader.uniform4f(sAntiTiling, llclamp((F32)strength, 0.f, 1.f), llclamp((F32)distance, 4.f, 512.f), no_rotation ? 0.f : 1.f, 0.f);
+    }
 }
 // </FS:Trish>
 
