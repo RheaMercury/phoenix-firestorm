@@ -49,6 +49,10 @@ void fsGDDUnloadShaders();
 // Frees the arenas and the per draw buffers (GL context loss, shader reloads), the PBR ones too.
 void fsGDDReleaseGL();
 
+// FSPerfGPUDrivenSharedMatrices: a new cull result is about to be drawn (LLPipeline::postSort); the shared
+// matrix tables start again (fsgddcommon.cpp).
+void fsGDDNewCull();
+
 // FSPerfGPUDrivenDraws is on and the program for this kind of pass is built.
 bool fsGDDShadowEnabled(bool single_pass);
 

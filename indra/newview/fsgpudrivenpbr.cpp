@@ -219,10 +219,9 @@ namespace
         return reason == R_BOUND_MEDIA ? "media (bound textures)" : "texture without handle (bound textures)";
     }
 
-    GLuint sIndirectBuffer = 0;
-    GLuint sRecordBuffer = 0;
-    GLuint sMatrixBuffer = 0;
-    GLuint sMaterialBuffer = 0;
+    FSGDDBuffer sIndirectBuffer;
+    FSGDDBuffer sRecordBuffer;
+    FSGDDBuffer sMaterialBuffer;
     GLuint sQuery = 0;
     GLint sRecordAttrib[FS_GDD_PBR_PROGRAMS] = { -1, -1, -1, -1 };  // location of fs_gdd_draw, by program()
     S32 sInputsReady[FS_GDD_PBR_PROGRAMS] = {};                     // bind_inputs done: 0 not yet, 1 yes, -1 failed
@@ -1260,7 +1259,10 @@ void fsGDDPBRReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sMaterialBuffer });
+    sIndirectBuffer.release();
+    sRecordBuffer.release();
+    sMaterialBuffer.release();
+    sMatrices.release();
     fsGDDDeleteQuery(sQuery);
     release_handles();
     sBindlessTested = 0;    // per GL context: tested again at the next load
@@ -1464,13 +1466,13 @@ namespace
     // Turns the pass's batches into ops (in the stock order, or grouped) and commands.
     void build(LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool bindless, bool group_runs)
     {
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         sPending.clear();
         sStockParams.clear();
         sStockRigged.clear();
         sOps.clear();
         sCommands.clear();
         sRecords.clear();
-        sMatrices.clear();
         sMaterials.clear();
         sCommandParams.clear();
         if (++sMaterialPass == 0)
@@ -1483,7 +1485,7 @@ namespace
         arena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
-        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
+        sMatrices.begin(proj, view, true, true);   // texture matrix 0: identity
 
         for (LLCullResult::drawinfo_iterator i = begin; i != end; )
         {
@@ -1613,17 +1615,17 @@ namespace
             // multi-draw doesn't: left unset it is all zeros and every rigged vertex collapses to one point.
             gGL.syncMatrices();
         }
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATRIX_BINDING, sMatrixBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING, sMaterialBuffer);
+        sMatrices.bindBase(FS_GDD_PBR_MATRIX_BINDING);
+        sMaterialBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_MATERIAL_BINDING);
         if (sRiggedPass)
         {   // the palette buffer whole; the records hold the offsets
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_PBR_SKIN_BINDING, FSSkinPaletteBuffer::glName());
         }
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectBuffer);
+        sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
         const GLuint record = (GLuint)sRecordAttrib[which];
-        glBindBuffer(GL_ARRAY_BUFFER, sRecordBuffer);
+        sRecordBuffer.bind(GL_ARRAY_BUFFER);
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), nullptr);
+        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sRecordBuffer.at(0));
         glVertexAttribDivisor(record, 1);
         sPassArena->bindForDraw(FS_GDD_PBR_ATTRIBS | (sRiggedPass ? LLVertexBuffer::MAP_WEIGHT4 : 0));
     }
@@ -1678,10 +1680,10 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd pbr execute");
         LL_PROFILE_GPU_ZONE("gdd pbr");
 
-        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
-        fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        sMatrices.upload();
+        sMaterialBuffer.upload(GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1783,7 +1785,7 @@ namespace
                 bound_tex = op.mTex;
             }
             LLGLDisable cull_face(op.mDoubleSided ? GL_CULL_FACE : 0);
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, sIndirectBuffer.at((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
                                         (GLsizei)op.mCount, 0);
             ++calls;
             drew = true;

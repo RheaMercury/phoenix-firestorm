@@ -4357,6 +4357,7 @@ void LLPipeline::postSort(LLCamera &camera)
 
     assertInitialized();
     sVolumeSAFrame = 0.f; //ZK LBG
+    fsGDDNewCull(); // <FS:Trish/> FSPerfGPUDrivenSharedMatrices: the rebuilds below may free matrices the shared tables name
 
     LL_PUSH_CALLSTACKS();
 

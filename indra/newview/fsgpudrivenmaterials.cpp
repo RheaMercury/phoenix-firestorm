@@ -199,10 +199,9 @@ namespace
     GLint sRecordAttrib[FS_GDD_MAT_PROGRAMS];       // location of fs_gdd_draw
     S32 sInputsReady[FS_GDD_MAT_PROGRAMS] = {};     // bind_inputs done: 0 not yet, 1 yes, -1 failed
 
-    GLuint sIndirectBuffer = 0;
-    GLuint sRecordBuffer = 0;
-    GLuint sMatrixBuffer = 0;
-    GLuint sMaterialBuffer = 0;
+    FSGDDBuffer sIndirectBuffer;
+    FSGDDBuffer sRecordBuffer;
+    FSGDDBuffer sMaterialBuffer;
     GLuint sQuery = 0;
 
     std::vector<Op> sOps;
@@ -441,7 +440,10 @@ void fsGDDMaterialsReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sMaterialBuffer });
+    sIndirectBuffer.release();
+    sRecordBuffer.release();
+    sMaterialBuffer.release();
+    sMatrices.release();
     fsGDDDeleteQuery(sQuery);
 }
 
@@ -471,10 +473,10 @@ namespace
     // stock fallbacks) and commands.
     void build(U32 index, LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool grouped)
     {
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         sOps.clear();
         sCommands.clear();
         sRecords.clear();
-        sMatrices.clear();
         sMaterials.clear();
         sCommandParams.clear();
         sCommandPalettes.clear();
@@ -487,7 +489,7 @@ namespace
         arena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
-        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
+        sMatrices.begin(proj, view, true, true);   // texture matrix 0: identity
 
         // the maps the stock loop binds: those the stock program samples (its texture channels)
         const LLGLSLShader& stock = gDeferredMaterialProgram[index];
@@ -682,17 +684,17 @@ namespace
             // multi-draw doesn't: left unset it is all zeros and every rigged vertex collapses to one point.
             gGL.syncMatrices();
         }
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_MATRIX_BINDING, sMatrixBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_MATERIAL_BINDING, sMaterialBuffer);
+        sMatrices.bindBase(FS_GDD_MAT_MATRIX_BINDING);
+        sMaterialBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_MATERIAL_BINDING);
         if (sRiggedPass)
         {   // the palette buffer whole; the records hold the offsets
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MAT_SKIN_BINDING, FSSkinPaletteBuffer::glName());
         }
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectBuffer);
+        sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
         const GLuint record = (GLuint)sRecordAttrib[index];
-        glBindBuffer(GL_ARRAY_BUFFER, sRecordBuffer);
+        sRecordBuffer.bind(GL_ARRAY_BUFFER);
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), nullptr);
+        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sRecordBuffer.at(0));
         glVertexAttribDivisor(record, 1);
         // every attribute the program reads (bind_inputs checked the arena holds them, build that the batches have them)
         arena_for(index).bindForDraw(sPrograms[index].mAttributeMask);
@@ -843,10 +845,10 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_DRAWPOOL("gdd materials execute");
         LL_PROFILE_GPU_ZONE("gdd materials");
 
-        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
-        fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+        sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        sMatrices.upload();
+        sMaterialBuffer.upload(GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -923,7 +925,7 @@ namespace
                 gdd = true;
                 setup_inputs(index);
             }
-            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
+            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, sIndirectBuffer.at((size_t)op.mFirst * sizeof(FSGDDDrawCommand)),
                                         (GLsizei)op.mCount, 0);
             ++calls;
             drew = true;

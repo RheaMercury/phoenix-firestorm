@@ -94,9 +94,8 @@ namespace
     FSGDDArena sArena("FSPerfGPUDrivenDraws shadow arena", { LLVertexBuffer::TYPE_VERTEX }, "FSPerfGPUDrivenDrawsArenaMB", 256, 4);
 
     // per multi-draw data, rebuilt for each call
-    GLuint sIndirectBuffer = 0;
-    GLuint sDrawBuffer = 0;
-    GLuint sMatrixBuffer = 0;
+    FSGDDBuffer sIndirectBuffer;
+    FSGDDBuffer sDrawBuffer;
     GLuint sQuery = 0;
     GLint sRecordAttrib[2] = { -1, -1 };   // location of fs_gdd_draw: plain, single pass
     S32 sInputsReady[2] = { 0, 0 };         // bind_inputs done: 0 not yet, 1 yes, -1 failed
@@ -122,7 +121,9 @@ namespace
     void release_shadow_gl()
     {
         sArena.releaseGL();
-        fsGDDDeleteBuffers({ &sIndirectBuffer, &sDrawBuffer, &sMatrixBuffer });
+        sIndirectBuffer.release();
+        sDrawBuffer.release();
+        sMatrices.release();
         fsGDDDeleteQuery(sQuery);
     }
 
@@ -144,6 +145,7 @@ void fsGDDReleaseGL()
     fsGDDPBRReleaseGL();
     fsGDDShadowAlphaReleaseGL();
     release_shadow_gl();
+    fsGDDCommonReleaseGL();     // after the passes: the upload ring and the shared matrix tables
 }
 
 void fsGDDUnloadShaders()
@@ -154,6 +156,7 @@ void fsGDDUnloadShaders()
     fsGDDAlphaUnloadShaders();      // and the alpha pass's
     fsGDDPBRUnloadShaders();    // releases the PBR GL objects too
     fsGDDShadowAlphaUnloadShaders();
+    fsGDDCommonReleaseGL();     // the upload ring and the shared matrix tables
 }
 
 namespace
@@ -294,9 +297,9 @@ namespace
     // and segments. Items that can't be drawn from the arena go to left, the rest (verify only) to sHandled.
     void build_commands(const std::vector<Item>& items, std::vector<Item>& left, bool single_pass, bool verify)
     {
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         sCommands.clear();
         sDraws.clear();
-        sMatrices.clear();
         sSegments.clear();
         sHandled.clear();
 
@@ -304,6 +307,7 @@ namespace
         sArena.beginFrame(frame);
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
+        sMatrices.begin(proj, view, false, false);
 
         const size_t count = items.size();
         size_t i = 0;
@@ -414,24 +418,24 @@ namespace
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("gdd multi-draw");
         LL_PROFILE_GPU_ZONE("gdd multi-draw");
 
-        fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-        fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_MATRIX_BINDING, sMatrixBuffer);
+        sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+        sMatrices.upload();
+        sMatrices.bindBase(FS_GDD_MATRIX_BINDING);
 
         // the per instance records, an instanced attribute (divisor 1) stepped from the commands' base
         // instances; it goes into the global vertex array object, never a buffer's own
         LLVertexBuffer::fsUseDefaultVAO();
         const GLuint record = (GLuint)sRecordAttrib[single_pass ? 1 : 0];
-        fsGDDUpload(sDrawBuffer, GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
+        sDrawBuffer.upload(GL_ARRAY_BUFFER, sDraws.data(), sDraws.size() * sizeof(Record));
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 2, GL_UNSIGNED_INT, sizeof(Record), nullptr);
+        glVertexAttribIPointer(record, 2, GL_UNSIGNED_INT, sizeof(Record), sDrawBuffer.at(0));
         glVertexAttribDivisor(record, 1);
         sArena.bindForDraw(LLVertexBuffer::MAP_VERTEX);
 
         for (const Segment& segment : sSegments)
         {
             glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
-                                        (const void*)((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
+                                        sIndirectBuffer.at((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
         }
 
         // the program's attribute mask doesn't have this location, so LLVertexBuffer expects it off and undivided

@@ -170,10 +170,9 @@ namespace
         return reason < R_ARENA ? names[reason] : FSGDDArena::failName(reason - R_ARENA);
     }
 
-    GLuint sIndirectBuffer = 0;
-    GLuint sRecordBuffer = 0;
-    GLuint sMatrixBuffer = 0;
-    GLuint sTextureBuffer = 0;
+    FSGDDBuffer sIndirectBuffer;
+    FSGDDBuffer sRecordBuffer;
+    FSGDDBuffer sTextureBuffer;
     GLuint sQuery = 0;
     GLint sRecordAttrib[2] = { -1, -1 };    // location of fs_gdd_draw: plain, single pass
     S32 sInputsReady[2] = { 0, 0 };         // bind_inputs done: 0 not yet, 1 yes, -1 failed
@@ -281,7 +280,10 @@ namespace
 void fsGDDShadowAlphaReleaseGL()
 {
     sArena.releaseGL();
-    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sTextureBuffer });
+    sIndirectBuffer.release();
+    sRecordBuffer.release();
+    sTextureBuffer.release();
+    sMatrices.release();
     fsGDDDeleteQuery(sQuery);
     sItems.clear();
     sTextures.clear();
@@ -628,6 +630,7 @@ namespace
     // Turns the pending items (sorted by face culling, then cascade set) into commands, records and segments.
     void build(bool single_pass)
     {
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
         // A bucket sort: single sided first, then by cascade set (four bits; 1 outside the single pass). Stable,
         // so batches that share matrices stay next to each other.
         constexpr U32 BUCKETS = 32;
@@ -655,12 +658,11 @@ namespace
         sCommands.clear();
         sRecords.clear();
         sSegments.clear();
-        sMatrices.clear();
         sTransformIndex.clear();
-        sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
 
         const glm::mat4 proj = gGL.getProjectionMatrix();
         const glm::mat4 view = get_current_modelview();
+        sMatrices.begin(proj, view, false, true);   // texture matrix 0: identity
         for (const Item& item : sItems)
         {
             if (sSegments.empty() || sSegments.back().mMask != item.mMask || sSegments.back().mDoubleSided != item.mDoubleSided)
@@ -698,13 +700,13 @@ namespace
     {
         // the attributes go into the global vertex array object, never a buffer's own
         LLVertexBuffer::fsUseDefaultVAO();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_SA_MATRIX_BINDING, sMatrixBuffer);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_SA_TEXTURE_BINDING, sTextureBuffer);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectBuffer);
+        sMatrices.bindBase(FS_GDD_SA_MATRIX_BINDING);
+        sTextureBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_SA_TEXTURE_BINDING);
+        sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
         const GLuint record = (GLuint)sRecordAttrib[which];
-        glBindBuffer(GL_ARRAY_BUFFER, sRecordBuffer);
+        sRecordBuffer.bind(GL_ARRAY_BUFFER);
         glEnableVertexAttribArray(record);
-        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), nullptr);
+        glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sRecordBuffer.at(0));
         glVertexAttribDivisor(record, FS_GDD_SA_RECORD_DIVISOR);
         // every attribute the program reads (bind_inputs checked the arena holds them), texture_index included
         sArena.bindForDraw(program(which).mAttributeMask);
@@ -928,10 +930,10 @@ namespace
         }
         else
         {
-            fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-            fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-            fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
-            fsGDDUpload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
+            sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+            sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+            sMatrices.upload();
+            sTextureBuffer.upload(GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
             glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -953,7 +955,7 @@ namespace
                 LLGLDisable no_cull(segment.mDoubleSided ? GL_CULL_FACE : 0);
                 // single pass: each instance's record names its cascade, no uniform needed
                 glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
-                                            (const void*)((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
+                                            sIndirectBuffer.at((size_t)segment.mFirst * sizeof(FSGDDDrawCommand)), (GLsizei)segment.mCount, 0);
                 ++calls;
             }
             LLVertexBuffer::sFSInstanceCount = 0;

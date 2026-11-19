@@ -1,7 +1,7 @@
 /**
  * @file fsgddcommon.h
  * @brief Pieces every GPU-driven pass shares (fsgpudriven*.cpp): the indirect command, the matrix table,
- * buffer uploads, and the verify and statistics helpers
+ * buffer uploads (and the upload ring, fsgddcommon.cpp), and the verify and statistics helpers
  *
  * $LicenseInfo:firstyear=2026&license=viewerlgpl$
  * Phoenix Firestorm Viewer Source Code
@@ -30,15 +30,16 @@
 #define FS_GDDCOMMON_H
 
 #include "fsgddarena.h"
+#include "llfasttimer.h"
 #include "llframetimer.h"
 #include "llgl.h"
 #include "llglstates.h"
+#include "llviewercontrol.h"
 #include "v4math.h"
 #include "m4math.h"
 
 #include "glm/gtc/type_ptr.hpp"
 
-#include <initializer_list>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -61,19 +62,110 @@ struct FSGDDTexEntry
     U32 mY;         // header: texture count; handle: high 32 bits
 };
 
-// The matrices one multi-draw reads from its storage buffer: model matrices, composed the way
-// LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them, and texture matrices, each stored once
-// per pass. Consecutive batches mostly share their matrices, so the last lookup of each kind is kept too.
-class FSGDDMatrixTable
+// Where a multi-draw input buffer (commands, records, matrices, materials, texture lists) went at its last upload.
+// By default every upload gives the pass's own buffer new storage (glBufferData), so the previous pass's draws keep
+// reading the old. With FSPerfGPUDrivenUploadRing the data goes into a slice of a few large buffers that take turns
+// over three frames instead (fsgddcommon.cpp): mapped persistently where OpenGL 4.4 allows it and the main thread
+// makes the GL calls itself, written with glBufferSubData while the render thread replays them. Main thread.
+class FSGDDBuffer
 {
 public:
+    FSGDDBuffer() = default;
+    FSGDDBuffer(const FSGDDBuffer&) = delete;
+    FSGDDBuffer& operator=(const FSGDDBuffer&) = delete;
+
+    // New storage holding data, bound to target afterwards (as glBindBuffer). Never empty.
+    void upload(GLenum target, const void* data, size_t bytes)  { allocate(target, bytes, data, bytes); }
+    // New storage of capacity bytes, the first bytes of it data, bound to target afterwards.
+    void allocate(GLenum target, size_t capacity, const void* data, size_t bytes);
+    // Writes into the storage the last allocate made, offset bytes in, bound to target afterwards. False, with
+    // nothing written, when that storage can't take it (too small, or a ring slice of an earlier frame).
+    bool writeAt(GLenum target, size_t offset, const void* data, size_t bytes);
+
+    void bind(GLenum target) const  { glBindBuffer(target, mName); }
+    // The whole storage on an indexed binding: glBindBufferBase of the own buffer as before, a range of a ring buffer
+    void bindBase(GLenum target, GLuint index) const;
+    // A byte offset into the data as the bound buffer sees it: indirect command and attribute offsets
+    const void* at(size_t offset) const { return (const void*)(mOffset + offset); }
+
+    // Deletes the own buffer; ring slices belong to the ring.
+    void release();
+
+private:
+    GLuint mOwn = 0;            // the own buffer, given new storage at each upload outside the ring
+    GLuint mName = 0;           // where the data is: mOwn or a ring buffer
+    size_t mOffset = 0;         // of the data in mName
+    size_t mCapacity = 0;
+    U8* mMapped = nullptr;      // persistent ring: mOffset, mapped
+    U32 mRingFrame = 0;         // ring slice: the frame and ring generation it belongs to
+    U32 mRingGeneration = 0;
+};
+
+// The matrices a table holds, its lookups, and the buffer it goes to
+struct FSGDDMatrixStore
+{
     void clear()
     {
         mMatrices.clear();
         mModelIndex.clear();
         mTexIndex.clear();
+        mLastModel = nullptr;
         mLastModelIndex = U32_MAX;
+        mLastTex = nullptr;
         mLastTexIndex = U32_MAX;
+        mUploaded = 0;
+    }
+
+    std::vector<glm::mat4> mMatrices;
+    std::unordered_map<const LLMatrix4*, U32> mModelIndex;
+    std::unordered_map<const LLMatrix4*, U32> mTexIndex;
+    const LLMatrix4* mLastModel = nullptr;
+    U32 mLastModelIndex = U32_MAX;      // U32_MAX: none yet
+    const LLMatrix4* mLastTex = nullptr;
+    U32 mLastTexIndex = U32_MAX;
+    FSGDDBuffer mBuffer;
+    size_t mUploaded = 0;               // shared tables: the matrices mBuffer already holds
+};
+
+// FSPerfGPUDrivenSharedMatrices: the frame's table for this projection, view and kind (full: modelview, modelview
+// projection and normal matrix per model; otherwise the modelview projection only), as the passes before left it;
+// a new one, holding the identity at 0, for the first pass. fsgddcommon.cpp.
+FSGDDMatrixStore* fsGDDSharedMatrixStore(const glm::mat4& proj, const glm::mat4& view, bool full);
+// The matrix lookups, for the FSGPUDrivenUpload statistics line
+extern U64 gFSGDDStatModelsComputed;
+extern U64 gFSGDDStatModelsFound;
+
+// The matrices one multi-draw reads from its storage buffer: model matrices, composed the way
+// LLRenderPass::applyModelMatrix and LLRender::syncMatrices compose them, and texture matrices, each stored once
+// per pass. Consecutive batches mostly share their matrices, so the last lookup of each kind is kept too.
+// With FSPerfGPUDrivenSharedMatrices every pass of a frame that draws with the same projection and view (the
+// camera's opaque, rigged and alpha passes; the passes of one shadow map) shares one table instead: a model's
+// matrices, the inverse for its normal matrix included, are computed and uploaded once, and a pass uploads only
+// what the passes before it didn't add. The same math either way, so the multi-draws stay depth identical to the
+// stock draws.
+class FSGDDMatrixTable
+{
+public:
+    FSGDDMatrixTable() = default;
+    FSGDDMatrixTable(const FSGDDMatrixTable&) = delete;
+    FSGDDMatrixTable& operator=(const FSGDDMatrixTable&) = delete;
+
+    // Starts a pass. full: the pass looks models up with modelIndex, else with mvpIndex. identity: it wants the
+    // identity at 0 (texture matrix 0); a shared table always has it.
+    void begin(const glm::mat4& proj, const glm::mat4& view, bool full, bool identity)
+    {
+        static LLCachedControl<bool> shared(gSavedSettings, "FSPerfGPUDrivenSharedMatrices", false);
+        mStore = shared ? fsGDDSharedMatrixStore(proj, view, full) : nullptr;
+        mShared = mStore != nullptr;
+        if (!mStore)
+        {
+            mStore = &mOwn;
+            mOwn.clear();
+            if (identity)
+            {
+                push(glm::mat4(1.f));
+            }
+        }
     }
 
     // The deferred passes: modelview, modelview projection and the normal matrix (its upper 3x3), in that order.
@@ -95,102 +187,115 @@ public:
         {
             return 0;
         }
-        if (mLastTexIndex != U32_MAX && texture_matrix == mLastTex)
+        FSGDDMatrixStore& s = *mStore;
+        if (s.mLastTexIndex != U32_MAX && texture_matrix == s.mLastTex)
         {
-            return mLastTexIndex;
+            return s.mLastTexIndex;
         }
-        mLastTex = texture_matrix;
-        auto it = mTexIndex.find(texture_matrix);
-        if (it != mTexIndex.end())
+        s.mLastTex = texture_matrix;
+        auto it = s.mTexIndex.find(texture_matrix);
+        if (it != s.mTexIndex.end())
         {
-            mLastTexIndex = it->second;
+            s.mLastTexIndex = it->second;
             return it->second;
         }
         const U32 index = push(glm::make_mat4((const F32*)texture_matrix->mMatrix));
-        mTexIndex.emplace(texture_matrix, index);
-        mLastTexIndex = index;
+        s.mTexIndex.emplace(texture_matrix, index);
+        s.mLastTexIndex = index;
         return index;
     }
 
     // Any other matrix the pass wants in the same buffer; its index.
     U32 push(const glm::mat4& matrix)
     {
-        const U32 index = (U32)mMatrices.size();
-        mMatrices.push_back(matrix);
+        const U32 index = (U32)mStore->mMatrices.size();
+        mStore->mMatrices.push_back(matrix);
         return index;
     }
 
-    const glm::mat4* data() const   { return mMatrices.data(); }
-    size_t size() const             { return mMatrices.size(); }
-    size_t bytes() const            { return mMatrices.size() * sizeof(glm::mat4); }
+    // To the GPU: the whole table (an own one), or what the shared table's buffer doesn't hold yet. Leaves the
+    // buffer bound to GL_SHADER_STORAGE_BUFFER when it uploaded anything.
+    void upload()
+    {
+        FSGDDMatrixStore& s = *mStore;
+        const size_t bytes = s.mMatrices.size() * sizeof(glm::mat4);
+        if (!mShared)
+        {
+            s.mBuffer.upload(GL_SHADER_STORAGE_BUFFER, s.mMatrices.data(), bytes);
+            return;
+        }
+        const size_t count = s.mMatrices.size();
+        if (s.mUploaded == count)
+        {
+            return;
+        }
+        const size_t done = s.mUploaded * sizeof(glm::mat4);
+        if (!s.mUploaded || !s.mBuffer.writeAt(GL_SHADER_STORAGE_BUFFER, done, (const U8*)s.mMatrices.data() + done, bytes - done))
+        {   // with room for the passes still to come, so they mostly only write what they add
+            s.mBuffer.allocate(GL_SHADER_STORAGE_BUFFER, llmax(bytes * 2, (size_t)(64 * 1024)), s.mMatrices.data(), bytes);
+        }
+        s.mUploaded = count;
+    }
+
+    void bindBase(GLuint index) const   { mStore->mBuffer.bindBase(GL_SHADER_STORAGE_BUFFER, index); }
+    size_t size() const                 { return mStore->mMatrices.size(); }
+    // The own table's buffer; fsGDDCommonReleaseGL releases the shared ones.
+    void release()                      { mOwn.mBuffer.release(); }
 
 private:
     U32 lookupModel(const LLMatrix4* model, const glm::mat4& proj, const glm::mat4& view, bool full)
     {
-        if (mLastModelIndex != U32_MAX && model == mLastModel)
+        FSGDDMatrixStore& s = *mStore;
+        if (s.mLastModelIndex != U32_MAX && model == s.mLastModel)
         {
-            return mLastModelIndex;
+            ++gFSGDDStatModelsFound;
+            return s.mLastModelIndex;
         }
-        mLastModel = model;
-        auto it = mModelIndex.find(model);
-        if (it != mModelIndex.end())
+        s.mLastModel = model;
+        auto it = s.mModelIndex.find(model);
+        if (it != s.mModelIndex.end())
         {
-            mLastModelIndex = it->second;
+            ++gFSGDDStatModelsFound;
+            s.mLastModelIndex = it->second;
             return it->second;
         }
+        ++gFSGDDStatModelsComputed;
         glm::mat4 modelview = view;
         if (model)
         {
             modelview *= glm::make_mat4((const F32*)model->mMatrix);
         }
-        const U32 index = (U32)mMatrices.size();
+        const U32 index = (U32)s.mMatrices.size();
         if (full)
         {
-            mMatrices.push_back(modelview);
-            mMatrices.push_back(proj * modelview);
-            mMatrices.push_back(glm::transpose(glm::inverse(modelview)));
+            s.mMatrices.push_back(modelview);
+            s.mMatrices.push_back(proj * modelview);
+            s.mMatrices.push_back(glm::transpose(glm::inverse(modelview)));
         }
         else
         {
-            mMatrices.push_back(proj * modelview);
+            s.mMatrices.push_back(proj * modelview);
         }
-        mModelIndex.emplace(model, index);
-        mLastModelIndex = index;
+        s.mModelIndex.emplace(model, index);
+        s.mLastModelIndex = index;
         return index;
     }
 
-    std::vector<glm::mat4> mMatrices;
-    std::unordered_map<const LLMatrix4*, U32> mModelIndex;
-    std::unordered_map<const LLMatrix4*, U32> mTexIndex;
-    const LLMatrix4* mLastModel = nullptr;
-    U32 mLastModelIndex = U32_MAX;      // U32_MAX: none yet this pass
-    const LLMatrix4* mLastTex = nullptr;
-    U32 mLastTexIndex = U32_MAX;
+    FSGDDMatrixStore mOwn;
+    FSGDDMatrixStore* mStore = &mOwn;
+    bool mShared = false;
 };
 
-// New storage for a per multi-draw buffer: the previous pass's draws may still read the old. Never empty.
-inline void fsGDDUpload(GLuint& buffer, GLenum target, const void* data, size_t bytes)
-{
-    if (!buffer)
-    {
-        glGenBuffers(1, &buffer);
-    }
-    glBindBuffer(target, buffer);
-    glBufferData(target, llmax(bytes, (size_t)16), bytes ? data : nullptr, GL_STREAM_DRAW);
-}
+// FSPerfGPUDrivenSharedMatrices: a new cull result is about to be drawn (LLPipeline::postSort). The shared tables
+// start again from it, so a matrix freed by a group rebuild and allocated again at the same address can't find
+// a stale entry.
+void fsGDDNewCull();
+// The ring's and the shared tables' GL objects (fsGDDReleaseGL)
+void fsGDDCommonReleaseGL();
 
-// Deletes the buffers that exist and zeroes every name.
-inline void fsGDDDeleteBuffers(std::initializer_list<GLuint*> buffers)
-{
-    for (GLuint* buffer : buffers)
-    {
-        if (*buffer)
-        {
-            glDeleteBuffers(1, buffer);
-            *buffer = 0;
-        }
-    }
-}
+// For the render breakdown, over every GPU-driven pass: turning the batches into commands, and the uploads
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_UPLOAD;
 
 inline void fsGDDDeleteQuery(GLuint& query)
 {

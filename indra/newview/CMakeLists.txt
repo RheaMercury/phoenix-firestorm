@@ -128,6 +128,7 @@ set(viewer_SOURCE_FILES
     fsfavoritegroups.cpp
     fsfoginterior.cpp
     fsgddarena.cpp
+    fsgddcommon.cpp
     fsgpudrivenalpha.cpp
     fsgpudrivendraws.cpp
     fsgpudrivenlegacy.cpp

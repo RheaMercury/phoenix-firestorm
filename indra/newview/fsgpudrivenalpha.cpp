@@ -223,11 +223,10 @@ namespace
         return names[slot];
     }
 
-    GLuint sIndirectBuffer = 0;
-    GLuint sRecordBuffer = 0;
-    GLuint sMatrixBuffer = 0;
-    GLuint sTextureBuffer = 0;
-    GLuint sMaterialBuffer = 0;
+    FSGDDBuffer sIndirectBuffer;
+    FSGDDBuffer sRecordBuffer;
+    FSGDDBuffer sTextureBuffer;
+    FSGDDBuffer sMaterialBuffer;
 
     // the pass
     bool sPassOn = false;
@@ -426,7 +425,11 @@ void fsGDDAlphaReleaseGL()
 {
     sArena.releaseGL();
     sRiggedArena.releaseGL();
-    fsGDDDeleteBuffers({ &sIndirectBuffer, &sRecordBuffer, &sMatrixBuffer, &sTextureBuffer, &sMaterialBuffer });
+    sIndirectBuffer.release();
+    sRecordBuffer.release();
+    sTextureBuffer.release();
+    sMaterialBuffer.release();
+    sMatrices.release();
     sPassOn = false;
     sPendingSlot = -1;
     sPendingCount = 0;
@@ -701,6 +704,7 @@ namespace
 
 bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool& palettes_moved)
 {
+    LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
     palettes_moved = false;
     sDrawCommand.assign(draws.size(), -1);
     sPendingSlot = -1;
@@ -770,13 +774,12 @@ bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool&
     sRecords.clear();
     sCommandSlot.clear();
     sCommandParams.clear();
-    sMatrices.clear();
     sTextures.clear();
     sMaterials.clear();
     sStockRigged.clear();
     const glm::mat4 proj = gGL.getProjectionMatrix();
     const glm::mat4 view = get_current_modelview();
-    sMatrices.push(glm::mat4(1.f));   // texture matrix 0: identity
+    sMatrices.begin(proj, view, true, true);   // texture matrix 0: identity
     for (size_t i = 0; i < draws.size(); ++i)
     {
         const Candidate& c = sCandidates[i];
@@ -810,11 +813,11 @@ bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool&
     }
     palettes_moved = FSSkinPaletteBuffer::generation() != start_generation;
 
-    fsGDDUpload(sIndirectBuffer, GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
-    fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
-    fsGDDUpload(sMatrixBuffer, GL_SHADER_STORAGE_BUFFER, sMatrices.data(), sMatrices.bytes());
-    fsGDDUpload(sTextureBuffer, GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
-    fsGDDUpload(sMaterialBuffer, GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
+    sIndirectBuffer.upload(GL_DRAW_INDIRECT_BUFFER, sCommands.data(), sCommands.size() * sizeof(FSGDDDrawCommand));
+    sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+    sMatrices.upload();
+    sTextureBuffer.upload(GL_SHADER_STORAGE_BUFFER, sTextures.data(), sTextures.size() * sizeof(FSGDDTexEntry));
+    sMaterialBuffer.upload(GL_SHADER_STORAGE_BUFFER, sMaterials.data(), sMaterials.size() * sizeof(Material));
     unbind_uploads();
     return true;
 }
@@ -866,7 +869,7 @@ void fsGDDAlphaFlush(const fs_gdd_alpha_bind_t& bind)
                                        << "rigged alpha draws is left out" << LL_ENDL;
             return;
         }
-        fsGDDUpload(sRecordBuffer, GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
+        sRecordBuffer.upload(GL_ARRAY_BUFFER, sRecords.data(), sRecords.size() * sizeof(Record));
         unbind_uploads();
     }
 
@@ -897,23 +900,23 @@ void fsGDDAlphaFlush(const fs_gdd_alpha_bind_t& bind)
 
     // the inputs; the attributes go into the global vertex array object, never a buffer's own
     LLVertexBuffer::fsUseDefaultVAO();
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_ALPHA_MATRIX_BINDING, sMatrixBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_ALPHA_DATA_BINDING, slot_material(slot) ? sMaterialBuffer : sTextureBuffer);
+    sMatrices.bindBase(FS_GDD_ALPHA_MATRIX_BINDING);
+    (slot_material(slot) ? sMaterialBuffer : sTextureBuffer).bindBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_ALPHA_DATA_BINDING);
     if (sPassRigged)
     {   // the palette buffer whole; the records hold the offsets
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, FS_GDD_ALPHA_SKIN_BINDING, FSSkinPaletteBuffer::glName());
     }
-    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, sIndirectBuffer);
+    sIndirectBuffer.bind(GL_DRAW_INDIRECT_BUFFER);
     const GLuint record = (GLuint)sRecordAttrib[slot];
-    glBindBuffer(GL_ARRAY_BUFFER, sRecordBuffer);
+    sRecordBuffer.bind(GL_ARRAY_BUFFER);
     glEnableVertexAttribArray(record);
-    glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), nullptr);
+    glVertexAttribIPointer(record, 4, GL_UNSIGNED_INT, sizeof(Record), sRecordBuffer.at(0));
     glVertexAttribDivisor(record, 1);
     // every attribute the program reads (bind_inputs checked the arenas hold them, classify that the draws have
     // them), texture_index included
     (sPassRigged ? sRiggedArena : sArena).bindForDraw(shader.mAttributeMask);
 
-    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, (const void*)((size_t)first * sizeof(FSGDDDrawCommand)),
+    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT, sIndirectBuffer.at((size_t)first * sizeof(FSGDDDrawCommand)),
                                 (GLsizei)count, 0);
 
     // undo the inputs: the program's attribute mask doesn't have the record's location, so LLVertexBuffer
