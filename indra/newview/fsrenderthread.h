@@ -35,7 +35,7 @@
 namespace FSRenderThread
 {
     // Top of LLAppViewer::doFrame: starts the thread on the first frame,
-    // applies FSRenderThreadCheck, logs the stats line every 10 s.
+    // applies FSRenderThreadCheck, logs the stats lines every 60 s.
     void frameStart();
 
     // Start of LLAppViewer::cleanup, before any GL teardown: replays what is
