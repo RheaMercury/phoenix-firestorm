@@ -110,11 +110,14 @@ void FSSoftParticles::apply(LLGLSLShader& shader, bool particle, bool additive)
         return;
     }
 
-    // the first unit after the program's own, as the water foam takes one (lldrawpoolwater.cpp)
+    // The last texture unit, which no program's own samplers reach. Not the first one after this
+    // program's own: the depth stays bound after the draw, and the next alpha program (its unit count
+    // differs, by the SSR samplers for one) could have bound a texture for the whole pass on that unit,
+    // such as the probes' shCoeffs, and read the depth in its place: red, (depth, 0, 0) as lighting.
     static LLStaticHashedString s_depth("fs_soft_depth");
     static LLStaticHashedString s_water("fs_soft_particle_water");
-    const S32 unit = shader.mActiveTextureChannels;
-    if (shader.getUniformLocation(s_depth) < 0 || unit >= llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS))
+    const S32 unit = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS) - 1;
+    if (shader.getUniformLocation(s_depth) < 0 || unit < shader.mActiveTextureChannels)
     {
         LL_WARNS_ONCE("Rendering") << "FSRenderSoftParticles: " << shader.mName << " has no free texture unit for the scene "
                                    << "depth, particles drawn with it keep hard edges" << LL_ENDL;
