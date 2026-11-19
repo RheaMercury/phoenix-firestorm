@@ -52,7 +52,7 @@ namespace
         AC_MASK_TEXTURE,    // the texture's alpha is (close to) on/off, no blend material
         AC_MASK_BLEND_MAT,  // same texture, but a material asks for alpha blending
         AC_SOFT_TEXTURE,    // the texture has real partial alpha: has to blend
-        AC_TINT,            // the face colour's alpha is below 1: has to blend
+        AC_TINT,            // the face colour's alpha is between 0 and 1: has to blend
         AC_GLOW,            // glowing: the mask path doesn't do glow
         AC_PBR,             // a PBR material in blend mode
         AC_NO_TEXTURE,      // texture not loaded yet, can't tell
@@ -114,6 +114,8 @@ namespace
         U32 mClassTris[AC_COUNT] = {};
         S32 mUnriggedAlphaFaces = 0;
         U32 mUnriggedAlphaTris = 0;
+        S32 mHiddenFaces = 0;               // face colour alpha 0: not drawn, counted apart
+        U32 mHiddenTris = 0;
 
         U32 maskableTris() const
         {
@@ -142,6 +144,14 @@ namespace
                     continue;
                 }
                 const U32 tris = face->getIndicesCount() / 3;
+                const LLTextureEntry* te = face->getTextureEntry();
+                if (face->getPoolType() == LLDrawPool::POOL_ALPHA && te && !te->getGLTFRenderMaterial() &&
+                    face->getFaceColor().mV[3] <= 0.f)
+                {   // fully transparent (how mesh bodies hide parts): not drawn (PASS_ALPHA_INVISIBLE)
+                    ++row.mHiddenFaces;
+                    row.mHiddenTris += tris;
+                    continue;
+                }
                 ++row.mFaces;
                 row.mTris += tris;
                 if (face->getPoolType() == LLDrawPool::POOL_ALPHA)
@@ -231,6 +241,8 @@ namespace
                 }
                 drawn_sum.mUnriggedAlphaFaces += row.mUnriggedAlphaFaces;
                 drawn_sum.mUnriggedAlphaTris += row.mUnriggedAlphaTris;
+                drawn_sum.mHiddenFaces += row.mHiddenFaces;
+                drawn_sum.mHiddenTris += row.mHiddenTris;
             }
         }
 
@@ -266,7 +278,9 @@ namespace
                                      << "; not rigged (already auto-masked where they could be): " << drawn_sum.mUnriggedAlphaFaces
                                      << " faces " << (drawn_sum.mUnriggedAlphaTris + 500) / 1000 << "k triangles. Could be cutout: "
                                      << (maskable + 500) / 1000 << "k of " << (drawn_alpha_tris + 500) / 1000 << "k alpha triangles ("
-                                     << (drawn_alpha_tris ? maskable * 100 / drawn_alpha_tris : 0) << "%)" << LL_ENDL;
+                                     << (drawn_alpha_tris ? maskable * 100 / drawn_alpha_tris : 0)
+                                     << "%). Hidden (face colour alpha 0, not drawn, left out above): " << drawn_sum.mHiddenFaces
+                                     << " faces " << (drawn_sum.mHiddenTris + 500) / 1000 << "k triangles" << LL_ENDL;
         }
     }
 }
