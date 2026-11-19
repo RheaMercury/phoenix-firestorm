@@ -169,6 +169,7 @@ set(viewer_SOURCE_FILES
     fsfloaterradar.cpp
     fsfloaterrecentassets.cpp
     fsfloaterscriptprofiler.cpp
+    fsfloaterscriptrepos.cpp
     fsfloatersearch.cpp
     fsfloatersplashscreensettings.cpp
     fsfloaterstatistics.cpp
@@ -197,6 +198,8 @@ set(viewer_SOURCE_FILES
     fsmoneytracker.cpp
     fsregionluascripts.cpp
     fsregionobjectscanner.cpp
+    fsscriptrepos.cpp
+    fsscriptreposfetch.cpp
     fsnamelistavatarmenu.cpp
     fsnativepopout.cpp
     fsnearbychatbarlistener.cpp
@@ -1121,6 +1124,7 @@ set(viewer_HEADER_FILES
     fsfloaterradar.h
     fsfloaterrecentassets.h
     fsfloaterscriptprofiler.h
+    fsfloaterscriptrepos.h
     fsfloatersearch.h
     fsfloatersplashscreensettings.h
     fsfloaterstatistics.h
@@ -1151,6 +1155,8 @@ set(viewer_HEADER_FILES
     fsmaniptranslatejoint.h
     fsregionluascripts.h
     fsregionobjectscanner.h
+    fsscriptrepos.h
+    fsscriptreposfetch.h
     fsnamelistavatarmenu.h
     fsnearbychatbarlistener.h
     fsnearbychatcontrol.h
@@ -2861,6 +2867,7 @@ target_link_libraries(${VIEWER_BINARY_NAME}
         ll::openxr
         fs::glod # <FS:Beq/> restore GLOD dependencies
         fs::discord # <FS:Ansariel> Discord  support
+        ll::minizip-ng # <FS:Trish/> Script repositories read GitHub zipballs
         )
 
 if (NOT DISABLE_WEBRTC)
@@ -3254,6 +3261,7 @@ if (LL_TESTS)
 #    llvocache.cpp
     llworldmap.cpp
     llworldmipmap.cpp
+    fsscriptrepos.cpp # <FS:Trish/> Script repositories core
   )
 
   set_source_files_properties(
@@ -3317,6 +3325,10 @@ if (LL_TESTS)
   set_property(SOURCE llremoteparcelrequest.cpp PROPERTY
     LL_TEST_ADDITIONAL_LIBRARIES llmessage llcorehttp llmessage)
   # </FS:Beq>
+  # <FS:Trish> Script repositories core: llcommon and minizip-ng only
+  set_property(SOURCE fsscriptrepos.cpp PROPERTY
+    LL_TEST_ADDITIONAL_LIBRARIES llcommon ll::minizip-ng)
+  # </FS:Trish>
 
   set_source_files_properties(
     llworldmap.cpp
