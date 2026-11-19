@@ -11355,7 +11355,7 @@ Change of this parameter will affect the layout of buttons in notification toast
   <key>RenderShadowCullBridgesPerCascade</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. With RenderShadowCullMode 1, test avatars, attachments and animesh against each sun shadow cascade by the agent space bounds of their spatial bridge, so they only render into cascades they reach</string>
+      <string>No longer used: it never had an effect, the shared sun shadow cull (RenderShadowCullMode 1) only meets avatars, attachments and animesh as drawables, not as bridges. Kept so saved settings still load.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>

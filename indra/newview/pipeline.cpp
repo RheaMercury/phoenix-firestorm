@@ -14749,6 +14749,47 @@ bool LLPipeline::fsEnsureExtraSpotShadowTarget(U32 slot)
     return true;
 }
 
+// What a projector shadow slot's last render was made from: unchanged, the map may be kept
+// (FSRenderSpotShadowUpdateInterval, FSPerfSpotShadowCache, FSPerfSpotShadowSplit).
+namespace
+{
+    struct FSSpotShadowKey
+    {
+        const LLDrawable* mLight;
+        U32 mTex;
+        LLVector3 mCenter;
+        LLQuaternion mRotation;
+        LLVector3 mScale;
+        LLVector3 mParams;
+        F32 mRadius;
+    };
+
+    bool fs_spot_unchanged(const LLPipeline::SpotShadowState& state, const FSSpotShadowKey& key)
+    {
+        return state.mValid &&
+               state.mLight == key.mLight &&
+               state.mTex == key.mTex &&
+               state.mCenter == key.mCenter &&
+               state.mRotation == key.mRotation &&
+               state.mScale == key.mScale &&
+               state.mParams == key.mParams &&
+               state.mRadius == key.mRadius;
+    }
+
+    void fs_spot_record(LLPipeline::SpotShadowState& state, const FSSpotShadowKey& key, U32 frame)
+    {
+        state.mValid = true;
+        state.mLight = key.mLight;
+        state.mTex = key.mTex;
+        state.mCenter = key.mCenter;
+        state.mRotation = key.mRotation;
+        state.mScale = key.mScale;
+        state.mParams = key.mParams;
+        state.mRadius = key.mRadius;
+        state.mFrame = frame;
+    }
+}
+
 // Called from generateSunShadow after the stock two: the matrices and maps of slots 2 and up, the
 // same way as the stock loop, with the same re-render throttle (FSRenderSpotShadowUpdateInterval).
 // Slots past the current count are emptied and their maps freed.
@@ -14872,15 +14913,9 @@ void LLPipeline::fsRenderExtraSpotShadows(LLCamera& camera, const glm::mat4& sav
         // While the light and its settings are unchanged, re-render its shadow only every N frames
         SpotShadowState& spot_state = mSpotShadowState[i];
         const U32 spot_interval = llclamp((U32)spot_update_interval, 1U, 16U);
-        const F32 light_radius = volume->getLightRadius();
-        const bool spot_unchanged = spot_state.mValid &&
-                                    spot_state.mLight == drawable &&
-                                    spot_state.mTex == mSpotShadow[i].getDepth() &&
-                                    spot_state.mCenter == center &&
-                                    spot_state.mRotation == quat &&
-                                    spot_state.mScale == scale &&
-                                    spot_state.mParams == params &&
-                                    spot_state.mRadius == light_radius;
+        const FSSpotShadowKey spot_key = { drawable, mSpotShadow[i].getDepth(), center, quat, scale, params,
+                                           volume->getLightRadius() };
+        const bool spot_unchanged = fs_spot_unchanged(spot_state, spot_key);
         const bool spot_skip = spot_interval > 1 && spot_unchanged && (mShadowFrame - spot_state.mFrame) < spot_interval;
         if (gCubeSnapshot || spot_skip)
         {
@@ -14899,15 +14934,7 @@ void LLPipeline::fsRenderExtraSpotShadows(LLCamera& camera, const glm::mat4& sav
             continue;
         }
 
-        spot_state.mValid = true;
-        spot_state.mLight = drawable;
-        spot_state.mTex = mSpotShadow[i].getDepth();
-        spot_state.mCenter = center;
-        spot_state.mRotation = quat;
-        spot_state.mScale = scale;
-        spot_state.mParams = params;
-        spot_state.mRadius = light_radius;
-        spot_state.mFrame = mShadowFrame;
+        fs_spot_record(spot_state, spot_key, mShadowFrame);
 
         // There are two spot shadow camera IDs. Shadow passes run with occlusion culling off, so
         // the IDs only stamp which groups were seen this frame and the slots can share them.
@@ -18650,15 +18677,9 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             static LLCachedControl<U32> spot_update_interval(gSavedSettings, "FSRenderSpotShadowUpdateInterval", 1);
             SpotShadowState& spot_state = mSpotShadowState[i];
             const U32 spot_interval = llclamp((U32)spot_update_interval, 1U, 16U);
-            const F32 light_radius = volume->getLightRadius();
-            const bool spot_unchanged = spot_state.mValid &&
-                                        spot_state.mLight == drawable &&
-                                        spot_state.mTex == mSpotShadow[i].getDepth() &&
-                                        spot_state.mCenter == center &&
-                                        spot_state.mRotation == quat &&
-                                        spot_state.mScale == scale &&
-                                        spot_state.mParams == params &&
-                                        spot_state.mRadius == light_radius;
+            const FSSpotShadowKey spot_key = { drawable, mSpotShadow[i].getDepth(), center, quat, scale, params,
+                                               volume->getLightRadius() };
+            const bool spot_unchanged = fs_spot_unchanged(spot_state, spot_key);
             const bool spot_skip = spot_interval > 1 && spot_unchanged && (mShadowFrame - spot_state.mFrame) < spot_interval;
             // FSPerfSpotShadowCache: also kept while nothing it shows can have changed. The frustum
             // built for the test is the one the render below uses.
@@ -18677,17 +18698,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             if (!gCubeSnapshot && !spot_skip && !spot_still) //skip updating spot shadow maps during cubemap updates
             // </FS:Trish>
             {
-                // <FS:Trish>
-                spot_state.mValid = true;
-                spot_state.mLight = drawable;
-                spot_state.mTex = mSpotShadow[i].getDepth();
-                spot_state.mCenter = center;
-                spot_state.mRotation = quat;
-                spot_state.mScale = scale;
-                spot_state.mParams = params;
-                spot_state.mRadius = light_radius;
-                spot_state.mFrame = mShadowFrame;
-                // </FS:Trish>
+                fs_spot_record(spot_state, spot_key, mShadowFrame); // <FS:Trish/>
                 // <FS:Trish> already built for the cache test
                 //LLCamera shadow_cam = camera;
                 //shadow_cam.setFar(far_clip);

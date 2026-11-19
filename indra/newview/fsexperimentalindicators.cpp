@@ -312,7 +312,6 @@ namespace
 
         // Shadows
         { "RenderShadowCullMode", CS, VN },
-        { "RenderShadowCullBridgesPerCascade", CS, VN },
         { "RenderShadowMinCasterTexels", CS, VN },
         { "FSRenderShadowMaxDistance", CM, VM },
         { "RenderShadowSplits", CM, VM },

@@ -5299,7 +5299,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="RenderShadowCullMode,RenderShadowCullBridgesPerCascade,RenderShadowMinCasterTexels,FSRenderShadowMaxDistance,RenderShadowSplits,FSRenderShadowSplitsFullRange,RenderShadowSplitExponent,FSRenderShadowFitDepth" />
+                         parameter="RenderShadowCullMode,RenderShadowMinCasterTexels,FSRenderShadowMaxDistance,RenderShadowSplits,FSRenderShadowSplitsFullRange,RenderShadowSplitExponent,FSRenderShadowFitDepth" />
                     </button>
                     <text
                      follows="left|top"
@@ -5331,18 +5331,6 @@
                          label="Once for all maps"
                          value="1" />
                     </combo_box>
-                    <check_box
-                     control_name="RenderShadowCullBridgesPerCascade"
-                     follows="left|top"
-                     height="20"
-                     label="Only draw avatars and attachments into shadow maps they reach"
-                     layout="topleft"
-                     left="15"
-                     name="shadow_cull_bridges_per_cascade"
-                     visible="false"
-                     tool_tip="EXPERIMENTAL. When casters are found once for all maps, test avatars, attachments and animesh against each sun shadow map by their position in the world, instead of drawing them into maps they don't reach."
-                     top="58"
-                     width="475" />
                     <text
                      follows="left|top"
                      height="18"
