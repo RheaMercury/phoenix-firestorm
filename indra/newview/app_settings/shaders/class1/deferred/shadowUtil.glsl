@@ -53,6 +53,10 @@ uniform float spot_shadow_reach; // metres: projector shadows fade out towards t
 uniform mat4 inv_proj;
 uniform vec2 screen_res;
 uniform int sun_up_factor;
+// <FS:Trish> FSRenderShadowFitDepth: non-zero while the sun shadow range was cut short to the
+// farthest thing in view, so no shadow in view lies in the fade at its end; 0 otherwise
+uniform int fs_shadow_no_fade;
+// </FS:Trish>
 
 // Receiver-plane depth bias of the sun PCF: the depth slope of the receiver in shadow texture space
 // (d depth / d uv), from two 5 cm tangent steps of the view space position pos (normal norm) through
@@ -507,7 +511,13 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
                 weight += w;
             }
 #if !defined(FS_SHADOW_EDGE_FADE)
-            shadow += max((pos.z+shadow_clip.z)/(shadow_clip.z-shadow_clip.w)*2.0-1.0, 0.0);
+            // <FS:Trish> FSRenderShadowFitDepth
+            //shadow += max((pos.z+shadow_clip.z)/(shadow_clip.z-shadow_clip.w)*2.0-1.0, 0.0);
+            if (fs_shadow_no_fade == 0)
+            {
+                shadow += max((pos.z+shadow_clip.z)/(shadow_clip.z-shadow_clip.w)*2.0-1.0, 0.0);
+            }
+            // </FS:Trish>
 #endif
         }
 
@@ -576,7 +586,13 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
 
         shadow /= weight;
 #if defined(FS_SHADOW_EDGE_FADE)
-        shadow = fsShadowEdgeFade(shadow, spos.z); // replaces the linear ramp over the far half of cascade 3
+        // <FS:Trish> FSRenderShadowFitDepth
+        //shadow = fsShadowEdgeFade(shadow, spos.z); // replaces the linear ramp over the far half of cascade 3
+        if (fs_shadow_no_fade == 0)
+        {
+            shadow = fsShadowEdgeFade(shadow, spos.z); // replaces the linear ramp over the far half of cascade 3
+        }
+        // </FS:Trish>
 #endif
     }
     else

@@ -132,6 +132,7 @@
 // [/RLVa:KB]
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
+#include "fsshadowdepthfit.h" // <FS:Trish/>
 
 #include "llenvironment.h"
 
@@ -1686,6 +1687,7 @@ void LLPipeline::releaseGLBuffers()
 
     mSceneMap.release();
     FSSSRHiZ::release(); // <FS:Trish/>
+    FSShadowDepthFit::release(); // <FS:Trish/>
 
     mWaterExclusionMask.release();
 
@@ -11142,6 +11144,12 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
         static const LLStaticHashedString sShadowFadeLength("fs_shadow_fade_length");
         shader.uniform1f(sShadowFadeLength, llclamp((F32)fade_length, 0.02f, 0.5f));
     }
+    // FSRenderShadowFitDepth: no fade at the end of a shadow range cut short to what is in view
+    // (shadowUtil.glsl). 0 unless the fit cut it, as before.
+    {
+        static const LLStaticHashedString sShadowNoFade("fs_shadow_no_fade");
+        shader.uniform1i(sShadowNoFade, (!gCubeSnapshot && FSShadowDepthFit::rangeCut()) ? 1 : 0);
+    }
     // </FS:Trish>
     LLViewerShaderMgr::uploadValueUniforms(shader); // <FS:Trish/> specular exponent for the deferred lights and soften
     shader.uniform1f(LLShaderMgr::DEFERRED_SUN_WASH, RenderDeferredSunWash);
@@ -11947,6 +11955,13 @@ void LLPipeline::renderDeferredLighting()
     }
 
     llassert(!sRenderingHUDs);
+
+    // <FS:Trish> FSRenderShadowFitDepth: the nearest and farthest depth in view, for the next frames' sun shadow splits
+    if (mRT == &mMainRT && !gCubeSnapshot)
+    {
+        FSShadowDepthFit::reduce(mRT->deferredScreen, mScreenTriangleVB);
+    }
+    // </FS:Trish>
 
     F32 light_scale = 1.f;
 
@@ -17681,6 +17696,23 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         //far_clip = llmin(far_clip, 128.f);
         far_clip = llmin(far_clip, camera.getFar());
 
+        // <FS:Trish> FSRenderShadowFitDepth: spread the splits over the depth range actually in view
+        // (read back from the depth buffer of the last frames) instead of the range of the visible
+        // objects' bounding boxes. Never further than the range above.
+        bool fs_depth_fit = false;
+        if (!gCubeSnapshot)
+        {
+            F32 fit_near = near_clip;
+            F32 fit_far = far_clip;
+            fs_depth_fit = FSShadowDepthFit::getRange(camera, near_clip, far_clip, fit_near, fit_far);
+            if (fs_depth_fit)
+            {
+                near_clip = fit_near;
+                far_clip = fit_far;
+            }
+        }
+        // </FS:Trish>
+
         F32 range = far_clip-near_clip;
 
         LLVector3 split_exp = RenderShadowSplitExponent;
@@ -17699,9 +17731,12 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
         // <FS:Trish> FSRenderShadowSplitsFullRange: spread the cascades in use (RenderShadowSplits)
         // over the whole range, instead of placing them as for four and leaving the far end unshadowed
+        // With the depth fit, too: the range then ends at the farthest thing in view, so leaving its
+        // far part to the unused maps would leave the back of a room without shadows
         static LLCachedControl<bool> splits_full_range(gSavedSettings, "FSRenderShadowSplitsFullRange", false);
         const S32 fs_last_split = llclamp(RenderShadowSplits, 0, 3);
-        const bool fs_full_range = splits_full_range && !gCubeSnapshot && fs_last_split < 3;
+        //const bool fs_full_range = splits_full_range && !gCubeSnapshot && fs_last_split < 3;
+        const bool fs_full_range = (splits_full_range || fs_depth_fit) && !gCubeSnapshot && fs_last_split < 3;
         // </FS:Trish>
         for (U32 i = 0; i < 4; ++i)
         {

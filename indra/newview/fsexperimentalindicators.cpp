@@ -317,6 +317,7 @@ namespace
         { "FSRenderShadowMaxDistance", CM, VM },
         { "RenderShadowSplits", CM, VM },
         { "FSRenderShadowSplitsFullRange", CL, VM },
+        { "FSRenderShadowFitDepth", CL, VM },
         { "FSRenderShadowFarCascadeInterval", CS, VN },
         { "FSRenderShadowFarCascadeResolution", CS, VN },
         { "FSRenderShadowFarCascadeMinCasterScale", CS, VN },

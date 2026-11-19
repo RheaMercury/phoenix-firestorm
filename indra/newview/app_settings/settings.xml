@@ -29631,6 +29631,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>512.0</real>
     </map>
+    <key>FSRenderShadowFitDepth</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Fit the sun shadow maps to the nearest and farthest things actually in view, read back from the depth buffer a frame or two late, instead of the whole shadow distance. Much sharper shadows indoors and in close-ups. The range grows at once and tightens smoothly; with fewer than 4 maps they are spread over the whole fitted range.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderShadowSplitsFullRange</key>
     <map>
       <key>Comment</key>

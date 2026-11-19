@@ -56,6 +56,7 @@
 #include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
+#include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
@@ -4313,6 +4314,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     {
         FSSSRHiZ::loadShaders(mShaderLevel[SHADER_DEFERRED]);
         FSSSRBuffer::loadShaders(mShaderLevel[SHADER_DEFERRED]);
+        FSShadowDepthFit::loadShaders(); // built on first use
     }
     // </FS:Trish>
 
