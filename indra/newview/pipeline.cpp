@@ -12245,6 +12245,11 @@ void LLPipeline::renderDeferredLighting()
             // <FS:Trish> FSRenderGPUTimings: count the main view's lights only, not probe captures'
             static LLCachedControl<bool> fs_gpu_timings(gSavedSettings, "FSRenderGPUTimings", false);
             const U64 fs_count = (fs_gpu_timings && !gCubeSnapshot) ? 1 : 0;
+            // FSPerfProbeFastLights: reflection probe faces use the clustered point lights and batched
+            // spotlights too, where those are on for the main view (each face otherwise drew one light
+            // volume per light). Both work from the current camera, projection and target.
+            static LLCachedControl<bool> fs_probe_fast_lights(gSavedSettings, "FSPerfProbeFastLights", false);
+            const bool fs_fast_lights = !gCubeSnapshot || fs_probe_fast_lights;
             // </FS:Trish>
 
             LLVertexBuffer::unbind();
@@ -12259,8 +12264,10 @@ void LLPipeline::renderDeferredLighting()
                 // <FS:Trish> FSRenderClusteredLights: the main view's point lights are handed over and
                 // shaded together after the loop; probe captures keep the stock passes. The point
                 // light glow (FSRenderPointLightScatter) takes the same lights, drawn or not.
-                const bool fs_clustered = !gCubeSnapshot &&
-                    gFSClusteredLights.begin(mat, get_current_projection(), screen_target->getWidth(), screen_target->getHeight());
+                //const bool fs_clustered = !gCubeSnapshot &&
+                //    gFSClusteredLights.begin(mat, get_current_projection(), screen_target->getWidth(), screen_target->getHeight());
+                const bool fs_clustered = fs_fast_lights &&
+                    gFSClusteredLights.begin(mat, get_current_projection(), screen_target->getWidth(), screen_target->getHeight(), gCubeSnapshot);
                 // </FS:Trish>
 
                 if (mCubeVB.isNull())
@@ -12420,7 +12427,9 @@ void LLPipeline::renderDeferredLighting()
             // ranked for next frame's shadow slots in the stock order (box lights, then the camera-inside
             // ones), exactly as setupSpotLight would have ranked it, and the stock loops skip that step.
             // Reflection probe captures keep the stock path throughout.
-            const bool fs_batch_spots = !gCubeSnapshot && gFSSpotLightBatch.begin();
+            // (and the probe faces with FSPerfProbeFastLights: ranking does nothing in them, as in setupSpotLight)
+            //const bool fs_batch_spots = !gCubeSnapshot && gFSSpotLightBatch.begin();
+            const bool fs_batch_spots = fs_fast_lights && gFSSpotLightBatch.begin();
             if (fs_batch_spots)
             {
                 for (const LLPointer<LLDrawable>& drawablep : spot_lights)

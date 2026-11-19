@@ -229,6 +229,12 @@ private:
     bool mTexturesPending = false;
     U32 mSceneChecksThisFrame = 0;
 
+    // Irradiance kept across refreshes (FSPerfProbeReuseIrradiance)
+    bool reuseIrradiance(LLReflectionMap* probe);
+    void logIrradianceReuse();
+    U32 mFSIrradianceMade = 0;                 // since the last log line
+    U32 mFSIrradianceReused = 0;
+
     // Probe-sampling uniforms that are not in the UBO (FSRenderProbeBlendSmooth)
     void applyProbeShaderUniforms();
     bool mBlendUniformTouched = false;

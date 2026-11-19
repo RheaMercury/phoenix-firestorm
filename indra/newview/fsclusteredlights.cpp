@@ -81,7 +81,7 @@ namespace
     LLStaticHashedString s_air_plane("fs_air_plane");
 }
 
-bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height)
+bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height, bool probe)
 {
     static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderClusteredLights", false);
 
@@ -91,8 +91,13 @@ bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& proje
     mShade = false;
     mBinned = false;
     mTileLists = false;
+    mProbe = probe;
+    if (probe)
+    {   // a probe face's lights are no main view frame's: prepareScatter must not take them
+        mFrame = U32_MAX;
+    }
 
-    const bool scatter = scatterWanted();
+    const bool scatter = !probe && scatterWanted();
     if ((!enabled || !gFSClusteredLightProgram.isComplete()) && !scatter)
     {
         return false;
@@ -150,7 +155,7 @@ bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& proje
     mProjection = projection;
     mShade = shade;
     mActive = true;
-    mFrame = LLFrameTimer::getFrameCount();
+    mFrame = probe ? U32_MAX : LLFrameTimer::getFrameCount();
     return true;
 }
 
@@ -435,8 +440,9 @@ void FSClusteredLights::flush(LLVertexBuffer* screen_tri)
     LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - clustered lights");
     LL_PROFILE_GPU_ZONE("clustered lights");
 
-    // The glow's tile lists are binned with the clusters, while the lights are at hand
-    mTileLists = scatterWanted();
+    // The glow's tile lists are binned with the clusters, while the lights are at hand (not for
+    // a probe face, which has no glow)
+    mTileLists = !mProbe && scatterWanted();
     binLights(mTileLists);
     upload();
     mBinned = true;

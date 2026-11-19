@@ -183,5 +183,13 @@ public:
     bool mFSSceneDirty = true;     // geometry near the probe rebuilt since mFSUpdateStart
     // </FS:Trish>
 
+    // <FS:Trish> Irradiance kept across refreshes (FSPerfProbeReuseIrradiance): when its last irradiance
+    // pass was captured (frame time of that update's start, -1 none), under which environment version, and
+    // into which cube slot's spherical harmonics row
+    F32 mFSIrradianceTime = -1.f;
+    U32 mFSIrradianceEnv = 0;
+    S32 mFSIrradianceIndex = -1;
+    // </FS:Trish>
+
     ProbeType mType;
 };

@@ -424,6 +424,7 @@ void LLReflectionMapManager::update()
     if (mInvalidate)
     {
         mInvalidate = false;
+        mEnvValid = false; // a new sky: the next version check moves the version on (FSPerfProbeReuseIrradiance, FSPerfProbeSlowSky)
         for (auto& probe : mProbes)
         {
             probe->mLastUpdateTime = 0.f;
@@ -466,12 +467,20 @@ void LLReflectionMapManager::update()
     static LLCachedControl<F32> fs_max_stale(gSavedSettings, "FSPerfProbeMaxStaleSeconds", 120.f);
     static LLCachedControl<F32> fs_sun_threshold(gSavedSettings, "FSPerfProbeSunAngleThreshold", 2.f);
     const bool skip_unchanged = fs_skip_unchanged;
-    if (skip_unchanged)
+    // FSPerfProbeReuseIrradiance and FSPerfProbeSlowSky go by the same environment version
+    static LLCachedControl<bool> fs_reuse_irradiance(gSavedSettings, "FSPerfProbeReuseIrradiance", false);
+    static LLCachedControl<bool> fs_slow_sky(gSavedSettings, "FSPerfProbeSlowSky", false);
+    //if (skip_unchanged)
+    if (skip_unchanged || fs_reuse_irradiance || fs_slow_sky)
     {
         updateEnvironmentVersion(fs_sun_threshold);
+    }
+    if (skip_unchanged)
+    {
         mTexturesPending = LLAppViewer::getTextureFetch() && LLAppViewer::getTextureFetch()->getNumRequests() > 0;
         mSceneChecksThisFrame = 0;
     }
+    logIrradianceReuse();
     // </FS:Trish>
 
     bool did_update = false;
@@ -830,7 +839,18 @@ void LLReflectionMapManager::update()
     }
     else if (mRenderReflectionProbeLevel > 0)
     { // when probes are enabled don't update the default probe less often than the prescribed update period
-      oldestProbe = mDefaultProbe;
+      // <FS:Trish> FSPerfProbeSlowSky: while the sun, moon and sky light haven't moved on since the sky probe's
+      // last capture, it is retaken every FSPerfProbeSkyUnchangedPeriod seconds instead (the clouds still drift)
+      //oldestProbe = mDefaultProbe;
+      static LLCachedControl<F32> fs_sky_period(gSavedSettings, "FSPerfProbeSkyUnchangedPeriod", 10.f);
+      const F32 since = gFrameTimeSeconds - mDefaultProbe->mLastUpdateTime;
+      const bool sky_unchanged = fs_slow_sky && mDefaultProbe->mComplete && mDefaultProbe->mFSUpdateStart >= 0.f &&
+                                 mDefaultProbe->mFSEnvVersion == mEnvVersion && since >= 0.f && since < (F32)fs_sky_period;
+      if (!sky_unchanged)
+      {
+          oldestProbe = mDefaultProbe;
+      }
+      // </FS:Trish>
     }
 
     // switch to updating the next oldest probe
@@ -848,6 +868,14 @@ void LLReflectionMapManager::update()
         probe->mFSEnvVersion = mEnvVersion;
         probe->mFSSceneCheckTime = gFrameTimeSeconds;
         probe->mFSSceneDirty = false;
+        // FSPerfProbeReuseIrradiance: a refresh of a complete probe whose irradiance was captured under the same
+        // light, not too long ago, with nothing near it rebuilt since, keeps that irradiance and renders only
+        // the six radiance faces. Its irradiance only feeds the bounce light, which the radiance pass bakes in.
+        if (fs_reuse_irradiance && reuseIrradiance(probe))
+        {
+            mRadiancePass = true;
+            ++mFSIrradianceReused;
+        }
         // </FS:Trish>
         doProbeUpdate();
     }
@@ -1327,6 +1355,12 @@ void LLReflectionMapManager::doProbeUpdate()
         }
         else
         {
+            // <FS:Trish> FSPerfProbeReuseIrradiance: what this irradiance was captured under
+            mUpdatingProbe->mFSIrradianceTime = mUpdatingProbe->mFSUpdateStart;
+            mUpdatingProbe->mFSIrradianceEnv = mUpdatingProbe->mFSEnvVersion;
+            mUpdatingProbe->mFSIrradianceIndex = mUpdatingProbe->mCubeIndex;
+            ++mFSIrradianceMade;
+            // </FS:Trish>
             mRadiancePass = true;
         }
     }
@@ -2514,6 +2548,48 @@ void LLReflectionMapManager::updateEnvironmentVersion(F32 angle_threshold_deg)
         mEnvSunColor = sun_color;
         mEnvAmbient = ambient;
     }
+}
+
+// FSPerfProbeReuseIrradiance: may this refresh keep the probe's irradiance (its spherical harmonics row) and
+// render only the radiance faces? Only for a complete probe still in the slot whose row holds that
+// irradiance, captured under the current light (environment version), less than
+// FSPerfProbeIrradianceMaxAge seconds ago, with no geometry near it rebuilt since. Changes the octree walk
+// doesn't see (a light switched, a texture arriving, water) are caught up by the age limit.
+bool LLReflectionMapManager::reuseIrradiance(LLReflectionMap* probe)
+{
+    static LLCachedControl<F32> max_age(gSavedSettings, "FSPerfProbeIrradianceMaxAge", 60.f);
+    if (!probe->mComplete || probe->mFSIrradianceTime < 0.f || probe->mFSIrradianceIndex != probe->mCubeIndex ||
+        probe->mFSIrradianceEnv != mEnvVersion)
+    {
+        return false;
+    }
+    const F32 age = gFrameTimeSeconds - probe->mFSIrradianceTime;
+    if (age < 0.f || age >= (F32)max_age)
+    {
+        return false;
+    }
+    // the sky probe only sees sky, water, terrain and clouds, which the environment version covers
+    return probe == mDefaultProbe || !scene_changed_near(probe, probe->mFSIrradianceTime);
+}
+
+// Every 30 s while FSPerfProbeReuseIrradiance is on: how many refreshes kept their irradiance
+void LLReflectionMapManager::logIrradianceReuse()
+{
+    static LLCachedControl<bool> fs_reuse_irradiance(gSavedSettings, "FSPerfProbeReuseIrradiance", false);
+    if (!fs_reuse_irradiance)
+    {
+        return;
+    }
+    static LLFrameTimer timer;
+    if (timer.getElapsedTimeF32() < 30.f)
+    {
+        return;
+    }
+    timer.reset();
+    LL_INFOS("FSProbes") << "Reflection probes, last 30 s: " << mFSIrradianceMade << " irradiance passes rendered, "
+                         << mFSIrradianceReused << " refreshes kept their irradiance (6 faces each saved)" << LL_ENDL;
+    mFSIrradianceMade = 0;
+    mFSIrradianceReused = 0;
 }
 
 // True if a complete static probe would capture the same picture again: the light has not

@@ -69,7 +69,9 @@ public:
     // True when the loop should hand its point lights to add(): clustered shading is on and its
     // program, buffer textures and texture units are usable (everything that could stop flush()
     // from drawing the lights is checked here), or the glow wants them.
-    bool begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height);
+    // probe: a reflection probe face (FSPerfProbeFastLights) with its own camera and target: shading
+    // only, no glow, and the lists the main view's glow reads later in the frame stay out of it.
+    bool begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height, bool probe = false);
 
     // One point light that passed the stock loop's tests: agent space centre, volume half size
     // (radius * 1.5, as the stock path sends), linear colour already scaled, and falloff. True
@@ -125,7 +127,8 @@ private:
     bool mShade = false;                // and shading them
     bool mBinned = false;               // the buffers hold this frame's lists
     bool mTileLists = false;            // and those include the glow's tile lists
-    U32 mFrame = 0;                     // frame of the last begin() that collected
+    bool mProbe = false;                // collecting for a reflection probe face
+    U32 mFrame = 0;                     // frame of the last begin() that collected for the main view
 
     std::vector<LLVector4> mLights;     // per light: eye space centre + size, colour + falloff
     F32 mFarDepth = 1.f;                // farthest depth any light reaches
