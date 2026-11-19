@@ -109,9 +109,10 @@ public:
     // had a bindless handle it is immutable for good (drivers don't make it mutable again when the handle goes):
     // no glTexImage, no glTexParameter. Such a texture is "locked" from the moment its handle is asked for, and
     // before LLImageGL or LLTexUnit would change it, the image moves to a fresh GL texture instead (copying its
-    // levels when the change keeps them), and the locked one is deleted after the usual delay, which also ends
-    // its handles. A texture that moved gets no handle for a while (see getFSNoBindless).
-    // sFSTextureUnlock is called with a GL name when it is actually deleted, to drop its handles.
+    // levels when the change keeps them), and the locked one goes to the delete queue, which drops its handles
+    // about a frame later; they and then the texture are released once the GPU has finished the frames that
+    // may sample them (FSGLRetire). A texture that moved gets no handle for a while (see getFSNoBindless).
+    // sFSTextureUnlock is called with a GL name when it leaves the delete queue, to retire its handles.
     typedef void (*fs_texture_unlock_t)(U32 tex_name);
     static fs_texture_unlock_t sFSTextureUnlock;
     static void fsUnlockTexture(U32 tex_name)   { if (sFSTextureUnlock && tex_name) sFSTextureUnlock(tex_name); }

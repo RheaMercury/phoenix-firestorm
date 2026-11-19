@@ -101,6 +101,7 @@
 
 #include "fsgpudrivenpbr.h"
 
+#include "fsglretire.h"
 #include "fsglstream.h"
 
 #include "fsgddarena.h"
@@ -464,8 +465,10 @@ namespace
         return state;
     }
 
-    // Drops every handle of a texture: non resident, its samplers deleted (which deletes the handles).
-    // sHandleMutex held, main thread.
+    // Drops every handle of a texture: no lookup finds them from now on, and they are retired (FSGLRetire):
+    // made non resident and their samplers deleted (which deletes the handles) once the GPU has finished the
+    // frames already recorded, which may sample them. Releasing them right away made the GPU read through a
+    // handle that was gone. sHandleMutex held, main thread.
     void drop_slots(std::vector<HandleSlot>& slots)
     {
         ++sHandleEpoch;
@@ -474,13 +477,9 @@ namespace
         {
             if (slot.mResident)
             {
-                fsMakeNonResident(slot.mHandle);
                 --sResident;
             }
-            if (slot.mSampler)
-            {
-                glDeleteSamplers(1, &slot.mSampler);
-            }
+            FSGLRetire::retireHandle(slot.mHandle, slot.mResident, slot.mSampler);
         }
 #endif
         slots.clear();
@@ -651,6 +650,8 @@ namespace
         sHandles.clear();
         sHandleTextures.store(0, std::memory_order_relaxed);
         sResident = 0;
+        // Rare (shader reloads, the GL going away): wait for the GPU in stream order and release them all now
+        FSGLRetire::finish();
     }
 
     // Once per GL context: does deleting the sampler of a texture/sampler handle make the texture mutable
@@ -713,6 +714,7 @@ namespace
         else
         {
             LL_INFOS("Rendering") << "Bindless texture self test passed" << LL_ENDL;
+            FSGLRetire::setNonResidentFunc(&fsMakeNonResidentNow); // retired handles go non resident through it
         }
         // </FS:Trish>
         if (sampler)
@@ -907,10 +909,11 @@ namespace
 #endif
 
     // While the image's new texture has no handle yet (asked for, made over the next frame or two), the handle
-    // of its previous texture, if that one is still there (deleted 3 frames after the image let go of it, which
-    // also drops its handles) and was sampled the same way: the batch keeps its multi-draw instead of falling
-    // back to the stock path, drawing the previous levels (the same image, at the old resolution) for those
-    // frames. sHandleMutex held, main thread.
+    // of its previous texture, if that one is still there (in LLImageGL's delete queue until the start of the
+    // next frame, which then drops its handles; they and the texture are released once the GPU has finished
+    // the frames that used them, FSGLRetire) and was sampled the same way: the batch keeps its multi-draw
+    // instead of falling back to the stock path, drawing the previous levels (the same image, at the old
+    // resolution) for those frames. sHandleMutex held, main thread.
     GLuint64 previous_handle(LLViewerTexture* tex, const LLImageGL* gl, U32 name, const SamplerState& state, U32 frame)
     {
         const U32 previous = tex->mFSGDDCacheName;
@@ -2127,6 +2130,8 @@ namespace
                                                          "moved by a partial update", "compressed", "driver gave none",
                                                          "being made" };
         const std::string no_handle = fsGDDCountList(sStatNoHandle, NH_COUNT, [](U32 r) { return no_handle_names[r]; });
+        // handles and textures held until the GPU finished the frames that may sample them (FSGLRetire)
+        const FSGLRetire::Stats retire = FSGLRetire::takeStats();
         LL_INFOS("FSGPUDrivenPBR") << "GPU-driven PBR, last 10 s: " << sStatPasses << " passes, " << sStatBatches
                                    << " batches (" << sStatBindless << " bindless, " << sStatBound
                                    << " bound textures) in " << sStatCalls << " multi-draw calls, "
@@ -2137,7 +2142,10 @@ namespace
                                    << handle_textures << " textures, " << sResident << " resident handles, "
                                    << sStatHandlesMade << " made, " << sStatHandleFailures << " failed, "
                                    << sStatUnlocks << " dropped for texture changes, " << sStatPreviousHandle
-                                   << " lookups served by the previous texture's handle; lookups without a handle: "
+                                   << " lookups served by the previous texture's handle; retired behind GPU fences: "
+                                   << retire.mHandlesRetired << " handles, " << retire.mTexturesRetired << " textures, "
+                                   << retire.mWaiting << " waiting, " << retire.mReleasedEarly
+                                   << " released early; lookups without a handle: "
                                    << no_handle << "; " << sStatMismatches
                                    << " verify mismatches" << LL_ENDL;
         sStatPasses = sStatBatches = sStatBindless = sStatBound = sStatCalls = sStatSwitches = 0;

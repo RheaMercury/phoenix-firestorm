@@ -43,6 +43,7 @@
 #include "llframetimer.h"
 #include "fstextureupload.h" // <FS:Trish/> FSPerfTextureUploadPBO
 #include "fsglstream.h" // <FS:Trish/> asynchronous readbacks
+#include "fsglretire.h" // <FS:Trish/> bindless handles and their textures released behind GPU fences
 #include "llthread.h" // <FS:Trish/> on_main_thread
 #include <atomic> // <FS:Trish/>
 #include <unordered_set>
@@ -402,7 +403,10 @@ bool LLImageGL::fsMakeWritable(bool copy_contents, S32 bind_unit)
     {
         mFSNoBindlessUntil = 0.f;
     }
-    // The old texture is deleted after the usual delay, as anything recorded before now may still use it
+    // <FS:Trish> The delete queue holds a name for about a frame only; a locked one (it may have bindless
+    // handles the GPU still samples) is then retired behind a GPU fence (FSGLRetire, see updateClass)
+    //// The old texture is deleted after the usual delay, as anything recorded before now may still use it
+    // </FS:Trish>
     deleteTextures(1, &old_name);
     if (bind_unit > 0)
     {
@@ -792,6 +796,7 @@ void LLImageGL::cleanupClass()
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     LLImageGLThread::deleteSingleton();
     FSTextureUpload::releaseGL(); // <FS:Trish/> FSPerfTextureUploadPBO
+    FSGLRetire::finish(); // <FS:Trish/> retired bindless handles and textures, while the GL is still there
     if (sScratchPBO != 0)
     {
         glDeleteBuffers(1, &sScratchPBO);
@@ -925,6 +930,7 @@ void LLImageGL::updateStats(F32 current_time)
 void LLImageGL::destroyGL()
 {
     FSTextureUpload::releaseGL(); // <FS:Trish/> FSPerfTextureUploadPBO: the ring dies with the context
+    FSGLRetire::finish(); // <FS:Trish/> retired bindless handles and textures, before the context goes
     for (S32 stage = 0; stage < gGLManager.mNumTextureImageUnits; stage++)
     {
         gGL.getTexUnit(stage)->unbind(LLTexUnit::TT_TEXTURE);
@@ -1840,11 +1846,19 @@ void LLImageGL::updateClass()
 
     // wait a few frames before actually deleting the textures to avoid
     // synchronization issues with the GPU
+    // <FS:Trish> In fact (sFrameCount+3) % 4 is (sFrameCount-1) % 4, the list deleteTextures filled during
+    // the frame that just ended: a name is deleted at the start of the next frame, about one frame later.
+    // GL keeps a deleted texture alive for the draws that bound it, so that is enough for them; a texture
+    // with bindless handles is retired behind a GPU fence instead (below).
+    // </FS:Trish>
     U32 idx = (sFrameCount+DELETE_DELAY) % (DELETE_DELAY+1);
 
     if (!sFreeList[idx].empty())
     {
-        // <FS:Trish> FSPerfGPUDrivenPBRBindless: forget the handles of textures going away, their names get reused
+        // <FS:Trish> FSPerfGPUDrivenPBRBindless: forget the handles of textures going away, their names get reused.
+        // Their handles are retired (FSGLRetire: released once the GPU has finished the frames that may sample
+        // them), and so are the locked textures themselves, after their handles: deleting one now freed memory
+        // frames still in flight read through a handle (a GPU page fault).
         if (sFSTextureUnlock)
         {
             for (U32 name : sFreeList[idx])
@@ -1854,12 +1868,24 @@ void LLImageGL::updateClass()
         }
         if (sFSAnyLocked.load(std::memory_order_relaxed))
         {
-            LLMutexLock lock(&sFSLockedMutex);
-            for (U32 name : sFreeList[idx])
+            std::vector<U32>& names = sFreeList[idx];
+            size_t kept = 0;
             {
-                sFSLocked.erase(name);
+                LLMutexLock lock(&sFSLockedMutex);
+                for (size_t i = 0; i < names.size(); ++i)
+                {
+                    if (sFSLocked.erase(names[i]))
+                    {
+                        FSGLRetire::retireTexture(names[i]);
+                    }
+                    else
+                    {
+                        names[kept++] = names[i];
+                    }
+                }
+                sFSAnyLocked.store(!sFSLocked.empty(), std::memory_order_relaxed);
             }
-            sFSAnyLocked.store(!sFSLocked.empty(), std::memory_order_relaxed);
+            names.resize(kept); // may be none now: deleting none below does nothing
         }
         // </FS:Trish>
         free_tex_images((GLsizei) sFreeList[idx].size(), sFreeList[idx].data());
@@ -1870,6 +1896,7 @@ void LLImageGL::updateClass()
         // </FS:Trish>
         sFreeList[idx].resize(0);
     }
+    FSGLRetire::frame(); // <FS:Trish/> a fence after what was retired, and the release of what earlier fences cleared
 }
 
 // static

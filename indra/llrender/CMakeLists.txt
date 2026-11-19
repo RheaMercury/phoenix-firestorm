@@ -10,6 +10,7 @@ include(LLImage)
 include(LLWindow)
 
 set(llrender_SOURCE_FILES
+    fsglretire.cpp # <FS:Trish/> bindless handles released behind GPU fences
     fsglstream.cpp # <FS:Trish/> FSRenderThread
     fsgputimers.cpp # <FS:Trish/> FSRenderGPUTimings
     fstextureupload.cpp # <FS:Trish/> FSPerfTextureUploadPBO
@@ -39,6 +40,7 @@ set(llrender_SOURCE_FILES
     )
     
 set(llrender_HEADER_FILES
+    fsglretire.h # <FS:Trish/> bindless handles released behind GPU fences
     fsglstream.h # <FS:Trish/> FSRenderThread
     fsgputimers.h # <FS:Trish/> FSRenderGPUTimings
     fsglstream_funcs.inl # <FS:Trish/> FSRenderThread
