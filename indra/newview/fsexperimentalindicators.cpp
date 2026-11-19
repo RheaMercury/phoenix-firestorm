@@ -456,6 +456,7 @@ namespace
         { "FSPerfGPUDrivenShadowAlphaArenaMB", CL, VN },
         { "FSPerfGPUDrivenUploadRing", CS, VN },
         { "FSPerfGPUDrivenSharedMatrices", CS, VN },
+        { "FSRenderMergePostPasses", CS, VN },
         { "FSRenderThread", CS, VN },
         { "FSPerfParallelShaderCompile", CS, VN },
         { "FSRenderUICap", CS, VN },

@@ -29213,6 +29213,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSRenderMergePostPasses</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Post processing passes that can be one full screen pass are drawn as one, with the same math: the sun rays (or underwater rays) are added to the scene in the same pass as the volumetric projector light when both are on, and the vignette is applied in the lens effects pass (chromatic aberration, lens flare, film grain) when both are on and no RLV sphere effect runs between them. Saves one full screen pass for each, about 0.05 to 0.2 ms of GPU time at 1440p. The pictures stay the same, up to the last bit of rounding of the image the separate passes stored in between.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfGPUDrivenPBRStats</key>
     <map>
       <key>Comment</key>

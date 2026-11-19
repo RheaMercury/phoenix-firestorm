@@ -36,6 +36,12 @@ uniform float grain_strength;
 uniform float grain_size;       // in pixels
 uniform float grain_seed;       // changes every frame
 
+// FSRenderMergePostPasses: the vignette pass (exoVignetteF) in this one. Its setting, x 0 for none; the levels
+// of the targets the two passes stored the image in, x after this pass, y after the vignette (255 for 8 bit,
+// 0 for none or float), so it rounds as they did
+uniform vec3 vignette;
+uniform vec2 vignette_quantize;
+
 float viewDepth(vec2 tc)
 {
     float z = texture(depthMap, tc).r * 2.0 - 1.0;
@@ -184,5 +190,21 @@ void main()
         c = filmGrain(tc, c);
     }
 
-    frag_color = vec4(clamp(c, 0.0, 1.0), diff.a);
+    vec4 result = vec4(clamp(c, 0.0, 1.0), diff.a);
+    if (vignette.x > 0.0)
+    {
+        if (vignette_quantize.x > 0.0)
+        {
+            result = floor(result * vignette_quantize.x + 0.5) / vignette_quantize.x;
+        }
+        // as exoVignetteF
+        vec2 vt = vary_fragcoord - 0.5;
+        float vignette_val = 1.0 - dot(vt, vt);
+        result.rgb *= clamp(pow(mix(1.0, vignette_val * vignette_val * vignette_val * vignette_val * vignette.z, vignette.x), vignette.y), 0.0, 1.0);
+        if (vignette_quantize.y > 0.0)
+        {
+            result = floor(result * vignette_quantize.y + 0.5) / vignette_quantize.y;
+        }
+    }
+    frag_color = result;
 }

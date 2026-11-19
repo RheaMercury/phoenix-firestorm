@@ -274,6 +274,7 @@ extern LLGLSLShader         gFSSunRaysCompositeProgram;
 extern LLGLSLShader         gFSUnderwaterRaysProgram; // <FS:Trish/> Underwater light rays
 extern LLGLSLShader         gFSSpotVolumetricProgram;
 extern LLGLSLShader         gFSSpotVolumetricCompositeProgram;
+extern LLGLSLShader         gFSVolumetricCompositeProgram; // <FS:Trish/> FSRenderMergePostPasses: rays and projector light in one pass
 extern LLGLSLShader         gFSSpotVolumetricTemporalProgram; // <FS:Trish/> FSRenderSpotVolumetricTemporal
 extern LLGLSLShader         gFSDustMotesProgram; // <FS:Trish/> Dust motes
 extern LLGLSLShader         gFSBloomPrefilterProgram;

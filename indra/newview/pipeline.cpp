@@ -10539,6 +10539,20 @@ void LLPipeline::renderDoF(LLRenderTarget* src, LLRenderTarget* dst)
     }
 }
 
+// <FS:Trish> FSRenderMergePostPasses: the sun or underwater rays' composite, held back by renderSunRays or
+// renderUnderwaterRays for renderSpotVolumetrics to add in its own composite; renderFinalize draws what is left
+// the old way after it (fs_composite_rays)
+static LLRenderTarget* sFSPendingRayMap = nullptr;
+static LLColor3 sFSPendingRayColor;
+static void fs_composite_rays(LLRenderTarget& screen, LLRenderTarget& depth, LLVertexBuffer* tri, LLRenderTarget* map,
+                              const LLColor3& color);
+// FSRenderMergePostPasses: renderLensEffects applies the vignette too, and the levels of the targets the
+// separate passes would have stored the image in between (255 for 8 bit, 0 for float or none)
+static bool sFSFoldVignette = false;
+static F32 sFSVignetteQuantize[2] = { 0.f, 0.f };
+static bool fs_merge_post_passes();
+// </FS:Trish>
+
 void LLPipeline::renderFinalize()
 {
     llassert(!gCubeSnapshot);
@@ -10617,6 +10631,13 @@ void LLPipeline::renderFinalize()
         renderSunRays();
         renderUnderwaterRays(); // <FS:Trish/> Underwater light rays, instead of the sun rays under water
         renderSpotVolumetrics();
+        // <FS:Trish> FSRenderMergePostPasses: the rays the projector light did not take into its composite
+        if (sFSPendingRayMap)
+        {
+            fs_composite_rays(mRT->screen, mRT->deferredScreen, mScreenTriangleVB, sFSPendingRayMap, sFSPendingRayColor);
+            sFSPendingRayMap = nullptr;
+        }
+        // </FS:Trish>
         renderDustMotes(); // <FS:Trish/> Dust motes, lit by the two passes above
         renderBloom();
         // </FS:Trish>
@@ -10718,11 +10739,30 @@ void LLPipeline::renderFinalize()
     //LLRenderTarget* auxTargetBuffer = RenderFSAAType ? &mRT->screen : &mPostPingMap;
     LLRenderTarget* auxTargetBuffer = RenderFSAAType ? &mRT->screen : (sourceBuffer == &mPostPingMap ? &mPostPongMap : &mPostPingMap);
     // </FS:Trish>
+    // <FS:Trish> FSRenderMergePostPasses: the vignette in the lens effects pass, when nothing runs between them
+    sFSFoldVignette = !avatars_only && fs_merge_post_passes() && RenderVignette.mV[0] > 0.f &&
+                      !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE);
+    if (sFSFoldVignette)
+    {
+        // The lens effects pass stores its image in its target, the vignette pass reads it back and stores its own
+        // in the lens effects' source: the merged pass rounds as those 8 bit targets would. A 16 bit float one in
+        // between rounds less than the 8 bit output does.
+        auto levels = [this](LLRenderTarget* target)
+        {
+            return ((target == &mPostPingMap || target == &mPostPongMap) && fs_post_chain_8bit()) ? 255.f : 0.f;
+        };
+        sFSVignetteQuantize[0] = levels(auxTargetBuffer);
+        sFSVignetteQuantize[1] = sFSVignetteQuantize[0] > 0.f ? 0.f : levels(auxActiveBuffer); // it writes to the target itself
+    }
+    bool fs_vignette_done = false;
+    // </FS:Trish>
     // <FS:Trish> Lens effects, on the anti-aliased image so the aberration and grain stay crisp
     if (!avatars_only && renderLensEffects(auxActiveBuffer, auxTargetBuffer))
     {
         std::swap(auxActiveBuffer, auxTargetBuffer);
+        fs_vignette_done = sFSFoldVignette; // FSRenderMergePostPasses
     }
+    sFSFoldVignette = false; // FSRenderMergePostPasses
     // </FS:Trish>
 // [RLVa:KB] - @setsphere
     if (RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE))
@@ -10737,7 +10777,7 @@ void LLPipeline::renderFinalize()
 
     // <FS:Trish> Avatars only snapshot: a vignette would darken the avatars toward the corners
     //if (renderVignette(auxActiveBuffer, auxTargetBuffer))
-    if (!avatars_only && renderVignette(auxActiveBuffer, auxTargetBuffer))
+    if (!avatars_only && !fs_vignette_done && renderVignette(auxActiveBuffer, auxTargetBuffer)) // FSRenderMergePostPasses: unless the lens effects did it
     // </FS:Trish>
     {
         std::swap(auxActiveBuffer, auxTargetBuffer);
@@ -15820,6 +15860,50 @@ static void fs_draw_screen_triangle(LLVertexBuffer* vb)
     vb->drawArrays(LLRender::TRIANGLES, 0, 3);
 }
 
+// <FS:Trish> FSRenderMergePostPasses: full screen post passes that can be one are drawn as one, with the
+// same math: the rays' composite with the projector light's, the vignette in the lens effects pass
+static bool fs_merge_post_passes()
+{
+    static LLCachedControl<bool> merge(gSavedSettings, "FSRenderMergePostPasses", false);
+    return merge;
+}
+
+// The rays' composite as renderSunRays draws it
+static void fs_composite_rays(LLRenderTarget& screen, LLRenderTarget& depth, LLVertexBuffer* tri, LLRenderTarget* map,
+                              const LLColor3& color)
+{
+    static LLStaticHashedString s_ray_color("ray_color");
+    screen.bindTarget();
+    gGL.setColorMask(true, false); // the screen's alpha is glow
+    LLGLEnable blend(GL_BLEND);
+    gGL.setSceneBlendType(LLRender::BT_ADD);
+
+    gFSSunRaysCompositeProgram.bind();
+    gFSSunRaysCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, map, false, LLTexUnit::TFO_POINT);
+    gFSSunRaysCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &depth, true);
+    gFSSunRaysCompositeProgram.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)screen.getWidth(), (GLfloat)screen.getHeight());
+    gFSSunRaysCompositeProgram.uniform3fv(s_ray_color, 1, color.mV);
+    fs_draw_screen_triangle(tri);
+    gFSSunRaysCompositeProgram.unbind();
+
+    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gGL.setColorMask(true, true);
+    screen.flush();
+}
+
+// Holds the rays' composite back, when the merged program can draw it
+static bool fs_hold_rays(LLRenderTarget* map, const LLColor3& color)
+{
+    if (!fs_merge_post_passes() || !gFSVolumetricCompositeProgram.isComplete())
+    {
+        return false;
+    }
+    sFSPendingRayMap = map;
+    sFSPendingRayColor = color;
+    return true;
+}
+// </FS:Trish>
+
 // Light scattered in the air toward the camera, darkened wherever the sun shadow maps say the
 // sunlight is blocked: shafts through foliage, windows and clouds of particles. Marched at
 // reduced resolution, then filtered up and added to the HDR scene.
@@ -15947,6 +16031,15 @@ void LLPipeline::renderSunRays()
         mSunRayMap.flush();
     }
 
+    // <FS:Trish> FSRenderMergePostPasses: renderSpotVolumetrics adds them in its own composite
+    if (fs_hold_rays(&mSunRayMap, light))
+    {
+        mFSDustSunColor = light * (1.f / (F32)strength); // Dust motes
+        mFSDustSunValid = true;
+        return;
+    }
+    // </FS:Trish>
+
     // Composite onto the HDR scene
     {
         mRT->screen.bindTarget();
@@ -16073,6 +16166,13 @@ void LLPipeline::renderUnderwaterRays()
         unbindDeferredShader(gFSUnderwaterRaysProgram);
         mUnderwaterRayMap.flush();
     }
+
+    // <FS:Trish> FSRenderMergePostPasses: renderSpotVolumetrics adds them in its own composite
+    if (fs_hold_rays(&mUnderwaterRayMap, light))
+    {
+        return;
+    }
+    // </FS:Trish>
 
     // Composite onto the HDR scene, as the sun rays
     {
@@ -16535,6 +16635,25 @@ void LLPipeline::renderSpotVolumetrics()
         LLGLEnable blend(GL_BLEND);
         gGL.setSceneBlendType(LLRender::BT_ADD);
 
+        // <FS:Trish> FSRenderMergePostPasses: the rays renderSunRays or renderUnderwaterRays held back, in the same pass
+        if (sFSPendingRayMap)
+        {
+            static LLStaticHashedString s_ray_color("ray_color");
+            LLGLSLShader& merged = gFSVolumetricCompositeProgram;
+            merged.bind();
+            merged.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, sFSPendingRayMap, false, LLTexUnit::TFO_POINT);
+            merged.bindTexture(LLShaderMgr::DEFERRED_SPECULAR, fs_volume, false, LLTexUnit::TFO_POINT);
+            merged.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
+            merged.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)mRT->screen.getWidth(), (GLfloat)mRT->screen.getHeight());
+            merged.uniform3fv(s_ray_color, 1, sFSPendingRayColor.mV);
+            merged.uniform1f(s_vol_strength, fs_spots ? (F32)strength : 1.f);
+            fs_draw_screen_triangle(mScreenTriangleVB);
+            merged.unbind();
+            sFSPendingRayMap = nullptr;
+        }
+        else
+        {
+        // </FS:Trish>
         gFSSpotVolumetricCompositeProgram.bind();
         //gFSSpotVolumetricCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, &mSpotVolumeMap, false, LLTexUnit::TFO_POINT);
         gFSSpotVolumetricCompositeProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, fs_volume, false, LLTexUnit::TFO_POINT); // <FS:Trish/>
@@ -16543,6 +16662,7 @@ void LLPipeline::renderSpotVolumetrics()
         gFSSpotVolumetricCompositeProgram.uniform1f(s_vol_strength, fs_spots ? (F32)strength : 1.f); // <FS:Trish/> the glow scales itself
         fs_draw_screen_triangle(mScreenTriangleVB);
         gFSSpotVolumetricCompositeProgram.unbind();
+        } // <FS:Trish/>
 
         gGL.setSceneBlendType(LLRender::BT_ALPHA);
         gGL.setColorMask(true, true);
@@ -17407,6 +17527,19 @@ bool LLPipeline::renderLensEffects(LLRenderTarget* src, LLRenderTarget* dst)
     // grain size is set in screen pixels, the shader works in target pixels
     shader.uniform1f(s_grain_size, llmax(llclamp((F32)grain_size, 1.f, 8.f) * target_scale, 0.25f));
     shader.uniform1f(s_grain_seed, (F32)(LLFrameTimer::getFrameCount() % 4096) * 0.6180339f);
+
+    // FSRenderMergePostPasses: the vignette too, as renderVignette would draw it next (renderFinalize decides)
+    static LLStaticHashedString s_vignette("vignette");
+    static LLStaticHashedString s_vignette_quantize("vignette_quantize");
+    if (sFSFoldVignette)
+    {
+        shader.uniform3fv(s_vignette, 1, RenderVignette.mV);
+        shader.uniform2f(s_vignette_quantize, sFSVignetteQuantize[0], sFSVignetteQuantize[1]);
+    }
+    else
+    {
+        shader.uniform3f(s_vignette, 0.f, 0.f, 0.f);
+    }
 
     fs_draw_screen_triangle(mScreenTriangleVB);
     shader.unbind();

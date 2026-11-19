@@ -222,6 +222,7 @@ LLGLSLShader            gFSSunRaysCompositeProgram;
 LLGLSLShader            gFSUnderwaterRaysProgram; // <FS:Trish/> Underwater light rays
 LLGLSLShader            gFSSpotVolumetricProgram;
 LLGLSLShader            gFSSpotVolumetricCompositeProgram;
+LLGLSLShader            gFSVolumetricCompositeProgram; // <FS:Trish/> FSRenderMergePostPasses
 LLGLSLShader            gFSSpotVolumetricTemporalProgram; // <FS:Trish/> FSRenderSpotVolumetricTemporal
 LLGLSLShader            gFSDustMotesProgram; // <FS:Trish/> Dust motes
 LLGLSLShader            gFSBloomPrefilterProgram;
@@ -1894,6 +1895,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSUnderwaterRaysProgram.unload(); // <FS:Trish/> Underwater light rays
         gFSSpotVolumetricProgram.unload();
         gFSSpotVolumetricCompositeProgram.unload();
+        gFSVolumetricCompositeProgram.unload(); // <FS:Trish/> FSRenderMergePostPasses
         gFSSpotVolumetricTemporalProgram.unload(); // <FS:Trish/>
         gFSPointLightScatterProgram.unload(); // <FS:Trish/> point lights glowing in fog
         gFSDustMotesProgram.unload(); // <FS:Trish/> Dust motes
@@ -3819,6 +3821,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSUnderwaterRaysProgram,   "FS Underwater Rays",    "deferred/fsUnderwaterRaysF.glsl",   true }, // <FS:Trish/> Underwater light rays
             { &gFSSpotVolumetricProgram,   "FS Spot Volumetric",    "deferred/fsSpotVolumetricF.glsl",   true },
             { &gFSSpotVolumetricCompositeProgram, "FS Spot Volumetric Composite", "deferred/fsSpotVolumetricCompositeF.glsl", true },
+            { &gFSVolumetricCompositeProgram, "FS Volumetric Composite", "deferred/fsVolumetricCompositeF.glsl", true }, // <FS:Trish/> FSRenderMergePostPasses
             { &gFSSpotVolumetricTemporalProgram, "FS Spot Volumetric Temporal", "deferred/fsSpotVolumetricTemporalF.glsl", false }, // <FS:Trish/>
             { &gFSPointLightScatterProgram, "FS Point Light Scatter", "deferred/fsPointLightScatterF.glsl", true }, // <FS:Trish/> point lights glowing in fog
             { &gFSDustMotesProgram,        "FS Dust Motes",         "deferred/fsDustMotesF.glsl",        true }, // <FS:Trish/> Dust motes
