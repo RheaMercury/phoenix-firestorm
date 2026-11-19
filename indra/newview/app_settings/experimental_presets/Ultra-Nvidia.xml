@@ -624,6 +624,8 @@
     <real>2.0</real>
     <key>FSSnapshotWaitForTextures</key>
     <integer>0</integer>
+    <key>FSTextureAvatarSmallParts</key>
+    <boolean>1</boolean>
     <key>FSTexturePriorityGLTFScale</key>
     <boolean>1</boolean>
     <key>FSTexturePriorityHiddenFaces</key>

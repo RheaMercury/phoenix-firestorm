@@ -393,6 +393,8 @@ namespace
         { "FSTexturePriorityHiddenFaces", CL, VM },
         { "FSTexturePriorityHiddenGrace", CL, VN },
         { "FSTexturePriorityGLTFScale", CL, VM },
+        { "FSTextureAvatarSmallParts", CL, VM },
+        { "FSTextureAvatarSmallPartsSize", CL, VN },
 
         // Avatar
         { "FSExperimentalRepairAnimations", CL, VN },

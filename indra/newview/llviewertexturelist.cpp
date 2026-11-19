@@ -1165,6 +1165,7 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                     {
                         static LLCachedControl<F32> texture_camera_boost(gSavedSettings, "TextureCameraBoost", 8.f);
                         vsize *= llmax(face->mImportanceToCamera*texture_camera_boost, 1.f);
+                        vsize = face_bias.avatarFloor(objp, vsize); // <FS:Trish/> FSTextureAvatarSmallParts
                     }
 
                     max_vsize = llmax(max_vsize, vsize);

@@ -364,7 +364,23 @@ FSTextureFaceBias FSTextureFaceBias::current()
     bias.mGLTFScale = gltf_scale;
     bias.mGrace = llmax((F32)hidden_grace, 0.f);
     bias.mNow = LLFrameTimer::getElapsedSeconds();
+    static LLCachedControl<bool> avatar_small_parts(gSavedSettings, "FSTextureAvatarSmallParts", false);
+    static LLCachedControl<U32> avatar_small_parts_size(gSavedSettings, "FSTextureAvatarSmallPartsSize", 128);
+    if (avatar_small_parts)
+    {
+        const F32 side = (F32)llclamp((U32)avatar_small_parts_size, 16U, 512U);
+        bias.mAvatarFloor = side * side;
+    }
     return bias;
+}
+
+F32 FSTextureFaceBias::avatarFloor(const LLViewerObject* objp, F32 vsize) const
+{
+    if (mAvatarFloor <= vsize || !objp || !objp->isAttachment() || objp->isHUDAttachment())
+    {
+        return vsize; // HUDs have their own boost
+    }
+    return mAvatarFloor;
 }
 
 bool FSTextureFaceBias::inView(const LLFace* face) const
@@ -485,6 +501,7 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 if (in_view)
                 {
                     vsize *= llmax(face->mImportanceToCamera * p.mCameraBoost, 1.f);
+                    vsize = p.mFaceBias.avatarFloor(objp, vsize); // FSTextureAvatarSmallParts: as in updateImageDecodePriority
                 }
 
                 max_vsize = llmax(max_vsize, vsize);

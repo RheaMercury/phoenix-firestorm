@@ -55,10 +55,15 @@ struct FSTextureFaceBias
     bool mGLTFScale = false;
     F32 mGrace = 0.f;
     F64 mNow = 0.0;
+    F32 mAvatarFloor = 0.f; // FSTextureAvatarSmallParts: virtual size floor, 0 when off
 
     static FSTextureFaceBias current();
     // face->mInFrustum, unless hidden as above
     bool inView(const LLFace* face) const;
+    // FSTextureAvatarSmallParts: the virtual size of an in view face of a world attachment, raised to the
+    // floor, so small parts (eyes, lips, nails) load early and stay loaded instead of going by their tiny
+    // pixel area. Reads only flags of objp, safe on the priority workers.
+    F32 avatarFloor(const LLViewerObject* objp, F32 vsize) const;
     // the smaller of the face's texture repeats in S and T for a texture in channel (LLRender::eTexIndex)
     F32 repeats(const LLTextureEntry* te, U32 channel) const;
     // The scale a face's virtual size is divided by: its repeats (above), or the frame size of a texture

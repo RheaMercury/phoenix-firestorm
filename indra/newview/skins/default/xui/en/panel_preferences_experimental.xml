@@ -6801,7 +6801,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="645"
+                 height="697"
                  layout="topleft"
                  left="0"
                  name="experimental_textures_settings"
@@ -7179,6 +7179,43 @@
                      tool_tip="EXPERIMENTAL. Choose the detail of PBR (GLTF) material textures from the repeats of the material's own texture transform, which is what draws them, instead of the face's legacy texture repeats, which PBR materials don't use. Textures repeated many times load less detail, stretched ones more."
                      top="601"
                      width="475" />
+                    <check_box
+                     control_name="FSTextureAvatarSmallParts"
+                     follows="left|top"
+                     height="20"
+                     label="Load the textures of small avatar parts (eyes, lips, nails) early"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstextureavatarsmallparts"
+                     tool_tip="EXPERIMENTAL. Textures load in order of how much of the screen they cover, so tiny avatar parts like eyes load last and are the first to be dropped when video memory runs short, leaving grey eyes. With this on, the textures of attachments in view count as at least the size below, so they load early and stay loaded. Uses a little more video memory."
+                     top="625"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fstextureavatarsmallpartssize_label"
+                     tool_tip="EXPERIMENTAL. The smallest texture size, in pixels, the textures of attachments in view are loaded at. 128 keeps eyes sharp at a conversation distance."
+                     top="651"
+                     width="285">
+                        Smallest size for avatar part textures
+                    </text>
+                    <spinner
+                     control_name="FSTextureAvatarSmallPartsSize"
+                     decimal_digits="0"
+                     enabled_control="FSTextureAvatarSmallParts"
+                     follows="left|top"
+                     height="20"
+                     increment="16"
+                     layout="topleft"
+                     left="330"
+                     max_val="512"
+                     min_val="16"
+                     name="fs_fstextureavatarsmallpartssize"
+                     tool_tip="EXPERIMENTAL. The smallest texture size, in pixels, the textures of attachments in view are loaded at. 128 keeps eyes sharp at a conversation distance."
+                     top="649"
+                     width="100" />
                 </panel>
             </scroll_container>
         </panel>
