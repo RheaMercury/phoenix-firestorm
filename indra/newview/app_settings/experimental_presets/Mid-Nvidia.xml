@@ -242,6 +242,8 @@
     <real>0.15</real>
     <key>FSRenderBloomThreshold</key>
     <real>1.0</real>
+    <key>FSRenderCheapParticles</key>
+    <boolean>1</boolean>
     <key>FSRenderChromaticAberration</key>
     <real>2.0</real>
     <key>FSRenderChromaticAberrationDoFOnly</key>

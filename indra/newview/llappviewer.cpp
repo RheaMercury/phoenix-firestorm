@@ -33,6 +33,7 @@
 #include "llvolume.h" // <FS:Trish/> FSPerfBackgroundVolumeFree
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsavatarcostlog.h" // <FS:Trish/> FSRenderGPUTimings
+#include "fsparticlerender.h" // <FS:Trish/> FSRenderGPUTimings: the particle line
 #include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
 #include "fsnativepopout.h"
 
@@ -1887,6 +1888,7 @@ bool LLAppViewer::doFrame()
         static LLCachedControl<F32> gpu_timings_interval(gSavedSettings, "FSRenderGPUTimingsInterval", 10.f);
         FSGPUTimers::frame(gpu_timings && gGLManager.mInited, gpu_timings_interval);
         FSAvatarCostLog::frame(gpu_timings && LLStartUp::getStartupState() >= STATE_STARTED, gpu_timings_interval);
+        FSParticleRender::frame(gpu_timings && LLStartUp::getStartupState() >= STATE_STARTED, gpu_timings_interval);
         if (LLStartUp::getStartupState() >= STATE_STARTED)
         {
             FSGPUWorkDiag::frame(); // FSDiagnosticsGPUWork

@@ -27933,6 +27933,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.25</real>
     </map>
+    <key>FSRenderCheapParticles</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Cheap particles: smoke, fog and other in-world particles drawn with the lit transparent shader are lit more cheaply. They take the ambient light of the sky probe instead of searching the nearby reflection probes, one sun shadow sample instead of a filtered set, and the four local lights nearest the camera instead of seven. Thick fog, which stacks many large particles on every pixel, costs much less on the graphics card; it can look slightly different near local lights and inside buildings with their own reflection probes. No shader rebuild.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderSoftParticles</key>
     <map>
       <key>Comment</key>

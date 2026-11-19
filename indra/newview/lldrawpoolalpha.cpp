@@ -56,6 +56,7 @@
 #include "llenvironment.h"
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
 #include "fsgpudrivenalpha.h" // <FS:Trish/> FSPerfGPUDrivenAlpha
+#include "fsparticlerender.h" // <FS:Trish/> particle draws: cheap lighting, early-out, GPU timings
 #include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
 #include <optional> // <FS:Trish/>
 
@@ -1081,6 +1082,21 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
 
             sFSSoftGroup = fs_soft_pass && group->getSpatialPartition()->mPartitionType == LLViewerRegion::PARTITION_PARTICLE; // <FS:Trish/>
 
+            // <FS:Trish> Particle draws (fsparticlerender.cpp): in-world particles tell the legacy alpha
+            // program what it may skip, and with FSRenderGPUTimings on the group's draws and glow are a
+            // GPU zone of their own
+            const bool fs_particle_group = group->getSpatialPartition()->mPartitionType == LLViewerRegion::PARTITION_PARTICLE;
+            std::optional<LLFSGPUZone::Scope> fs_particle_zone;
+            if (fs_particle_group && FSParticleRender::openZone())
+            {
+                fs_particle_zone.emplace("alpha particles");
+            }
+            if (fs_particle_group && !depth_only)
+            {
+                FSParticleRender::noteGroup(group);
+            }
+            // </FS:Trish>
+
             bool disable_cull = is_particle_or_hud_particle;
             LLGLDisable cull(disable_cull ? GL_CULL_FACE : 0);
 
@@ -1358,6 +1374,19 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                     if (sFSSoftOn)
                     {
                         FSSoftParticles::apply(*current_shader, sFSSoftGroup, params.mBlendFuncSrc == LLRender::BF_ONE);
+                    }
+                    // </FS:Trish>
+
+                    // <FS:Trish> Particle draws: the early-out only where a discarded fragment changes
+                    // nothing, source alpha blending in a colour pass that writes no depth
+                    {
+                        const S32 fs_particle_flags = fs_particle_group ?
+                            FSParticleRender::flags(params.mBlendFuncSrc == LLRender::BF_SOURCE_ALPHA && !depth_only && !mFSWriteDepth) : 0;
+                        FSParticleRender::apply(*current_shader, fs_particle_flags);
+                        if (fs_particle_group)
+                        {
+                            FSParticleRender::noteDraw(fs_particle_flags, params.mCount);
+                        }
                     }
                     // </FS:Trish>
 

@@ -130,6 +130,15 @@ vec4 fsSoftParticleApply(vec4 color, float fade);
 #endif
 // </FS:Trish>
 
+// <FS:Trish> Particle draws (fsparticlerender.cpp): set per draw of an in-world particle group, 0 for
+// every other draw. Bit 1: the draw blends by source alpha and writes no depth, so a fragment the
+// soft particle fade leaves below minimum_alpha adds nothing and stops before the lighting, as the
+// minimum_alpha test does. Bit 2: cheap lighting (FSRenderCheapParticles).
+uniform int fs_particle;
+float fsSampleDirectionalShadowCheap(vec3 pos, vec3 norm); // shadowUtil.glsl
+vec3 fsSampleProbeAmbientCheap(vec3 pos, vec3 norm, vec3 amblit); // reflectionProbeF.glsl
+// </FS:Trish>
+
 void main()
 {
 #ifdef FS_FADE_IN
@@ -220,6 +229,18 @@ void main()
     }
 #endif
 
+    // <FS:Trish> Particle draws: the soft fade is taken here instead of at the end (the same value),
+    // so a particle fragment it fades out can leave before the lighting. Uniform per draw: coherent.
+#ifdef FS_SOFT_PARTICLES
+    float fs_soft_fade = fsSoftParticleFade(vary_position);
+    if ((fs_particle & 1) != 0 && final_alpha * fs_soft_fade < minimum_alpha)
+    {
+        discard;
+    }
+#endif
+    bool fs_cheap = (fs_particle & 2) != 0;
+    // </FS:Trish>
+
     // After the alpha tests rather than ahead of them, so a fragment they reject does not pay
     // for the PCF taps. The shadow maps carry no mips, so nothing here depends on derivatives.
 #ifdef HAS_SUN_SHADOW
@@ -227,7 +248,8 @@ void main()
     //shadow = sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
     if (dot(norm.xyz, light_dir.xyz) > 0.0)
     {
-        shadow = sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
+        // cheap particles: one filtered tap, so fog in the shade stays in the shade
+        shadow = fs_cheap ? fsSampleDirectionalShadowCheap(pos.xyz, norm.xyz) : sampleDirectionalShadow(pos.xyz, norm.xyz, frag);
     }
     // </FS:Trish>
 #endif
@@ -246,7 +268,17 @@ void main()
     vec3 irradiance = amblit;
     vec3 glossenv = vec3(0.0);
     vec3 legacyenv = vec3(0.0);
-    sampleReflectionProbesLegacy(irradiance, glossenv, legacyenv, frag, pos.xyz, norm.xyz, 0.0, 0.0, true, amblit_linear);
+    // <FS:Trish> Cheap particles: the sky probe's ambient alone, without the walk over the probes
+    //sampleReflectionProbesLegacy(irradiance, glossenv, legacyenv, frag, pos.xyz, norm.xyz, 0.0, 0.0, true, amblit_linear);
+    if (fs_cheap)
+    {
+        irradiance = fsSampleProbeAmbientCheap(pos.xyz, norm.xyz, amblit_linear);
+    }
+    else
+    {
+        sampleReflectionProbesLegacy(irradiance, glossenv, legacyenv, frag, pos.xyz, norm.xyz, 0.0, 0.0, true, amblit_linear);
+    }
+    // </FS:Trish>
 
 
     float da = dot(norm.xyz, light_dir.xyz);
@@ -288,9 +320,14 @@ void main()
     LIGHT_LOOP(2)
     LIGHT_LOOP(3)
     LIGHT_LOOP(4)
+    // <FS:Trish> Cheap particles: the four lights nearest the camera (the list is sorted by distance)
+    if (!fs_cheap)
+    {
+    // </FS:Trish>
     LIGHT_LOOP(5)
     LIGHT_LOOP(6)
     LIGHT_LOOP(7)
+    } // <FS:Trish/>
 
     // sum local light contrib in linear colorspace
     color.rgb += light.rgb;
@@ -310,7 +347,11 @@ void main()
     frag_color = max(color, vec4(0));
     // <FS:Trish> Soft particles: fade where the particle meets the scene, before WBOIT weighs the alpha
 #ifdef FS_SOFT_PARTICLES
-    frag_color = fsSoftParticleApply(frag_color, fsSoftParticleFade(vary_position));
+#ifdef FOR_IMPOSTOR
+    float fs_soft_fade = fsSoftParticleFade(vary_position); // no impostor program is built with it, kept whole
+#endif
+    //frag_color = fsSoftParticleApply(frag_color, fsSoftParticleFade(vary_position));
+    frag_color = fsSoftParticleApply(frag_color, fs_soft_fade); // taken after the alpha tests
 #endif
     // </FS:Trish>
 #ifdef FS_WBOIT

@@ -56,6 +56,14 @@ vec4 sampleReflectionProbesDebug(vec3 pos)
     return vec4(0, 0, 0, 0);
 }
 
+// <FS:Trish> Cheap particles (FSRenderCheapParticles, alphaF.glsl): the ambient sampleReflectionProbesLegacy
+// gives here, without its environment map tap
+vec3 fsSampleProbeAmbientCheap(vec3 pos, vec3 norm, vec3 amblit)
+{
+    return mix(amblit, vec3(reflection_probe_ambiance * 0.25), reflection_probe_ambiance);
+}
+// </FS:Trish>
+
 void sampleReflectionProbesLegacy(inout vec3 ambenv, inout vec3 glossenv, inout vec3 legacyenv,
         vec2 tc, vec3 pos, vec3 norm, float glossiness, float envIntensity, bool transparent, vec3 amblit_linear)
 {

@@ -441,6 +441,7 @@ namespace
         { "FSPerfRepresentativeFragmentTest", CS, VN },
         { "FSPerfAlphaGlowSkip", CS, VN },
         { "FSRenderOcclusionAfterOpaque", CS, VN },
+        { "FSRenderCheapParticles", CS, VL },
         { "FSPerfLightRescanThrottle", CS, VN },
         { "FSPerfHeroProbeSkipHiddenFaces", CS, VN },
         { "FSPerfProbeUniformCache", CS, VN },

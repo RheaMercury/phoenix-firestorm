@@ -674,6 +674,21 @@ vec3 tapIrradianceMap(vec3 pos, vec3 dir, out float w, out float dw, vec3 c, int
     return col;
 }
 
+// <FS:Trish> Cheap particles (FSRenderCheapParticles, alphaF.glsl): the ambient of the sky probe (index 0,
+// the default probe around the camera, which preProbeSample adds to every walk) alone, without the
+// walk over the local probes. In classic mode the full path takes the sky ambient as it is too.
+vec3 fsSampleProbeAmbientCheap(vec3 pos, vec3 norm, vec3 amblit)
+{
+    if (classic_mode != 0)
+    {
+        return amblit;
+    }
+    float w = 0.0;
+    float dw = 0.0;
+    return tapIrradianceMap(pos, norm, w, dw, refSphere[0].xyz, 0, amblit);
+}
+// </FS:Trish>
+
 vec3 sampleProbes(vec3 pos, vec3 dir, float lod)
 {
     float wsum[2];

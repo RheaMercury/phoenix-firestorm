@@ -212,6 +212,7 @@ set(viewer_SOURCE_FILES
     fsparcelderender.cpp
     fsparallelavatar.cpp
     fsparticipantlist.cpp
+    fsparticlerender.cpp
     fspointlightbatch.cpp
     fspose.cpp
     fsposeranimator.cpp
@@ -1142,6 +1143,7 @@ set(viewer_HEADER_FILES
     fsparcelderender.h
     fsparallelavatar.h
     fsparticipantlist.h
+    fsparticlerender.h
     fspointlightbatch.h
     fspose.h
     fsposeranimator.h

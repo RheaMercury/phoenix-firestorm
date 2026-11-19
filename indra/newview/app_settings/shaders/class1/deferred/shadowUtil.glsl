@@ -686,6 +686,64 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
 #endif
 }
 
+// <FS:Trish> Cheap particles (FSRenderCheapParticles, alphaF.glsl): the sun shadow of a particle from
+// one hardware filtered tap (2x2 compare) of the cascade the point lies in, instead of the PCF taps
+// over up to two cascades. Soft fog needs the shade, not its edge: an unshadowed fog bank would glow
+// in the shadow of a building. The offset, bias and range end are those of sampleDirectionalShadow.
+float fsSampleDirectionalShadowCheap(vec3 pos, vec3 norm)
+{
+#if defined(SUN_SHADOW)
+    vec3 light_dir = normalize((sun_up_factor == 1) ? sun_dir : moon_dir);
+    float dp_directional_light = clamp(dot(norm.xyz, light_dir), 0.0, 1.0);
+    vec4 spos = vec4(pos.xyz + light_dir * (1.0 - dp_directional_light) * shadow_offset * 2.0, 1.0);
+
+    if (spos.z <= -shadow_clip.w)
+    {
+        return 1.0; // lit beyond the far split, as there
+    }
+
+    // the cascade whose blend weight is largest at this depth: the transitions are centred on the splits
+    vec4 lpos;
+    float shadow;
+    if (spos.z > -shadow_clip.x)
+    {
+        lpos = shadow_matrix[0] * spos;
+        shadow = texture(shadowMap0, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+    }
+    else if (spos.z > -shadow_clip.y)
+    {
+        lpos = shadow_matrix[1] * spos;
+        shadow = texture(shadowMap1, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+    }
+    else if (spos.z > -shadow_clip.z)
+    {
+        lpos = shadow_matrix[2] * spos;
+        shadow = texture(shadowMap2, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+    }
+    else
+    {
+        lpos = shadow_matrix[3] * spos;
+        shadow = texture(shadowMap3, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+#if !defined(FS_SHADOW_EDGE_FADE)
+        if (fs_shadow_no_fade == 0)
+        {
+            shadow += max((pos.z+shadow_clip.z)/(shadow_clip.z-shadow_clip.w)*2.0-1.0, 0.0);
+        }
+#endif
+    }
+#if defined(FS_SHADOW_EDGE_FADE)
+    if (fs_shadow_no_fade == 0)
+    {
+        shadow = fsShadowEdgeFade(shadow, spos.z);
+    }
+#endif
+    return clamp(shadow, 0.0, 1.0);
+#else
+    return 1.0;
+#endif
+}
+// </FS:Trish>
+
 float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen)
 {
 #if defined(SPOT_SHADOW)
