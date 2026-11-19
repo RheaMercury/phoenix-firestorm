@@ -928,9 +928,15 @@ namespace FSCameraLinks
 
     bool getCurrentFollowView(View& view, bool turn_with_target, std::string* name)
     {
-        // Check what the camera is currently alt-clicked on, or what is selected.
+        // Check what the camera is following now (it holds no focus object while it follows, so
+        // another angle of a followed target can be saved), then what it is alt-clicked on, or what
+        // is selected.
         LLViewerObject* target = nullptr;
-        if (!gAgentCamera.getFocusOnAvatar())
+        if (sFollowActive)
+        {
+            target = find_target(sFollowView.mTarget);
+        }
+        if (!target && !gAgentCamera.getFocusOnAvatar())
         {
             target = follow_root(gAgentCamera.getFocusObject().get());
         }
