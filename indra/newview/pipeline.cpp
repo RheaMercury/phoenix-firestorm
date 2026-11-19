@@ -11680,6 +11680,12 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
     shader.uniform1f(s_translucency, translucent ? llclamp((F32)translucency, 0.f, 4.f) : 0.f);
     shader.uniform1i(s_debug, debug ? 1 : 0);
     shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
+    // Skin polish: how much of the albedo goes in before the blur (FS_SKIN_ALBEDO_SPLIT)
+    {
+        static LLCachedControl<F32> albedo_split(gSavedSettings, "FSRenderSkinAlbedoSplitAmount", 1.f);
+        static LLStaticHashedString s_albedo_split("fs_skin_albedo_split");
+        shader.uniform1f(s_albedo_split, llclamp((F32)albedo_split, 0.f, 1.f));
+    }
     if (translucent)
     {
         // As bindDeferredShader sets them for the sun pass

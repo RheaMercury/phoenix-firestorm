@@ -28263,6 +28263,50 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.2</real>
     </map>
+    <key>FSRenderSkinAlbedoSplit</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Skin polish for FSRenderSkinSSS (GPU Gems 3 ch. 14): part of the skin albedo is applied before the scattering blur instead of all of it after (pre- and post-scatter texturing), so the colour of freckles, lips and makeup bleeds slightly into the skin around them. Amount in FSRenderSkinAlbedoSplitAmount. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSkinAlbedoSplitAmount</key>
+    <map>
+      <key>Comment</key>
+      <string>FSRenderSkinAlbedoSplit: 0 = all of the albedo after the blur (as without the option), 1 = half before and half after (square root on both sides, as GPU Gems 3 recommends).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderSkinEnergy</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Skin polish for FSRenderSkinSSS: the scattered light of legacy-shaded skin and the backlit translucency of all skin are scaled by 1 - the directional albedo of the skin specular (F0 0.028), so light reflected by the surface film does not also enter the skin and rims do not over-brighten. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSkinTapLOD</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Skin polish for FSRenderSkinSSS: where the scattering kernel reaches only a few pixels (faces a metre or two away and further), a merged 3-tap-per-side kernel replaces the 7-tap one, about halving the blur cost in crowds. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderColoredShadowsProjectors</key>
     <map>
       <key>Comment</key>

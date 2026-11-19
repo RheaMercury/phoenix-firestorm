@@ -3938,6 +3938,23 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         {
             gFSSkinSSSProgram.addPermutation("FS_SKIN_DETECT_MATERIAL", "1"); // material score, fsSkinUtil.glsl
         }
+        // Skin polish (GPU Gems 3 ch. 14), see fsSkinSSSF.glsl. The colour bleed amount is the
+        // uniform fs_skin_albedo_split (fs_render_skin_sss).
+        static LLCachedControl<bool> albedo_split(gSavedSettings, "FSRenderSkinAlbedoSplit", false);
+        static LLCachedControl<bool> energy(gSavedSettings, "FSRenderSkinEnergy", false);
+        static LLCachedControl<bool> tap_lod(gSavedSettings, "FSRenderSkinTapLOD", false);
+        if (albedo_split)
+        {
+            gFSSkinSSSProgram.addPermutation("FS_SKIN_ALBEDO_SPLIT", "1");
+        }
+        if (energy)
+        {
+            gFSSkinSSSProgram.addPermutation("FS_SKIN_ENERGY", "1");
+        }
+        if (tap_lod)
+        {
+            gFSSkinSSSProgram.addPermutation("FS_SKIN_TAP_LOD", "1");
+        }
         if (!gFSSkinSSSProgram.createShader())
         {
             LL_WARNS("ShaderLoading") << "FS Skin SSS failed to build, that effect stays off" << LL_ENDL;

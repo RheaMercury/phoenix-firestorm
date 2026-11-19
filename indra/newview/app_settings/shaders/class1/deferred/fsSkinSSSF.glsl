@@ -43,6 +43,23 @@
  * looking into the light through the skin, gathered on rims), with the thickness scaled down
  * toward silhouettes (fsSkinUtil.glsl).
  *
+ * Skin polish (GPU Gems 3 ch. 14), each its own permutation:
+ * FS_SKIN_ALBEDO_SPLIT (FSRenderSkinAlbedoSplit): part of the albedo goes in before the blur
+ *   ("pre- and post-scatter texturing"): the light is divided by albedo^(1 - split / 2) and the
+ *   centre multiplies the same power back, so at split 1 the blur carries irradiance times
+ *   sqrt(albedo) and the colour of freckles, lips and makeup bleeds a little into the skin
+ *   around them, as it does under real skin. Detail stays as sharp as the other half allows.
+ * FS_SKIN_ENERGY (FSRenderSkinEnergy): light the specular surface film reflects never enters
+ *   the skin (the chapter's rho_dt term). The light leaving the skin toward the eye is scaled by
+ *   1 - the directional albedo of skin's specular (F0 0.028, Karis' analytic fit), which grows
+ *   toward grazing angles, so rims don't glow brighter than the light allows. Applied to the
+ *   scattered light of legacy-shaded skin (PBR lighting already takes 1 - Fresnel off each
+ *   light's diffuse) and to the backlit translucency of all skin.
+ * FS_SKIN_TAP_LOD (FSRenderSkinTapLOD): where the kernel reaches only a few pixels (faces a
+ *   metre or two away and further), 3 taps per side stand in for the 7, their weights merged
+ *   (sums per channel, red weighted offsets), so the profile keeps its energy: about half the
+ *   cost in crowds for no visible change at that size.
+ *
  * Pass 0 (horizontal): screen -> scratch. rgb = horizontally blurred clamped irradiance,
  *                      a = the centre's clamp factor (1 when nothing was clamped).
  * Pass 1 (vertical):   scratch -> screen, premultiplied blend (ONE, ONE_MINUS_SRC_ALPHA):
@@ -76,6 +93,9 @@ uniform float sss_max_px;           // cap on the kernel reach in pixels
 uniform float exposure;             // RenderExposure, as the tone mapper uses it
 uniform float sss_translucency;     // strength of the light transmitted through thin skin, 0 off
 uniform int sss_debug;              // 1: pass 1 only tints avatar pixels by their skin weight
+#ifdef FS_SKIN_ALBEDO_SPLIT
+uniform float fs_skin_albedo_split; // 0: albedo after the blur only, 1: half before (sqrt), half after
+#endif
 
 // Sun shadow (cascades 0 and 1 as raw depth), for the translucency thickness
 uniform sampler2D shadowDepth0;
@@ -113,6 +133,9 @@ float fsSkinWeightParts(int surface, vec4 base, vec4 spec, float env, out vec3 a
 vec3 fsSkinTransmittance(float s);
 float fsSkinForwardScatter(vec3 n, vec3 v, vec3 l);
 float fsSkinRimThinning(vec3 n, vec3 v);
+#ifdef FS_SKIN_ENERGY
+float unpackRoughness(vec2 p);
+#endif
 
 #define FS_SKIN_TAPS 7              // per side
 #define FS_SKIN_RANGE_MM 6.0        // reach of the outermost tap at sss_radius 1
@@ -130,6 +153,18 @@ const vec4 fs_skin_kernel[FS_SKIN_TAPS + 1] = vec4[FS_SKIN_TAPS + 1](
     vec4(0.0193, 0.0001, 0.0000, 3.0612),
     vec4(0.0059, 0.0000, 0.0000, 4.4082),
     vec4(0.0020, 0.0000, 0.0000, 6.0000));
+
+#ifdef FS_SKIN_TAP_LOD
+// The kernel above merged into 3 taps per side, for reaches under FS_SKIN_LOD_PX pixels: taps 1-2,
+// 3-4 and 5-7 summed per channel, at their red weighted mean offset. Centre unchanged.
+#define FS_SKIN_LOD_TAPS 3
+#define FS_SKIN_LOD_PX 6.0
+const vec4 fs_skin_kernel_lod[FS_SKIN_LOD_TAPS + 1] = vec4[FS_SKIN_LOD_TAPS + 1](
+    vec4(0.1859, 0.3495, 0.4366, 0.0000),
+    vec4(0.2543, 0.3166, 0.2806, 0.2757),
+    vec4(0.1254, 0.0086, 0.0010, 1.4240),
+    vec4(0.0272, 0.0001, 0.0000, 3.5695));
+#endif
 
 float fsLum(vec3 c)
 {
@@ -174,6 +209,51 @@ float fsSkinSample(vec2 tc, out vec3 albedo)
 #endif
     return fsSkinWeightRaw(surface, texture(diffuseRect, tc), spec, norm_raw.b, albedo);
 }
+
+// The part of the albedo the light is divided by before the blur and multiplied by after it:
+// all of it (post-scatter texturing), or with FS_SKIN_ALBEDO_SPLIT down to its square root
+vec3 fsSkinScatterAlbedo(vec3 albedo)
+{
+#ifdef FS_SKIN_ALBEDO_SPLIT
+    return pow(albedo, vec3(1.0 - 0.5 * clamp(fs_skin_albedo_split, 0.0, 1.0)));
+#else
+    return albedo;
+#endif
+}
+
+#ifdef FS_SKIN_ENERGY
+// Share of the light that leaves the skin toward the eye rather than being turned back by its
+// specular film: 1 - the directional albedo of a GGX lobe at skin's F0 0.028 for this view
+// angle and roughness (Karis' analytic fit of the split-sum environment BRDF). About 0.96 seen
+// head on, falling toward the silhouette.
+float fsSkinEnergyKeep(vec3 n, vec3 pos, float roughness)
+{
+    vec3 v = -pos * inversesqrt(max(dot(pos, pos), 1e-12));
+    float nv = clamp(dot(n, v), 0.0, 1.0);
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = clamp(roughness, 0.0, 1.0) * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
+    vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+    return 1.0 - clamp(0.028 * ab.x + ab.y, 0.0, 1.0);
+}
+
+// The skin's roughness where the g-buffer's material is read (FS_SKIN_DETECT_MATERIAL), else a
+// typical value; as the skin specular takes it (fsSkinLegacyRoughness, fsSkinUtil.glsl)
+float fsSkinEnergyRoughness(vec2 tc, int surface)
+{
+#ifdef FS_SKIN_DETECT_MATERIAL
+    vec4 spec = texture(specularRect, tc);
+    if (surface == 2)
+    {
+        return clamp(unpackRoughness(spec.ga), 0.045, 1.0);
+    }
+    return spec.a > 0.0 ? clamp(1.0 - spec.a, 0.3, 0.9) : 0.55;
+#else
+    return 0.55;
+#endif
+}
+#endif
 
 // Linear sun (or moon) colour at the ground, as calcAtmosphericVarsLinear gives the lighting
 vec3 fsSkinSunlight()
@@ -345,12 +425,26 @@ void main()
     float dist = max(-pos.z, 1e-3);
 
     vec3 trans = vec3(0.0);
+#ifdef FS_SKIN_ENERGY
+    float energy_keep = 1.0;    // translucency (all skin)
+    float energy_scatter = 1.0; // scattered light (legacy-shaded skin)
+    if (sss_pass == 1)
+    {
+        int surface = fsSkinSurface(getNormRaw(tc).a);
+        energy_keep = fsSkinEnergyKeep(getNorm(tc).xyz, pos, fsSkinEnergyRoughness(tc, surface));
+        energy_keep = fsSkinBad(energy_keep) ? 1.0 : energy_keep;
+        energy_scatter = surface == 1 ? energy_keep : 1.0;
+    }
+#endif
     if (sss_pass == 1)
     {
         if (sss_translucency > 0.0)
         {
             trans = fsSkinTranslucency(pos, getNorm(tc).xyz) * albedo * (sss_translucency * center_w);
             trans = fsSkinBad(trans) ? vec3(0.0) : max(trans, vec3(0.0));
+#ifdef FS_SKIN_ENERGY
+            trans *= energy_keep;
+#endif
         }
         if (sss_strength <= 0.0)
         {
@@ -375,7 +469,7 @@ void main()
             frag_color = vec4(0.0);
             return;
         }
-        center = fsSkinClamp(lit / albedo, ceiling, f_c);
+        center = fsSkinClamp(lit / fsSkinScatterAlbedo(albedo), ceiling, f_c);
     }
     else
     {
@@ -400,12 +494,24 @@ void main()
         // A tap more than about twice the reach away in depth is another surface
         float depth_reject = 1.0 / max(2.0 * (reach_px / px_per_mm) * 0.001, 1e-4);
         float tint = clamp(sss_tint, 0.0, 1.0);
+#ifdef FS_SKIN_TAP_LOD
+        // Small on screen: the merged kernel. Both passes decide alike, from the same distance.
+        bool lod = reach_px < FS_SKIN_LOD_PX;
+        int taps = lod ? FS_SKIN_LOD_TAPS : FS_SKIN_TAPS;
+#else
+        int taps = FS_SKIN_TAPS;
+#endif
 
         result = center * mix(vec3(fs_skin_kernel[0].r), fs_skin_kernel[0].rgb, tint);
-        for (int i = 1; i <= FS_SKIN_TAPS; ++i)
+        for (int i = 1; i <= taps; ++i)
         {
-            vec3 k = mix(vec3(fs_skin_kernel[i].r), fs_skin_kernel[i].rgb, tint);
-            float x = fs_skin_kernel[i].a * px_per_unit;
+#ifdef FS_SKIN_TAP_LOD
+            vec4 kernel = lod ? fs_skin_kernel_lod[min(i, FS_SKIN_LOD_TAPS)] : fs_skin_kernel[i];
+#else
+            vec4 kernel = fs_skin_kernel[i];
+#endif
+            vec3 k = mix(vec3(kernel.r), kernel.rgb, tint);
+            float x = kernel.a * px_per_unit;
             for (int side = -1; side <= 1; side += 2)
             {
                 vec2 stc = tc + dir * (x * float(side));
@@ -423,7 +529,7 @@ void main()
                     if (!bad && sss_pass == 0)
                     {
                         float f;
-                        c.rgb = fsSkinClamp(c.rgb / s_albedo, ceiling, f);
+                        c.rgb = fsSkinClamp(c.rgb / fsSkinScatterAlbedo(s_albedo), ceiling, f);
                         bad = fsSkinBad(c.rgb);
                     }
                     if (bad || fsSkinBad(keep))
@@ -449,6 +555,9 @@ void main()
     else
     {
         float a = clamp(center_w * sss_strength, 0.0, 1.0);
-        frag_color = vec4(a * albedo * result + trans, a * f_c);
+#ifdef FS_SKIN_ENERGY
+        result *= energy_scatter;
+#endif
+        frag_color = vec4(a * fsSkinScatterAlbedo(albedo) * result + trans, a * f_c);
     }
 }

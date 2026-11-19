@@ -6953,7 +6953,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1011"
+                 height="1127"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -7165,7 +7165,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength,FSRenderSkinTranslucencyLocal,FSRenderSkinSheen,FSRenderSkinSheenStrength" />
+                         parameter="FSRenderSkinSSS,FSRenderSkinSSSStrength,FSRenderSkinSSSRadius,FSRenderSkinSSSTint,FSRenderSkinSSSToneMatch,FSRenderSkinSSSTranslucency,FSRenderSkinDetectMaterial,FSRenderSkinToneRange,FSRenderSkinDebug,FSRenderSkinDualSpecular,FSRenderSkinSpecularMix,FSRenderSkinWarmShadows,FSRenderSkinWarmShadowStrength,FSRenderSkinTranslucencyLocal,FSRenderSkinSheen,FSRenderSkinSheenStrength,FSRenderSkinAlbedoSplit,FSRenderSkinAlbedoSplitAmount,FSRenderSkinEnergy,FSRenderSkinTapLOD" />
                     </button>
                     <check_box
                      control_name="FSRenderSkinSSS"
@@ -7484,6 +7484,68 @@
                      tool_tip="EXPERIMENTAL. How strong the rim sheen on skin is. Low values read as soft skin, high ones as velvet."
                      top="847"
                      width="100" />
+                    <check_box
+                     control_name="FSRenderSkinAlbedoSplit"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Skin colour bleeds into the scattering"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskinalbedosplit"
+                     tool_tip="EXPERIMENTAL. Part of the skin colour goes into the scattering blur instead of all of it after: the colour of freckles, lips and makeup bleeds a little into the skin around them, as under real skin. Rebuilds shaders when changed."
+                     top="877"
+                     width="455" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskinalbedosplitamount_label"
+                     tool_tip="EXPERIMENTAL. How much of the skin colour goes in before the blur: 0 none (as without the option), 1 half of it (the square root, as GPU Gems 3 recommends)."
+                     top="907"
+                     width="285">
+                        Colour bleed amount
+                    </text>
+                    <spinner
+                     control_name="FSRenderSkinAlbedoSplitAmount"
+                     decimal_digits="2"
+                     enabled_control="FSRenderSkinAlbedoSplit"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderskinalbedosplitamount"
+                     tool_tip="EXPERIMENTAL. How much of the skin colour goes in before the blur: 0 none (as without the option), 1 half of it (the square root, as GPU Gems 3 recommends)."
+                     top="905"
+                     width="100" />
+                    <check_box
+                     control_name="FSRenderSkinEnergy"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Keep reflected light out of the skin"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskinenergy"
+                     tool_tip="EXPERIMENTAL. Light the skin's oily surface reflects as highlight does not also enter the skin: scattered light and backlit translucency are dimmed toward the edges of the face, where the surface reflects most, so rims do not glow brighter than the light allows. Rebuilds shaders when changed."
+                     top="935"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderSkinTapLOD"
+                     enabled_control="FSRenderSkinSSS"
+                     follows="left|top"
+                     height="20"
+                     label="Cheaper scattering for distant faces"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderskintaplod"
+                     tool_tip="EXPERIMENTAL. Faces more than a metre or two away use a shorter blur (3 samples a side instead of 7) with the same overall spread. Saves about half of the skin scattering cost in crowds with no visible difference at that size. Rebuilds shaders when changed."
+                     top="963"
+                     width="455" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -7491,7 +7553,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_hair_and_transparency"
-                     top="889"
+                     top="1005"
                      width="340">
                         Hair and transparency
                     </text>
@@ -7503,7 +7565,7 @@
                      left="370"
                      name="reset_fs_heading_hair_and_transparency"
                      tool_tip="Set every option in &quot;Hair and transparency&quot; back to its default value."
-                     top="888"
+                     top="1004"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -7518,7 +7580,7 @@
                      left="15"
                      name="fs_fsrenderhairtwopass"
                      tool_tip="EXPERIMENTAL. Draws alpha-blended rigged mesh (hair, layered clothing) as a depth-sorted solid core and a blended soft fringe, so inner layers stop showing through outer ones. Costs roughly two extra draws of rigged alpha. Rebuilds shaders when changed."
-                     top="915"
+                     top="1031"
                      width="475" />
                     <text
                      follows="left|top"
@@ -7527,7 +7589,7 @@
                      left="35"
                      name="fs_fsrenderhairalphathreshold_label"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="943"
+                     top="1059"
                      width="285">
                         Hair solid alpha threshold
                     </text>
@@ -7543,7 +7605,7 @@
                      min_val="0.5"
                      name="fs_fsrenderhairalphathreshold"
                      tool_tip="EXPERIMENTAL. Alpha at or above which hair counts as solid and is depth sorted. Lower sorts more of each strand but hardens soft edges; higher keeps edges soft but sorts less."
-                     top="941"
+                     top="1057"
                      width="100" />
                     <check_box
                      control_name="FSRenderAlphaHybridOIT"
@@ -7554,7 +7616,7 @@
                      left="15"
                      name="fs_fsrenderalphahybridoit"
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
-                     top="969"
+                     top="1085"
                      width="475" />
                 </panel>
             </scroll_container>
