@@ -122,6 +122,7 @@ uniform int   classic_mode;
 
 vec4 getNormRaw(vec2 screenpos);
 vec4 getNorm(vec2 screenpos);
+vec3 getGeoNorm(vec2 screenpos);
 vec4 getPosition(vec2 pos_screen);
 vec3 linear_to_srgb(vec3 cl);
 vec3 srgb_to_linear(vec3 cs);
@@ -140,6 +141,7 @@ float unpackRoughness(vec2 p);
 #define FS_SKIN_TAPS 7              // per side
 #define FS_SKIN_RANGE_MM 6.0        // reach of the outermost tap at sss_radius 1
 #define FS_SKIN_TRANS_SHRINK 0.002  // m: the receiver is pushed this far inside the surface
+#define FS_SKIN_TRANS_MISS_MM 4.0   // a shadow map tap that misses the caster counts as this far in front
 #define FS_SKIN_TRANS_MM 6.0        // measured thickness (mm) per profile mm at sss_radius 1
 
 // d'Eon/Jimenez skin profile, integrated over each tap's span: rgb = per channel weight
@@ -301,9 +303,10 @@ vec3 fsSkinClamp(vec3 e, float ceiling, out float f)
 
 // Transmittance through the skin between p (view space) and the sun along l, from one shadow
 // cascade read as raw depth: the depth difference to the nearest caster, over the map's depth
-// per metre along the light at p (right for warped maps too). A 3 x 3 tent of taps a texel apart
-// smooths the map's stair steps: a texel is a centimetre or two, about the size of an ear, so
-// fewer taps lit whole parts at once with hard edges. Zero when p is outside the cascade.
+// per metre along the light at p (right for warped maps too). A texel is a centimetre or two,
+// about the size of an ear, so the thickness is a smooth cubic B-spline over the 4 x 4 texels
+// around p, and the taps' signed thickness is averaged before the profile (see below). Zero
+// when p is outside the cascade.
 vec3 fsSkinCascadeTransmittance(sampler2D depth_map, mat4 m, vec3 p, vec3 l, float scale)
 {
     vec4 sp = m * vec4(p, 1.0);
@@ -315,19 +318,44 @@ vec3 fsSkinCascadeTransmittance(sampler2D depth_map, mat4 m, vec3 p, vec3 l, flo
     vec4 sl = m * vec4(p + l * 0.1, 1.0);
     float z_per_m = max((c.z - sl.z / sl.w) / 0.1, 1e-6);
 
-    vec2 texel = 1.0 / vec2(textureSize(depth_map, 0));
-    vec3 t = vec3(0.0);
-    for (int y = -1; y <= 1; ++y)
+    // The signed thickness is averaged, then put through the profile once. Each tap's caster depth
+    // is off by the caster's slope times the tap's offset, and that slope changes at every triangle
+    // edge; averaging taps placed symmetrically around p is a plane fit through them, so the
+    // errors cancel. Averaging the transmittance instead (as before) let a single tap whose error
+    // reached zero thickness light the whole pixel, drawing the caster's triangle edges as lines.
+    // Taps that miss the caster (it ends there, the background is behind p) count as at most
+    // FS_SKIN_TRANS_MISS_MM in front, so they thin the rim a little without swamping the average.
+    // The taps are the 4 x 4 texels around p, weighted by a cubic B-spline of p's position between
+    // their centres. Fixed taps around p each read one whole texel (the map is read unfiltered),
+    // so their average jumped every time p crossed a texel border: a staircase that, seen at a
+    // grazing angle where one texel spans many pixels, showed as long red lines. The B-spline
+    // weights change smoothly with p, so the thickness does too.
+    ivec2 size = textureSize(depth_map, 0);
+    vec2 t = c.xy * vec2(size) - 0.5;
+    vec2 base = floor(t);
+    vec2 f = t - base;
+    vec2 f2 = f * f;
+    vec2 f3 = f2 * f;
+    vec2 w[4];
+    w[0] = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+    w[1] = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    w[2] = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+    w[3] = f3 / 6.0;
+    ivec2 lo = ivec2(0);
+    ivec2 hi = size - 1;
+    float mm_per_z = 1000.0 / z_per_m;
+    float thickness_mm = 0.0;
+    for (int y = 0; y < 4; ++y)
     {
-        for (int x = -1; x <= 1; ++x)
+        for (int x = 0; x < 4; ++x)
         {
-            float k = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0); // tent: 4 centre, 2 edges, 1 corners
-            float z_caster = textureLod(depth_map, c.xy + vec2(x, y) * texel, 0.0).r;
-            float thickness_mm = max(c.z - z_caster, 0.0) / z_per_m * 1000.0;
-            t += k * fsSkinTransmittance(thickness_mm * scale);
+            ivec2 texel = clamp(ivec2(base) + ivec2(x - 1, y - 1), lo, hi);
+            float z_caster = texelFetch(depth_map, texel, 0).r;
+            thickness_mm += w[x].x * w[y].y * max((c.z - z_caster) * mm_per_z, -FS_SKIN_TRANS_MISS_MM);
         }
     }
-    return t / 16.0;
+    thickness_mm = max(thickness_mm, 0.0); // the weights sum to 1
+    return fsSkinTransmittance(thickness_mm * scale);
 }
 
 // Sunlight transmitted through thin skin at this pixel, before albedo
@@ -440,7 +468,11 @@ void main()
     {
         if (sss_translucency > 0.0)
         {
-            trans = fsSkinTranslucency(pos, getNorm(tc).xyz) * albedo * (sss_translucency * center_w);
+            // The surface's own normal, without its normal map (getGeoNorm: PBR surfaces store it,
+            // legacy ones give their shading normal back): the wrap, the forward lobe and the rim
+            // thinning would otherwise follow every wrinkle and pore, drawn as red stripes at a
+            // grazing angle
+            trans = fsSkinTranslucency(pos, getGeoNorm(tc)) * albedo * (sss_translucency * center_w);
             trans = fsSkinBad(trans) ? vec3(0.0) : max(trans, vec3(0.0));
 #ifdef FS_SKIN_ENERGY
             trans *= energy_keep;

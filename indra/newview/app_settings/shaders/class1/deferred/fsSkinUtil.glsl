@@ -320,14 +320,22 @@ uniform float sss_radius;           // profile scale, 1 = measured human skin
 uniform float sss_tint;             // 0: every channel transmits like red, 1: skin profile
 uniform vec2 screen_res;
 vec4 getPosition(vec2 pos_screen);
-vec4 getNorm(vec2 screenpos);
+vec3 getGeoNorm(vec2 screenpos);
 
-#define FS_SKIN_TRANS_MM 6.0        // as fsSkinSSSF.glsl: measured thickness (mm) per profile mm
+#define FS_SKIN_TRANS_MM 6.0       // as fsSkinSSSF.glsl: measured thickness (mm) per profile mm
 #define FS_SKIN_THICK_MAX_MM 200.0  // flat or unknown: no light gets through
 
-// Estimated thickness in mm of the skin at tc (view space position pos, normal n)
-float fsSkinThickness(vec2 tc, vec3 pos, vec3 n)
+// Estimated thickness in mm of the skin at tc (view space position pos), thinned toward the
+// silhouette (fsSkinRimThinning). The bend and the rim are measured on the surface's own normal,
+// without its normal map (getGeoNorm, which PBR surfaces store): a skin normal map's wrinkles and
+// pores turn the shading normal sharply over a few pixels, which read as thin skin and glowed as
+// red stripes along them, worst on a cheek seen at a grazing angle. The stored geometric normal is
+// quantized to about 1/128 rad at most, which reads as tens of centimetres of skin, so it adds no
+// glow. Legacy surfaces store none and get their shading normal back from getGeoNorm, as before.
+// n is unused (the shading normal the callers have).
+float fsSkinThickness(vec2 tc, vec3 pos, vec3 n_shading)
 {
+    vec3 n = getGeoNorm(tc);
     float tol = 0.02 * max(-pos.z, 0.05); // a bigger depth step is another surface
     float bend = 0.0;
     for (int axis = 0; axis < 2; ++axis)
@@ -339,8 +347,8 @@ float fsSkinThickness(vec2 tc, vec3 pos, vec3 n)
         {
             continue;
         }
-        vec3 na = getNorm(tc + d).xyz;
-        vec3 nb = getNorm(tc - d).xyz;
+        vec3 na = getGeoNorm(tc + d);
+        vec3 nb = getGeoNorm(tc - d);
         if (dot(na, n) < 0.0 || dot(nb, n) < 0.0)
         {
             continue; // folded onto another part
@@ -349,7 +357,13 @@ float fsSkinThickness(vec2 tc, vec3 pos, vec3 n)
         // points by a chord of about 2s, so the ratio is the bend 1 / R
         bend = max(bend, length(na - nb) / max(distance(pa, pb), 1e-6));
     }
-    return bend > 0.0 ? clamp(2000.0 / bend, 1.0, FS_SKIN_THICK_MAX_MM) : FS_SKIN_THICK_MAX_MM;
+    float thickness = bend > 0.0 ? 2000.0 / bend : FS_SKIN_THICK_MAX_MM;
+    if (!(thickness < FS_SKIN_THICK_MAX_MM))
+    {
+        return FS_SKIN_THICK_MAX_MM; // flat or unknown: the callers skip it
+    }
+    vec3 v = -pos * inversesqrt(max(dot(pos, pos), 1e-12));
+    return max(thickness, 1.0) * fsSkinRimThinning(n, v);
 }
 
 // Light a local light behind the skin sends through it to the eye, per unit of the light's colour
@@ -363,7 +377,7 @@ vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, fl
         return vec3(0.0);
     }
     vec3 v = -pos * inversesqrt(max(dot(pos, pos), 1e-12));
-    thickness_mm *= fsSkinRimThinning(n, v);
+    // (the rim thinning is already in thickness_mm, on the smooth normal: fsSkinThickness)
     vec3 t = fsSkinTransmittance(thickness_mm / (FS_SKIN_TRANS_MM * max(sss_radius, 0.05)));
     t = mix(vec3(t.r), t, clamp(sss_tint, 0.0, 1.0));
     return t * albedo * (min(back, 1.0) * fsSkinForwardScatter(n, v, l) * clamp(sss_translucency, 0.0, 4.0) * w);
