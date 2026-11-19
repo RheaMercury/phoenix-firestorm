@@ -29664,6 +29664,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSRenderShadowSlopeBias</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Give the sun shadow lookup the surface's normal taken from the depth of the neighbouring pixels instead of the shading (normal mapped) normal, so the per lookup bias follows the real slope of the receiving surface; the fixed bias and offset are scaled by FSRenderShadowSlopeBiasConstant. Rebuilds shaders when changed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderShadowSlopeBiasConstant</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderShadowSlopeBias: share of the fixed sun shadow bias (RenderShadowBias) and offset (RenderShadowOffset) kept, 0 to 1. Lower puts shadows closer to their casters.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
     <key>FSRenderShadowSplitsFullRange</key>
     <map>
       <key>Comment</key>

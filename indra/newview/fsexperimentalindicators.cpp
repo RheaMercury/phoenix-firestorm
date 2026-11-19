@@ -335,6 +335,8 @@ namespace
         { "RenderShadowPCSSLightSize", CL, VM },
         { "FSRenderShadowScreenFilter", CL, VM },
         { "FSRenderShadowScreenFilterTemporal", CL, VL },
+        { "FSRenderShadowSlopeBias", CL, VL },
+        { "FSRenderShadowSlopeBiasConstant", CL, VL },
         { "FSPerfShadowMergedBatches", CS, VN },
         { "FSPerfShadowStaticCache", CS, VN },
         { "FSPerfShadowStaticCacheSunAngle", CS, VN },

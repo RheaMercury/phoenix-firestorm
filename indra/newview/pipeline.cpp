@@ -11515,6 +11515,22 @@ static void fs_bind_sun_shadow_extras(LLGLSLShader& shader, const glm::mat4& mod
     }
 }
 
+// <FS:Trish> FSRenderShadowSlopeBias: a sun program that takes the surface's slope from the depth
+// buffer (fsShadowSlopeF.glsl) keeps only part of the fixed sun shadow bias and offset that
+// bindDeferredShader gave it. Probe captures keep them whole: they use the shading normal.
+static void fs_bind_shadow_slope_bias(LLGLSLShader& shader)
+{
+    if (gCubeSnapshot || !shader.mDefines.count("FS_SHADOW_DEPTH_SLOPE"))
+    {
+        return;
+    }
+    static LLCachedControl<F32> keep_setting(gSavedSettings, "FSRenderShadowSlopeBiasConstant", 0.5f);
+    const F32 keep = llclamp((F32)keep_setting, 0.f, 1.f);
+    shader.uniform1f(LLShaderMgr::DEFERRED_SHADOW_BIAS, LLPipeline::RenderShadowBias * keep);
+    shader.uniform1f(LLShaderMgr::DEFERRED_SHADOW_OFFSET, LLPipeline::RenderShadowOffset * keep);
+}
+// </FS:Trish>
+
 // Takes the cloud noise textures fs_bind_sun_shadow_extras bound off their units again
 static void fs_unbind_sun_shadow_extras(LLGLSLShader& shader)
 {
@@ -12043,6 +12059,7 @@ void LLPipeline::renderDeferredLighting()
                                      mShadowSpotLight[1].isNull() ? 1 : 0);
 
                 fs_bind_sun_shadow_extras(sun_shader, mat); // <FS:Trish/> cloud, contact shadows, smooth fade
+                fs_bind_shadow_slope_bias(sun_shader); // <FS:Trish/> FSRenderShadowSlopeBias
                 // <FS:Trish> GTAO search radius (metres) and visibility exponent; only a sun
                 // program built with FS_GTAO has these uniforms
                 static LLCachedControl<bool> fs_gtao(gSavedSettings, "FSRenderGTAO", false);

@@ -56,6 +56,11 @@ float getDepth(vec2 pos_screen);
 bool isFarDepth(float d);
 
 float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen);
+// <FS:Trish> FSRenderShadowSlopeBias: the surface's normal from the depth buffer (fsShadowSlopeF.glsl)
+#if defined(FS_SHADOW_DEPTH_SLOPE)
+vec3 fsDepthSlopeNormal(vec2 tc, vec3 pos, vec3 fallback);
+#endif
+// </FS:Trish>
 float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen);
 #if defined(FS_CLOUD_SHADOWS) || defined(FS_CONTACT_SHADOWS)
 float fsSunShadowExtras(float shadow, vec3 pos, vec3 norm); // fsShadowExtrasF.glsl
@@ -81,7 +86,15 @@ void main()
     vec4 norm       = getNorm(pos_screen);
 
     vec4 col;
+    // <FS:Trish> FSRenderShadowSlopeBias: the sun shadow's bias and offset follow the surface as
+    // drawn, not its normal map
+    //col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
+#if defined(FS_SHADOW_DEPTH_SLOPE)
+    col.r = sampleDirectionalShadow(pos.xyz, fsDepthSlopeNormal(pos_screen, pos.xyz, norm.xyz), pos_screen);
+#else
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
+#endif
+    // </FS:Trish>
 #if defined(FS_CLOUD_SHADOWS) || defined(FS_CONTACT_SHADOWS)
     col.r = fsSunShadowExtras(col.r, pos.xyz, norm.xyz);
 #endif

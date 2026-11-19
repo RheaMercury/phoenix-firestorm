@@ -380,6 +380,18 @@ static bool fs_shadow_screen_filter_built()
 }
 // </FS:Trish>
 
+// <FS:Trish> FSRenderShadowSlopeBias: the deferred sun programs give the sun shadow lookup the
+// surface's normal from the depth buffer (fsShadowSlopeF.glsl)
+static void fs_add_shadow_slope_bias(LLGLSLShader& shader)
+{
+    if (gSavedSettings.getBOOL("FSRenderShadowSlopeBias") && gSavedSettings.getS32("RenderShadowDetail") > 0)
+    {
+        shader.mShaderFiles.push_back(make_pair("deferred/fsShadowSlopeF.glsl", GL_FRAGMENT_SHADER));
+        shader.addPermutation("FS_SHADOW_DEPTH_SLOPE", "1");
+    }
+}
+// </FS:Trish>
+
 // <FS:Trish> Cloud and contact shadows: extra terms of the deferred sun shadow, in
 // fsShadowExtrasF.glsl, which joins the sun programs only while one of them is on
 static void add_sun_shadow_extras(LLGLSLShader& shader)
@@ -2662,6 +2674,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         add_common_permutations(&gDeferredSunProgram);
         add_sun_shadow_extras(gDeferredSunProgram); // <FS:Trish/> cloud and contact shadows
+        fs_add_shadow_slope_bias(gDeferredSunProgram); // <FS:Trish/>
 
         // <FS:Trish> GTAO in place of the SSAO estimator, slice count compiled in
         static LLCachedControl<bool> fs_gtao(gSavedSettings, "FSRenderGTAO", false);
@@ -2711,6 +2724,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         add_common_permutations(&gDeferredSunProbeProgram);
         add_sun_shadow_extras(gDeferredSunProbeProgram); // <FS:Trish/> cloud and contact shadows
+        fs_add_shadow_slope_bias(gDeferredSunProbeProgram); // <FS:Trish/> also draws the main view (SSAO at 0)
 
         success = gDeferredSunProbeProgram.createShader();
         llassert(success);
