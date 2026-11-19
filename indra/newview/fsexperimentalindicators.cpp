@@ -401,6 +401,7 @@ namespace
         { "FSPerfShadowPointCloudFromCull", CS, VN },
         { "FSPerfRepresentativeFragmentTest", CS, VN },
         { "FSPerfAlphaGlowSkip", CS, VN },
+        { "FSRenderOcclusionAfterOpaque", CS, VN },
         { "FSPerfLightRescanThrottle", CS, VN },
         { "FSPerfHeroProbeSkipHiddenFaces", CS, VN },
         { "FSPerfProbeUniformCache", CS, VN },

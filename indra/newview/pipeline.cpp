@@ -5179,13 +5179,24 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 
         pool_set_t::iterator iter1 = mPools.begin();
 
+        // <FS:Trish> FSRenderOcclusionAfterOpaque: the group occlusion queries go out after every opaque pool
+        // (below the loop), so the boxes also test against the depth of alpha masked surfaces (foliage, fences),
+        // grass, trees, avatars and animesh, not just the solid pools before them
+        static LLCachedControl<bool> occlusion_after_opaque(gSavedSettings, "FSRenderOcclusionAfterOpaque", false);
+        const bool late_occlusion = occlusion_after_opaque;
+        const U32 occlusion_pool = late_occlusion ? (U32)LLDrawPool::NUM_POOL_TYPES : (U32)LLDrawPool::POOL_GRASS;
+        // </FS:Trish>
+
         while ( iter1 != mPools.end() )
         {
             LLDrawPool *poolp = *iter1;
 
             cur_type = poolp->getType();
 
-            if (occlude && cur_type >= LLDrawPool::POOL_GRASS)
+            // <FS:Trish> FSRenderOcclusionAfterOpaque
+            //if (occlude && cur_type >= LLDrawPool::POOL_GRASS)
+            if (occlude && cur_type >= occlusion_pool)
+            // </FS:Trish>
             {
                 llassert(!gCubeSnapshot); // never do occlusion culling on cube snapshots
                 occlude = false;
@@ -5239,6 +5250,21 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
             iter1 = iter2;
             stop_glerror();
         }
+
+        // <FS:Trish> FSRenderOcclusionAfterOpaque: every pool that writes the G-buffer is drawn (those after
+        // them, glow, water and alpha, have no deferred passes), so the depth is complete here. The results are
+        // read back in later frames without waiting, as before.
+        if (occlude && late_occlusion)
+        {
+            llassert(!gCubeSnapshot); // never do occlusion culling on cube snapshots
+            occlude = false;
+            gGLLastMatrix = NULL;
+            gGL.matrixMode(LLRender::MM_MODELVIEW);
+            gGL.loadMatrix(gGLModelView);
+            FS_RECORD_BLOCK_TIME(FTM_FS_GBUFFER_OCCLUSION);
+            doOcclusion(camera);
+        }
+        // </FS:Trish>
 
         FSGPUWorkDiag::afterGBuffer(camera, sCull); // <FS:Trish/> FSDiagnosticsGPUWork: box queries against the finished depth
 
