@@ -52,6 +52,24 @@ using std::pair;
 using std::make_pair;
 using std::string;
 
+// <FS:Trish> LLShaderMgr::loadShaderFile generates diffuseLookup (and its samplers) into every
+// fragment file it is given indexed texture channels for. A program has one definition of it, so
+// only the program's first fragment file gets the channels; later fragment files (helpers such as
+// fsSoftParticlesF.glsl) and other stages get 0.
+namespace
+{
+    S32 fsIndexedChannelsFor(GLenum type, S32 channels, bool& lookup_done)
+    {
+        if (type != GL_FRAGMENT_SHADER || channels <= 0 || lookup_done)
+        {
+            return type == GL_FRAGMENT_SHADER ? 0 : channels;
+        }
+        lookup_done = true;
+        return channels;
+    }
+}
+// </FS:Trish>
+
 GLuint LLGLSLShader::sCurBoundShader = 0;
 LLGLSLShader* LLGLSLShader::sCurBoundShaderPtr = NULL;
 bool LLGLSLShader::sFSLazyTextureEnable = false; // <FS:Trish/>
@@ -477,9 +495,17 @@ bool LLGLSLShader::createShader()
 
         //compile new source
         vector< pair<string, GLenum> >::iterator fileIter = mShaderFiles.begin();
+        // <FS:Trish> Indexed texture lookups (diffuseLookup) are generated into the first fragment
+        // file only: a program with extra fragment files (e.g. soft particles) would define them twice
+        bool fs_lookup_done = false;
+        // </FS:Trish>
         for (; fileIter != mShaderFiles.end(); fileIter++)
         {
-            GLuint shaderhandle = LLShaderMgr::instance()->loadShaderFile((*fileIter).first, mShaderLevel, (*fileIter).second, &mDefines, mFeatures.mIndexedTextureChannels);
+            // <FS:Trish>
+            //GLuint shaderhandle = LLShaderMgr::instance()->loadShaderFile((*fileIter).first, mShaderLevel, (*fileIter).second, &mDefines, mFeatures.mIndexedTextureChannels);
+            const S32 fs_channels = fsIndexedChannelsFor((*fileIter).second, mFeatures.mIndexedTextureChannels, fs_lookup_done);
+            GLuint shaderhandle = LLShaderMgr::instance()->loadShaderFile((*fileIter).first, mShaderLevel, (*fileIter).second, &mDefines, fs_channels);
+            // </FS:Trish>
             LL_DEBUGS("ShaderLoading") << "SHADER FILE: " << (*fileIter).first << " mShaderLevel=" << mShaderLevel << LL_ENDL;
             if (shaderhandle)
             {
@@ -600,9 +626,13 @@ bool LLGLSLShader::fsSubmitShader()
     // (loadBasicShaders) stay on the manager's list to be checked one by one
     const size_t first_object = mgr->mFSPendingObjects.size();
     bool submitted = true;
+    bool fs_lookup_done = false; // <FS:Trish/> diffuseLookup into the first fragment file only
     for (const auto& file : mShaderFiles)
     {
-        GLuint handle = mgr->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels);
+        // <FS:Trish>
+        //GLuint handle = mgr->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels);
+        GLuint handle = mgr->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, fsIndexedChannelsFor(file.second, mFeatures.mIndexedTextureChannels, fs_lookup_done));
+        // </FS:Trish>
         if (handle)
         {
             attachObject(handle);

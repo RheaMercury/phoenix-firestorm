@@ -258,6 +258,8 @@ namespace
         { "FSRenderAnamorphicStreaks", CL, VM },
         { "FSRenderFoliage", CL, VM },
         { "FSRenderFoliageStrength", CL, VM },
+        { "FSRenderSoftParticles", CL, VM },
+        { "FSRenderSoftParticlesDistance", CL, VN },
 
         // Rendering
         { "FSRenderSpecularAA", CL, VM },

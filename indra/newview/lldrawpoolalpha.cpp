@@ -56,6 +56,7 @@
 #include "llenvironment.h"
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
 #include "fsgpudrivenalpha.h" // <FS:Trish/> FSPerfGPUDrivenAlpha
+#include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
 #include <optional> // <FS:Trish/>
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
@@ -67,6 +68,13 @@ LLVector4 LLDrawPoolAlpha::sWaterPlane;
 
 // minimum alpha before discarding a fragment
 static const F32 MINIMUM_ALPHA = 0.004f; // ~ 1/255
+
+// <FS:Trish> Soft particles (FSRenderSoftParticles): set by renderAlpha for the group being drawn, read
+// by renderEmissives for its glow. With the setting on, every draw sets the fade (off for all but
+// particles), so no program keeps a particle's fade into another draw or pass.
+static bool sFSSoftOn = false;      // the setting, for this renderAlpha call
+static bool sFSSoftGroup = false;   // the group is in-world particles and the pass can fade them
+// </FS:Trish>
 
 // minimum alpha before discarding a fragment when rendering impostors
 static const F32 MINIMUM_IMPOSTOR_ALPHA = 0.1f;
@@ -814,6 +822,12 @@ void LLDrawPoolAlpha::renderEmissives(std::vector<LLDrawInfo*>& emissives)
 {
     emissive_shader->bind();
     emissive_shader->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
+    // <FS:Trish> Soft particles: the glow fades with the particle
+    if (sFSSoftOn)
+    {
+        FSSoftParticles::apply(*emissive_shader, sFSSoftGroup, false);
+    }
+    // </FS:Trish>
 
     for (LLDrawInfo* draw : emissives)
     {
@@ -975,6 +989,12 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
     const fs_gdd_alpha_bind_t fs_gdd_bind = fs_bind_program;
     // </FS:Trish>
 
+    // <FS:Trish> Soft particles: whether this pass can fade them (main view, no rigged or depth only pass)
+    sFSSoftOn = FSSoftParticles::enabled();
+    const bool fs_soft_pass = sFSSoftOn && !depth_only && !rigged && FSSoftParticles::beginPass();
+    sFSSoftGroup = false;
+    // </FS:Trish>
+
     LLCullResult::sg_iterator begin;
     LLCullResult::sg_iterator end;
 
@@ -1052,6 +1072,8 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
                 continue;
             }
             // </FS:LO>
+
+            sFSSoftGroup = fs_soft_pass && group->getSpatialPartition()->mPartitionType == LLViewerRegion::PARTITION_PARTICLE; // <FS:Trish/>
 
             bool disable_cull = is_particle_or_hud_particle;
             LLGLDisable cull(disable_cull ? GL_CULL_FACE : 0);
@@ -1324,6 +1346,13 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged, EWBOIT
 
                     // <FS:Trish> Fade-in: applyModelMatrix set it before this batch's program was bound
                     LLRenderPass::fsApplyFadeIn(params);
+                    // </FS:Trish>
+
+                    // <FS:Trish> Soft particles: additive draws (source factor one) fade their colour too
+                    if (sFSSoftOn)
+                    {
+                        FSSoftParticles::apply(*current_shader, sFSSoftGroup, params.mBlendFuncSrc == LLRender::BF_ONE);
+                    }
                     // </FS:Trish>
 
                     params.mVertexBuffer->setBuffer();

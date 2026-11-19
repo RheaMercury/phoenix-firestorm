@@ -148,6 +148,7 @@
 #include "fsrepresentativefragment.h" // <FS:Trish/> Representative fragment test for occlusion queries
 #include "fstoolmeasure.h" // <FS:Trish/> Measuring tool
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
+#include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
 #include "fsparallelcull.h" // <FS:Trish/> FSPerfParallelShadowCull
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsgpudrivenshadowalpha.h" // <FS:Trish/> FSPerfGPUDrivenShadowAlpha
@@ -5298,10 +5299,13 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 // where the water haze needs the depth: it reads this copy instead of making its own (doWaterHaze).
 static U32 sFSTagDepthHazeFrame = U32_MAX;  // frame whose snapshot the water haze may read
 
+// Soft particles (FSRenderSoftParticles, fssoftparticles.cpp) fade against the same copy, so it is also
+// taken for them; the tags and the water haze only use it when FSNameTagIgnoreAlpha is on.
 static void fs_take_tag_depth(LLPipeline& pipe)
 {
     static LLCachedControl<bool> tag_ignore_alpha(gSavedSettings, "FSNameTagIgnoreAlpha", true);
-    if (tag_ignore_alpha && pipe.mRT == &pipe.mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender &&
+    const bool soft_particles = FSSoftParticles::enabled();
+    if ((tag_ignore_alpha || soft_particles) && pipe.mRT == &pipe.mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender &&
         !LLPipeline::sRenderingHUDs && !LLPipeline::sImpostorRender && !pipe.isAvatarOnlyRender())
     {
         LLRenderTarget& src = pipe.mRT->deferredScreen;     // shares its depth with mRT->screen
@@ -5321,11 +5325,18 @@ static void fs_take_tag_depth(LLPipeline& pipe)
             pipe.mRT->screen.flush();
             pipe.mFSTagDepth.copyContents(src, 0, 0, depth_w, depth_h, 0, 0, depth_w, depth_h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
             pipe.mRT->screen.bindTarget();
-            pipe.mFSTagDepthFrame = LLFrameTimer::getFrameCount();
-            sFSTagDepthHazeFrame = pipe.mFSTagDepthFrame;
+            if (tag_ignore_alpha)
+            {
+                pipe.mFSTagDepthFrame = LLFrameTimer::getFrameCount();
+                sFSTagDepthHazeFrame = pipe.mFSTagDepthFrame;
+            }
+            if (soft_particles)
+            {
+                FSSoftParticles::noteDepthTaken();
+            }
         }
     }
-    else if (!tag_ignore_alpha && pipe.mFSTagDepth.isComplete())
+    else if (!tag_ignore_alpha && !soft_particles && pipe.mFSTagDepth.isComplete())
     {
         pipe.mFSTagDepth.release();
     }

@@ -1152,7 +1152,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="3804"
+                 height="3896"
                  layout="topleft"
                  left="0"
                  name="experimental_effects_settings"
@@ -4089,6 +4089,68 @@
                      tool_tip="With the camera above water and away from mainland, the sea reaches the horizon, mirroring the sky, instead of ending at the draw distance with sky showing below the horizon."
                      top="3762"
                      width="475" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_particles"
+                     top="3802"
+                     width="340">
+                        Particles
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_particles"
+                     tool_tip="Set every option in &quot;Particles&quot; back to its default value."
+                     top="3801"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderSoftParticles,FSRenderSoftParticlesDistance" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderSoftParticles"
+                     follows="left|top"
+                     height="20"
+                     label="Soft particles (fade where they meet surfaces)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendersoftparticles"
+                     tool_tip="EXPERIMENTAL. Smoke, fire, fog, rain and other particles fade out where they meet walls, the ground and the water instead of cutting a hard line into them. HUD particles are not changed. Rebuilds shaders."
+                     top="3828"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendersoftparticlesdistance_label"
+                     tool_tip="EXPERIMENTAL. How far in front of a surface, in meters, a particle starts to fade. Larger is softer; too large makes small particles near the ground look washed out."
+                     top="3856"
+                     width="285">
+                        Fade distance (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderSoftParticlesDistance"
+                     decimal_digits="2"
+                     enabled_control="FSRenderSoftParticles"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="10.0"
+                     min_val="0.05"
+                     name="fs_fsrendersoftparticlesdistance"
+                     tool_tip="EXPERIMENTAL. How far in front of a surface, in meters, a particle starts to fade. Larger is softer; too large makes small particles near the ground look washed out."
+                     top="3854"
+                     width="100" />
                 </panel>
             </scroll_container>
         </panel>

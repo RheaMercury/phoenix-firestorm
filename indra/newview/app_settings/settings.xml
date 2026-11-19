@@ -27889,6 +27889,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.25</real>
     </map>
+    <key>FSRenderSoftParticles</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Soft particles: smoke, fire, fog and other particles fade out where they meet walls, the ground and the water instead of cutting a hard line into them. Uses the depth copy taken before the alpha pass (the one name tags use). Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSoftParticlesDistance</key>
+    <map>
+      <key>Comment</key>
+      <string>FSRenderSoftParticles: distance in meters in front of a surface over which a particle fades out (0.05 to 10).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
     <key>FSRenderFadeIn</key>
     <map>
       <key>Comment</key>

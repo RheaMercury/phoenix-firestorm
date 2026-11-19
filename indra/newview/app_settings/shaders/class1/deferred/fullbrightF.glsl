@@ -98,6 +98,13 @@ void mirrorClip(vec3 pos);
 void fsFadeIn(); // fsFadeInF.glsl
 #endif
 
+// <FS:Trish> Soft particles (FSRenderSoftParticles)
+#ifdef FS_SOFT_PARTICLES
+float fsSoftParticleFade(vec3 pos); // fsSoftParticlesF.glsl
+vec4 fsSoftParticleApply(vec4 color, float fade);
+#endif
+// </FS:Trish>
+
 void main()
 {
 #ifdef FS_FADE_IN
@@ -165,6 +172,11 @@ void main()
 #endif
 
     frag_color = max(color, vec4(0));
+    // <FS:Trish> Soft particles: fade where the particle meets the scene, before WBOIT weighs the alpha
+#ifdef FS_SOFT_PARTICLES
+    frag_color = fsSoftParticleApply(frag_color, fsSoftParticleFade(vary_position));
+#endif
+    // </FS:Trish>
 #ifdef FS_WBOIT
     fs_wboit_weight = vec4(0.0);
     if (fs_wboit != 0)

@@ -59,6 +59,7 @@
 #include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
+#include "fssoftparticles.h" // <FS:Trish/>
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsglstream.h" // <FS:Trish/> FSGLStream::DirectScope
 
@@ -474,6 +475,19 @@ static void add_fade_in(LLGLSLShader* shader)
     {
         shader->addPermutation("FS_FADE_IN", "1");
         shader->mShaderFiles.push_back(make_pair("deferred/fsFadeInF.glsl", GL_FRAGMENT_SHADER));
+    }
+}
+// </FS:Trish>
+
+// <FS:Trish> Soft particles (FSRenderSoftParticles): the depth fade (fsSoftParticlesF.glsl) for the
+// programs particles are drawn with: world alpha, fullbright alpha and glow, never the rigged or HUD
+// ones. Call after make_rigged_variant, so the skinned copy stays as it was.
+static void add_soft_particles(LLGLSLShader* shader)
+{
+    if (FSSoftParticles::enabled())
+    {
+        shader->addPermutation("FS_SOFT_PARTICLES", "1");
+        shader->mShaderFiles.push_back(make_pair("deferred/fsSoftParticlesF.glsl", GL_FRAGMENT_SHADER));
     }
 }
 // </FS:Trish>
@@ -2864,6 +2878,12 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 add_fade_in(shader);
             }
             // </FS:Trish>
+            // <FS:Trish> Soft particles
+            if (!hud && !rigged)
+            {
+                add_soft_particles(shader);
+            }
+            // </FS:Trish>
 
             shader->mShaderLevel = mShaderLevel[SHADER_DEFERRED];
 
@@ -3074,6 +3094,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gDeferredFullbrightAlphaMaskAlphaProgram.addPermutation("FS_WBOIT", "1");
         }
         // </FS:Trish>
+        add_soft_particles(&gDeferredFullbrightAlphaMaskAlphaProgram); // <FS:Trish/>
         success = success && gDeferredFullbrightAlphaMaskAlphaProgram.createShader();
         llassert(success);
     }
@@ -3161,6 +3182,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         add_common_permutations(&gDeferredEmissiveProgram);
 
         success = make_rigged_variant(gDeferredEmissiveProgram, gDeferredSkinnedEmissiveProgram);
+        add_soft_particles(&gDeferredEmissiveProgram); // <FS:Trish/>
         success = success && gDeferredEmissiveProgram.createShader();
         llassert(success);
     }

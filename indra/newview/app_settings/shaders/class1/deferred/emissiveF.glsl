@@ -30,10 +30,19 @@ out vec4 frag_color;
 in vec4 vertex_color;
 in vec2 vary_texcoord0;
 
+// <FS:Trish> Soft particles (FSRenderSoftParticles): the glow fades with the particle
+#ifdef FS_SOFT_PARTICLES
+float fsSoftParticleFade(); // fsSoftParticlesF.glsl
+#endif
+// </FS:Trish>
+
 void main()
 {
     // NOTE: when this shader is used, only alpha is being written to
     float a = diffuseLookup(vary_texcoord0.xy).a*vertex_color.a;
     frag_color = max(vec4(0, 0, 0, a), vec4(0));
+#ifdef FS_SOFT_PARTICLES
+    frag_color.a *= fsSoftParticleFade(); // <FS:Trish/> soft particles
+#endif
 }
 

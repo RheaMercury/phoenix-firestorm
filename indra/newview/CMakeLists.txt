@@ -234,6 +234,7 @@ set(viewer_SOURCE_FILES
     fsshadowscreenfilter.cpp
     fsshadowsinglepass.cpp
     fsskinpalettebuffer.cpp
+    fssoftparticles.cpp
     fsssrbuffer.cpp
     fsssrhiz.cpp
     fsspotlightbatch.cpp
@@ -1162,6 +1163,7 @@ set(viewer_HEADER_FILES
     fsshadowscreenfilter.h
     fsshadowsinglepass.h
     fsskinpalettebuffer.h
+    fssoftparticles.h
     fsssrbuffer.h
     fsssrhiz.h
     fsspotlightbatch.h
