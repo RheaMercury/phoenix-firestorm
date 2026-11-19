@@ -5183,7 +5183,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1476"
+                 height="1502"
                  layout="topleft"
                  left="0"
                  name="experimental_shadows_settings"
@@ -5212,7 +5212,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="RenderShadowCullMode,RenderShadowCullBridgesPerCascade,RenderShadowMinCasterTexels,FSRenderShadowMaxDistance,RenderShadowSplits,RenderShadowSplitExponent" />
+                         parameter="RenderShadowCullMode,RenderShadowCullBridgesPerCascade,RenderShadowMinCasterTexels,FSRenderShadowMaxDistance,RenderShadowSplits,FSRenderShadowSplitsFullRange,RenderShadowSplitExponent" />
                     </button>
                     <text
                      follows="left|top"
@@ -5344,6 +5344,17 @@
                          label="4 (default)"
                          value="3" />
                     </combo_box>
+                    <check_box
+                     control_name="FSRenderShadowSplitsFullRange"
+                     follows="left|top"
+                     height="20"
+                     label="Spread fewer shadow maps over the whole distance"
+                     layout="topleft"
+                     left="35"
+                     name="shadow_splits_full_range"
+                     tool_tip="EXPERIMENTAL. With fewer than 4 sun shadow maps drawn, spread the maps in use over the whole shadow distance so distant shadows are kept. Each map then covers more, so nearby shadows are a little softer. Off: the maps are placed as if all 4 were drawn and the far end has no shadows."
+                     top="164"
+                     width="455" />
                     <text
                      follows="left|top"
                      height="18"
@@ -5351,7 +5362,7 @@
                      left="35"
                      name="shadow_split_ortho_label"
                      tool_tip="EXPERIMENTAL. How the sun shadow maps divide the shadow distance when the sun is overhead or to the side. Higher values pull the maps toward the camera: sharper shadows close by, softer ones further out. Default 3."
-                     top="168"
+                     top="194"
                      width="285">
                         Shadow detail near camera, sun overhead
                     </text>
@@ -5366,7 +5377,7 @@
                      min_val="1"
                      name="shadow_split_ortho"
                      tool_tip="EXPERIMENTAL. How the sun shadow maps divide the shadow distance when the sun is overhead or to the side. Higher values pull the maps toward the camera: sharper shadows close by, softer ones further out. Default 3."
-                     top="166"
+                     top="192"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5375,7 +5386,7 @@
                      left="35"
                      name="shadow_split_persp_label"
                      tool_tip="EXPERIMENTAL. How the sun shadow maps divide the shadow distance when the sun is ahead of or behind the camera. Higher values pull the maps toward the camera: sharper shadows close by, softer ones further out. Default 3."
-                     top="196"
+                     top="222"
                      width="285">
                         Shadow detail near camera, sun ahead/behind
                     </text>
@@ -5390,7 +5401,7 @@
                      min_val="1"
                      name="shadow_split_persp"
                      tool_tip="EXPERIMENTAL. How the sun shadow maps divide the shadow distance when the sun is ahead of or behind the camera. Higher values pull the maps toward the camera: sharper shadows close by, softer ones further out. Default 3."
-                     top="194"
+                     top="220"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5399,7 +5410,7 @@
                      left="35"
                      name="shadow_split_transition_label"
                      tool_tip="EXPERIMENTAL. How quickly the shadow detail setting moves from the sun overhead value to the sun ahead/behind value as the sun lines up with the view. Default 2."
-                     top="224"
+                     top="250"
                      width="285">
                         Blend between the two
                     </text>
@@ -5414,7 +5425,7 @@
                      min_val="0.25"
                      name="shadow_split_transition"
                      tool_tip="EXPERIMENTAL. How quickly the shadow detail setting moves from the sun overhead value to the sun ahead/behind value as the sun lines up with the view. Default 2."
-                     top="222"
+                     top="248"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5423,7 +5434,7 @@
                      layout="topleft"
                      left="15"
                      name="shadow_performance_heading"
-                     top="264"
+                     top="290"
                      width="340">
                         Shadow performance
                     </text>
@@ -5435,7 +5446,7 @@
                      left="370"
                      name="reset_shadow_performance_heading"
                      tool_tip="Set every option in &quot;Shadow performance&quot; back to its default value."
-                     top="263"
+                     top="289"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5448,7 +5459,7 @@
                      left="35"
                      name="shadow_far_cascade_interval_label"
                      tool_tip="EXPERIMENTAL. Render the two far sun shadow maps every this many frames instead of every frame (the furthest every twice this). Moving the camera, turning it or the sun moving re-renders them at once. 1 renders every frame."
-                     top="290"
+                     top="316"
                      width="285">
                         Update far sun shadows every N frames
                     </text>
@@ -5464,7 +5475,7 @@
                      min_val="1"
                      name="shadow_far_cascade_interval"
                      tool_tip="EXPERIMENTAL. Render the two far sun shadow maps every this many frames instead of every frame (the furthest every twice this). Moving the camera, turning it or the sun moving re-renders them at once. 1 renders every frame."
-                     top="288"
+                     top="314"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5473,7 +5484,7 @@
                      left="35"
                      name="shadow_far_cascade_resolution_label"
                      tool_tip="EXPERIMENTAL. Resolution of the two far sun shadow maps relative to the near ones (0.25 - 1). Far shadows cover a lot of ground per texel and blur anyway."
-                     top="318"
+                     top="344"
                      width="285">
                         Far sun shadow resolution
                     </text>
@@ -5489,7 +5500,7 @@
                      min_val="0.25"
                      name="shadow_far_cascade_resolution"
                      tool_tip="EXPERIMENTAL. Resolution of the two far sun shadow maps relative to the near ones (0.25 - 1). Far shadows cover a lot of ground per texel and blur anyway."
-                     top="316"
+                     top="342"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5498,7 +5509,7 @@
                      left="35"
                      name="shadow_far_cascade_min_caster_label"
                      tool_tip="EXPERIMENTAL. Multiplies RenderShadowMinCasterTexels for the two far sun shadow maps, so small objects far away stop casting sooner (1 - 16). Needs RenderShadowMinCasterTexels above 0."
-                     top="346"
+                     top="372"
                      width="285">
                         Far sun shadows skip small objects (x)
                     </text>
@@ -5514,7 +5525,7 @@
                      min_val="1"
                      name="shadow_far_cascade_min_caster"
                      tool_tip="EXPERIMENTAL. Multiplies RenderShadowMinCasterTexels for the two far sun shadow maps, so small objects far away stop casting sooner (1 - 16). Needs RenderShadowMinCasterTexels above 0."
-                     top="344"
+                     top="370"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5523,7 +5534,7 @@
                      left="35"
                      name="shadow_alpha_cascades_label"
                      tool_tip="EXPERIMENTAL. How many sun shadow maps, nearest first, draw alpha tested casters (leaves, grass, fences, alpha masked materials). In the far maps their shadows are a few texels, and they are a large share of the shadow pass. 4 draws them in all, as before."
-                     top="374"
+                     top="400"
                      width="285">
                         Sun shadow maps with leaf and grass casters
                     </text>
@@ -5539,7 +5550,7 @@
                      min_val="1"
                      name="shadow_alpha_cascades"
                      tool_tip="EXPERIMENTAL. How many sun shadow maps, nearest first, draw alpha tested casters (leaves, grass, fences, alpha masked materials). In the far maps their shadows are a few texels, and they are a large share of the shadow pass. 4 draws them in all, as before."
-                     top="372"
+                     top="398"
                      width="100" />
                     <check_box
                      control_name="FSRenderShadowReduceWhileMoving"
@@ -5550,7 +5561,7 @@
                      left="35"
                      name="shadow_reduce_while_moving"
                      tool_tip="While the camera turns or travels fast, the sun shadow maps past the nearest leave out small objects, and the far ones leave out leaves, grass and fences. Saves a little GPU time while moving the camera, but shadows of small things disappear and pop back a quarter second after the camera stops."
-                     top="400"
+                     top="426"
                      width="455" />
                     <text
                      follows="left|top"
@@ -5559,7 +5570,7 @@
                      left="35"
                      name="impostor_update_budget_label"
                      tool_tip="EXPERIMENTAL. How many avatar impostors may be redrawn per frame because the avatar moved or animated. A missing impostor or an appearance change is still redrawn at once. 0: no limit, as before."
-                     top="430"
+                     top="456"
                      width="285">
                         Avatar impostor redraws per frame
                     </text>
@@ -5575,7 +5586,7 @@
                      min_val="0"
                      name="impostor_update_budget"
                      tool_tip="EXPERIMENTAL. How many avatar impostors may be redrawn per frame because the avatar moved or animated. A missing impostor or an appearance change is still redrawn at once. 0: no limit, as before."
-                     top="428"
+                     top="454"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5584,7 +5595,7 @@
                      left="35"
                      name="impostor_min_interval_label"
                      tool_tip="EXPERIMENTAL. Shortest time between redraws of the same avatar impostor for movement or animation, in seconds. Until then it keeps showing its current impostor."
-                     top="458"
+                     top="484"
                      width="285">
                         Avatar impostor redraw interval (s)
                     </text>
@@ -5600,7 +5611,7 @@
                      min_val="0"
                      name="impostor_min_interval"
                      tool_tip="EXPERIMENTAL. Shortest time between redraws of the same avatar impostor for movement or animation, in seconds. Until then it keeps showing its current impostor."
-                     top="456"
+                     top="482"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5609,7 +5620,7 @@
                      left="35"
                      name="avatar_shadow_distance_label"
                      tool_tip="EXPERIMENTAL. Avatars and animesh further than this from the camera, with their attachments, cast no shadow. 0 for no limit. Your own avatar always casts."
-                     top="486"
+                     top="512"
                      width="285">
                         Avatar shadow distance (m, 0 = all)
                     </text>
@@ -5625,7 +5636,7 @@
                      min_val="0"
                      name="avatar_shadow_distance"
                      tool_tip="EXPERIMENTAL. Avatars and animesh further than this from the camera, with their attachments, cast no shadow. 0 for no limit. Your own avatar always casts."
-                     top="484"
+                     top="510"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5634,7 +5645,7 @@
                      left="35"
                      name="avatar_shadow_cascades_label"
                      tool_tip="EXPERIMENTAL. How many sun shadow maps, nearest first, other avatars and animesh (with their rigged attachments) cast into. Every map draws each rigged mesh again, so in a crowd the far maps cost the most for the smallest shadows. Avatars further than these maps reach cast no shadow. Your own avatar always casts. 4: all, as before."
-                     top="514"
+                     top="540"
                      width="285">
                         Sun shadow maps avatars cast into
                     </text>
@@ -5650,7 +5661,7 @@
                      min_val="1"
                      name="avatar_shadow_cascades"
                      tool_tip="EXPERIMENTAL. How many sun shadow maps, nearest first, other avatars and animesh (with their rigged attachments) cast into. Every map draws each rigged mesh again, so in a crowd the far maps cost the most for the smallest shadows. Avatars further than these maps reach cast no shadow. Your own avatar always casts. 4: all, as before."
-                     top="512"
+                     top="538"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5659,7 +5670,7 @@
                      left="35"
                      name="spot_shadow_update_interval_label"
                      tool_tip="EXPERIMENTAL. While a projector light and its settings stay unchanged, re-render its shadow only every this many frames. Things moving in its light update with that delay. 1 renders every frame."
-                     top="542"
+                     top="568"
                      width="285">
                         Update still projector shadows every N frames
                     </text>
@@ -5675,7 +5686,7 @@
                      min_val="1"
                      name="spot_shadow_update_interval"
                      tool_tip="EXPERIMENTAL. While a projector light and its settings stay unchanged, re-render its shadow only every this many frames. Things moving in its light update with that delay. 1 renders every frame."
-                     top="540"
+                     top="566"
                      width="100" />
                     <check_box
                      control_name="FSRenderShadowFastFilter"
@@ -5686,7 +5697,7 @@
                      left="15"
                      name="shadow_fast_filter"
                      tool_tip="EXPERIMENTAL. Sample sun shadows with 3 lookups instead of 5 where the area is clearly fully lit or fully shadowed, and only do all 5 near shadow edges. Rebuilds shaders when changed."
-                     top="568"
+                     top="594"
                      width="475" />
                     <check_box
                      control_name="FSRenderShadowTexelSnap"
@@ -5697,7 +5708,7 @@
                      left="15"
                      name="shadow_texel_snap"
                      tool_tip="EXPERIMENTAL. Snap each sun shadow cascade to whole shadow map texels, so shadow edges stay put instead of crawling and shimmering while the camera moves or turns. Costs almost nothing."
-                     top="590"
+                     top="616"
                      width="475" />
                     <check_box
                      control_name="FSRenderAlphaWBOIT"
@@ -5708,7 +5719,7 @@
                      left="15"
                      name="alpha_wboit"
                      tool_tip="EXPERIMENTAL. Blend transparent surfaces with weighted blended order-independent transparency instead of sorting them. Removes sorting errors between overlapping glass, particles and alpha planes; stacked, nearly opaque layers such as hair can look softer than with sorting."
-                     top="612"
+                     top="638"
                      width="475" />
                     <check_box
                      control_name="RenderShadowPCSS"
@@ -5719,7 +5730,7 @@
                      left="15"
                      name="ShadowPCSS"
                      tool_tip="EXPERIMENTAL. Soft sun, moon and projector shadows (percentage-closer soft shadows): shadow edges are sharp where an object touches the ground and soften with the distance to the object casting them. Uses a wider, rotated filter that the shadow blur smooths out. Needs shadows on (Sun/Moon or Sun/Moon + Projectors). Costs GPU time. Rebuilds shaders when changed."
-                     top="634"
+                     top="660"
                      width="475" />
                     <text
                      enabled_control="RenderShadowPCSS"
@@ -5729,7 +5740,7 @@
                      left="35"
                      name="shadow_pcss_light_size_label"
                      tool_tip="EXPERIMENTAL. Size of the light for soft shadows, as a multiple of the sun's real size (scaled by the sky's sun scale; the moon uses the same size). Larger values give wider, softer shadow edges away from the casting object. 1 is the real sun."
-                     top="664"
+                     top="690"
                      width="285">
                         Soft shadow light size (x sun)
                     </text>
@@ -5746,7 +5757,7 @@
                      min_val="0.25"
                      name="shadow_pcss_light_size"
                      tool_tip="EXPERIMENTAL. Size of the light for soft shadows, as a multiple of the sun's real size (scaled by the sky's sun scale; the moon uses the same size). Larger values give wider, softer shadow edges away from the casting object. 1 is the real sun."
-                     top="662"
+                     top="688"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5755,7 +5766,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_shadows"
-                     top="704"
+                     top="730"
                      width="340">
                         Shadow caching and batching
                     </text>
@@ -5767,7 +5778,7 @@
                      left="370"
                      name="reset_fs_heading_shadows"
                      tool_tip="Set every option in &quot;Shadows&quot; back to its default value."
-                     top="703"
+                     top="729"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5783,7 +5794,7 @@
                      left="15"
                      name="fs_fsperfshadowmergedbatches"
                      tool_tip="EXPERIMENTAL. Sends the opaque shadow casters of each shadow pass as fewer, larger draw calls. Shadows look the same; saves CPU time in scenes with many objects."
-                     top="730"
+                     top="756"
                      width="475" />
                     <check_box
                      control_name="FSPerfShadowStaticCache"
@@ -5795,7 +5806,7 @@
                      left="15"
                      name="fs_fsperfshadowstaticcache"
                      tool_tip="EXPERIMENTAL. Keeps the shadows of buildings and terrain in the two far sun shadow maps between frames and only redraws moving things into them. Needs 'Snap sun shadows to texels' (FSRenderShadowTexelSnap). Uses one extra depth buffer per far shadow map."
-                     top="756"
+                     top="782"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5804,7 +5815,7 @@
                      left="35"
                      name="fs_fsperfshadowstaticcachesunangle_label"
                      tool_tip="EXPERIMENTAL. With the static far shadow cache, the far shadows follow the sun in steps of this many degrees, 0 to 2. Larger steps redraw the cache less often under a moving sun."
-                     top="784"
+                     top="810"
                      width="285">
                         Far shadow sun step (degrees)
                     </text>
@@ -5821,7 +5832,7 @@
                      min_val="0"
                      name="fs_fsperfshadowstaticcachesunangle"
                      tool_tip="EXPERIMENTAL. With the static far shadow cache, the far shadows follow the sun in steps of this many degrees, 0 to 2. Larger steps redraw the cache less often under a moving sun."
-                     top="782"
+                     top="808"
                      width="100" />
                     <check_box
                      control_name="FSPerfShadowSinglePass"
@@ -5833,7 +5844,7 @@
                      left="15"
                      name="fs_fsperfshadowsinglepass"
                      tool_tip="EXPERIMENTAL. Sends buildings, objects, rigged mesh and alpha masked surfaces to the sun shadow maps once instead of once per shadow cascade; the graphics card copies each to every cascade it reaches. Shadows look the same; saves CPU time in busy scenes. Needs a graphics card and driver that can pick the viewport in the vertex shader (most NVIDIA and AMD cards with current drivers); otherwise nothing changes. Uses one extra depth buffer the size of the four sun shadow maps."
-                     top="814"
+                     top="840"
                      width="475" />
                     <check_box
                      control_name="FSPerfSpotShadowCache"
@@ -5844,7 +5855,7 @@
                      left="15"
                      name="fs_fsperfspotshadowcache"
                      tool_tip="EXPERIMENTAL. A projector's shadow is only redrawn when something it shows can have changed: the light moved or changed, objects in its cone were added, removed or changed detail, or an avatar or moving object is inside its cone. Otherwise the last shadow is kept, and it is redrawn at least once a second anyway. Saves the culling and drawing of every shadowed projector that only lights static scenery."
-                     top="844"
+                     top="870"
                      width="475" />
                     <check_box
                      control_name="FSPerfSpotShadowSplit"
@@ -5856,7 +5867,7 @@
                      left="35"
                      name="fs_fsperfspotshadowsplit"
                      tool_tip="EXPERIMENTAL. Needs Keep still projector shadows. A projector with avatars or moving objects in its cone keeps the shadow of its static objects and terrain, and each frame only culls and draws the avatars, attachments, animesh, moving objects, trees and grass over it. Saves most of the main thread time of projectors lighting people. Uses one extra depth buffer per shadowed projector. Translucent parts of avatars stay grey in coloured projector shadows."
-                     top="874"
+                     top="900"
                      width="455" />
                     <text
                      follows="left|top"
@@ -5865,7 +5876,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_cloud_shadows"
-                     top="916"
+                     top="942"
                      width="340">
                         Cloud shadows
                     </text>
@@ -5877,7 +5888,7 @@
                      left="370"
                      name="reset_fs_heading_cloud_shadows"
                      tool_tip="Set every option in &quot;Cloud shadows&quot; back to its default value."
-                     top="915"
+                     top="941"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5892,7 +5903,7 @@
                      left="15"
                      name="fs_fsrendercloudshadows"
                      tool_tip="EXPERIMENTAL. The sky's clouds cast moving shadows on the ground, objects and avatars. Needs sun shadows."
-                     top="942"
+                     top="968"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5901,7 +5912,7 @@
                      left="35"
                      name="fs_fsrendercloudshadowstrength_label"
                      tool_tip="EXPERIMENTAL. How much light a full cloud takes away."
-                     top="970"
+                     top="996"
                      width="285">
                         Cloud shadow strength
                     </text>
@@ -5918,7 +5929,7 @@
                      min_val="0"
                      name="fs_fsrendercloudshadowstrength"
                      tool_tip="EXPERIMENTAL. How much light a full cloud takes away."
-                     top="968"
+                     top="994"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5927,7 +5938,7 @@
                      left="35"
                      name="fs_fsrendercloudshadowsoftness_label"
                      tool_tip="EXPERIMENTAL. Softer cloud shadow edges."
-                     top="998"
+                     top="1024"
                      width="285">
                         Cloud shadow softness
                     </text>
@@ -5944,7 +5955,7 @@
                      min_val="0"
                      name="fs_fsrendercloudshadowsoftness"
                      tool_tip="EXPERIMENTAL. Softer cloud shadow edges."
-                     top="996"
+                     top="1022"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5953,7 +5964,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_contact_shadows"
-                     top="1038"
+                     top="1064"
                      width="340">
                         Contact shadows
                     </text>
@@ -5965,7 +5976,7 @@
                      left="370"
                      name="reset_fs_heading_contact_shadows"
                      tool_tip="Set every option in &quot;Contact shadows&quot; back to its default value."
-                     top="1037"
+                     top="1063"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5980,7 +5991,7 @@
                      left="15"
                      name="fs_fsrendercontactshadows"
                      tool_tip="EXPERIMENTAL. Small screen-space shadows where objects touch, which the shadow maps miss (feet on the ground, folds, small props). Needs sun shadows."
-                     top="1064"
+                     top="1090"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5989,7 +6000,7 @@
                      left="35"
                      name="fs_fsrendercontactshadowlength_label"
                      tool_tip="EXPERIMENTAL. How far towards the sun each pixel looks for an occluder."
-                     top="1092"
+                     top="1118"
                      width="285">
                         Contact shadow length (m)
                     </text>
@@ -6006,7 +6017,7 @@
                      min_val="0.05"
                      name="fs_fsrendercontactshadowlength"
                      tool_tip="EXPERIMENTAL. How far towards the sun each pixel looks for an occluder."
-                     top="1090"
+                     top="1116"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6015,7 +6026,7 @@
                      left="35"
                      name="fs_fsrendercontactshadowstrength_label"
                      tool_tip="EXPERIMENTAL. Darkness of the contact shadows."
-                     top="1120"
+                     top="1146"
                      width="285">
                         Contact shadow strength
                     </text>
@@ -6032,7 +6043,7 @@
                      min_val="0"
                      name="fs_fsrendercontactshadowstrength"
                      tool_tip="EXPERIMENTAL. Darkness of the contact shadows."
-                     top="1118"
+                     top="1144"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6041,7 +6052,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_shadow_fade"
-                     top="1160"
+                     top="1186"
                      width="340">
                         Shadow fade
                     </text>
@@ -6053,7 +6064,7 @@
                      left="370"
                      name="reset_fs_heading_shadow_fade"
                      tool_tip="Set every option in &quot;Shadow fade&quot; back to its default value."
-                     top="1159"
+                     top="1185"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6068,7 +6079,7 @@
                      left="15"
                      name="fs_fsrendershadowsmoothfade"
                      tool_tip="EXPERIMENTAL. Sun shadows fade out smoothly towards the shadow distance, and the change between shadow cascades is dithered so there is no visible line where shadow quality changes."
-                     top="1186"
+                     top="1212"
                      width="475" />
                     <text
                      follows="left|top"
@@ -6077,7 +6088,7 @@
                      left="35"
                      name="fs_fsrendershadowfadelength_label"
                      tool_tip="EXPERIMENTAL. Part of the shadow distance over which shadows fade out at its far end."
-                     top="1214"
+                     top="1240"
                      width="285">
                         Fade length (fraction of distance)
                     </text>
@@ -6094,7 +6105,7 @@
                      min_val="0.02"
                      name="fs_fsrendershadowfadelength"
                      tool_tip="EXPERIMENTAL. Part of the shadow distance over which shadows fade out at its far end."
-                     top="1212"
+                     top="1238"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6103,7 +6114,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_coloured_shadows"
-                     top="1254"
+                     top="1280"
                      width="340">
                         Coloured shadows
                     </text>
@@ -6115,7 +6126,7 @@
                      left="370"
                      name="reset_fs_heading_coloured_shadows"
                      tool_tip="Set every option in &quot;Coloured shadows&quot; back to its default value."
-                     top="1253"
+                     top="1279"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6131,7 +6142,7 @@
                      left="15"
                      name="fs_fsrendercoloredshadows"
                      tool_tip="EXPERIMENTAL. Sunlight passing through stained glass, tinted windows and other alpha-blended surfaces takes on their colour, in proportion to their opacity. Works up to the second sun shadow split (the nearest few tens of metres). Uses two extra textures the size of the shadow maps (about 8 MB each at 1920x1080 with shadow resolution 1) and redraws transparent objects into the two nearest shadow maps. Needs sun shadows."
-                     top="1280"
+                     top="1306"
                      width="475" />
                     <text
                      follows="left|top"
@@ -6140,7 +6151,7 @@
                      left="35"
                      name="fs_fsrendercoloredshadowabsorption_label"
                      tool_tip="EXPERIMENTAL. How much light an opaque-looking transparent surface also blocks. 0 only tints the light; 1 lets a fully opaque surface block it completely. Clear glass is unaffected either way."
-                     top="1308"
+                     top="1334"
                      width="285">
                         Absorption
                     </text>
@@ -6157,7 +6168,7 @@
                      min_val="0.0"
                      name="fs_fsrendercoloredshadowabsorption"
                      tool_tip="EXPERIMENTAL. How much light an opaque-looking transparent surface also blocks. 0 only tints the light; 1 lets a fully opaque surface block it completely. Clear glass is unaffected either way."
-                     top="1306"
+                     top="1332"
                      width="100" />
                     <check_box
                      control_name="FSRenderColoredShadowsProjectors"
@@ -6169,7 +6180,7 @@
                      left="35"
                      name="fs_fsrendercoloredshadowsprojectors"
                      tool_tip="EXPERIMENTAL. Light from shadowed projectors passing through stained glass, tinted windows and other alpha-blended surfaces takes on their colour too. Uses one extra texture per shadowed projector, the size of its shadow map (up to 16 MB each), and redraws transparent objects into each projector shadow map. Needs coloured shadows and projector shadows (Sun/Moon + Projectors)."
-                     top="1338"
+                     top="1364"
                      width="455" />
                     <text
                      follows="left|top"
@@ -6178,7 +6189,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_projector_shadows"
-                     top="1380"
+                     top="1406"
                      width="340">
                         Projector shadows
                     </text>
@@ -6190,7 +6201,7 @@
                      left="370"
                      name="reset_fs_heading_projector_shadows"
                      tool_tip="Set every option in &quot;Projector shadows&quot; back to its default value."
-                     top="1379"
+                     top="1405"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6203,7 +6214,7 @@
                      left="35"
                      name="fs_fsrenderspotshadowcount_label"
                      tool_tip="EXPERIMENTAL. How many projectors cast shadows at once (2 is the standard viewer, up to 6). Each one past two renders another shadow map every update (see the projector shadow update interval) and uses about 16 MB of video memory at 2048 pixels. Needs projector shadows on."
-                     top="1408"
+                     top="1434"
                      width="285">
                         Shadowed projectors
                     </text>
@@ -6219,7 +6230,7 @@
                      min_val="2"
                      name="fs_fsrenderspotshadowcount"
                      tool_tip="EXPERIMENTAL. How many projectors cast shadows at once (2 is the standard viewer, up to 6). Each one past two renders another shadow map every update (see the projector shadow update interval) and uses about 16 MB of video memory at 2048 pixels. Needs projector shadows on."
-                     top="1406"
+                     top="1432"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6228,7 +6239,7 @@
                      left="35"
                      name="fs_renderspotshadowmaxresolution_label"
                      tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. 0: no limit, as standard."
-                     top="1436"
+                     top="1462"
                      width="285">
                         Projector shadow map size limit
                     </text>
@@ -6244,7 +6255,7 @@
                      min_val="0"
                      name="fs_renderspotshadowmaxresolution"
                      tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. 0: no limit, as standard."
-                     top="1434"
+                     top="1460"
                      width="100" />
                 </panel>
             </scroll_container>
@@ -7443,11 +7454,11 @@
                      enabled_control="RenderShadowDetail"
                      follows="left|top"
                      height="20"
-                     label="Cull sun shadow maps on worker threads"
+                     label="Cull sun shadow maps on worker threads (casters found per map only)"
                      layout="topleft"
                      left="15"
                      name="fs_fsperfparallelshadowcull"
-                     tool_tip="EXPERIMENTAL. Works out which objects fall into each sun shadow map on several CPU cores at once instead of one map after another on the main thread. Shadows look the same; saves main thread time in busy scenes."
+                     tool_tip="EXPERIMENTAL. Works out which objects fall into each sun shadow map on several CPU cores at once instead of one map after another on the main thread. Shadows look the same; saves main thread time in busy scenes. Only works with Shadows &gt; Find sun shadow casters set to Separately per map: with Once for all maps there is a single search already, and this does nothing."
                      top="366"
                      width="475" />
                     <check_box

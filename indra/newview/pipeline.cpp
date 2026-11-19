@@ -17620,14 +17620,35 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         }
         // </FS:Trish>
 
+        // <FS:Trish> FSRenderShadowSplitsFullRange: spread the cascades in use (RenderShadowSplits)
+        // over the whole range, instead of placing them as for four and leaving the far end unshadowed
+        static LLCachedControl<bool> splits_full_range(gSavedSettings, "FSRenderShadowSplitsFullRange", false);
+        const S32 fs_last_split = llclamp(RenderShadowSplits, 0, 3);
+        const bool fs_full_range = splits_full_range && !gCubeSnapshot && fs_last_split < 3;
+        // </FS:Trish>
         for (U32 i = 0; i < 4; ++i)
         {
-            F32 x = (F32)(i+1)/4.f;
+            // <FS:Trish>
+            //F32 x = (F32)(i+1)/4.f;
+            F32 x = (F32)(i+1)/(fs_full_range ? (F32)(fs_last_split+1) : 4.f);
+            // </FS:Trish>
             x = powf(x, sxp);
             mSunClipPlanes.mV[i] = near_clip+range*x;
         }
 
         mSunClipPlanes.mV[0] *= 1.25f; //bump back first split for transition padding
+
+        // <FS:Trish> FSRenderShadowSplitsFullRange: the unused cascades get thin slices just past the
+        // last one, so the splits stay in order and the shader's range (shadow_clip.w) ends about where
+        // the shadows do
+        if (fs_full_range)
+        {
+            for (S32 i = fs_last_split + 1; i < 4; ++i)
+            {
+                mSunClipPlanes.mV[i] = mSunClipPlanes.mV[fs_last_split] * (1.f + 0.02f * (F32)(i - fs_last_split));
+            }
+        }
+        // </FS:Trish>
     }
 
     if (gCubeSnapshot)
@@ -17740,6 +17761,14 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             LLVector3 ueye = camera.getOrigin();
             LLVector3* ufrust = ucam.mAgentFrustum;
             LLVector3 upn = ucam.getAtAxis();
+            // <FS:Trish> Only as far as the last cascade drawn this frame: the ones past
+            // RenderShadowSplits are cleared, and the far cascade throttle skips others
+            S32 fs_last_cascade = llclamp(RenderShadowSplits, 0, 3);
+            while (fs_last_cascade > 0 && skip_cascade[fs_last_cascade])
+            {
+                --fs_last_cascade;
+            }
+            // </FS:Trish>
             for (U32 i = 0; i < 4; i++)
             {
                 LLVector3 delta = ufrust[i+4]-ueye;
@@ -17747,7 +17776,10 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 delta.normVec();
                 F32 dp = delta*upn;
                 ufrust[i]   = ueye + (delta*dist[0]*0.75f)/dp;
-                ufrust[i+4] = ueye + (delta*dist[4]*1.25f)/dp;
+                // <FS:Trish>
+                //ufrust[i+4] = ueye + (delta*dist[4]*1.25f)/dp;
+                ufrust[i+4] = ueye + (delta*dist[fs_last_cascade+1]*1.25f)/dp;
+                // </FS:Trish>
             }
 
             {
