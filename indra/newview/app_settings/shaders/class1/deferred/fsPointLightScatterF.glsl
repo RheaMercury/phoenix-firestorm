@@ -30,19 +30,16 @@
 // resolution: rgb is the scattered light, a the distance this pixel sees, which the projectors
 // drawn after it leave alone. The map's temporal resolve and composite then treat both alike.
 //
-// No march: a point light lights the air with the same falloff it lights surfaces with,
-// calcLegacyDistanceAttenuation's 2 (1 - r/S)^2 / (1 + falloff)^2 inside its range S, and along a
-// straight ray through a homogeneous medium that integrates in closed form. With u the distance
-// along the ray from its closest approach to the light, h that closest distance, and
-// r = sqrt(u^2 + h^2):
-//     integral of (1 - r/S)^2 du = u - (u r + h^2 asinh(u / h)) / S + (u^3 / 3 + h^2 u) / S^2
-// taken over the part of the ray inside the range and in front of the scene. The phase function
-// (Henyey-Greenstein, as the projector cones use it) changes along the ray, so it is averaged over
-// that segment, weighted by the falloff, at four Gauss-Legendre points on each side of the
-// closest approach, where the angle to the light turns fastest: within about 1% of the exact
-// average for 99% of rays, up to about 15% for rays grazing a light with strong forward
-// scattering. The air's density is the height fog's at the closest approach when the fog is on,
-// else a constant; the light reaching the camera is dimmed by the air in between.
+// No march: the light the air around a point light scatters falls off with the inverse square of
+// the distance, softened in a small core and windowed to zero at the light's range (see main),
+// with the same total light as calcLegacyDistanceAttenuation's 2 (1 - r/S)^2 / (1 + falloff)^2
+// would give. Along a straight ray, with u the distance from its closest approach to the light and
+// h that closest distance, a change of variable to the angle seen from the light makes the
+// inverse square constant, so the window and the phase function (Henyey-Greenstein, as the
+// projector cones use it) are integrated over the part of the ray inside the range and in front
+// of the scene at four Gauss-Legendre points on each side of the closest approach. The air's
+// density is the height fog's at the closest approach when the fog is on, else a constant; the
+// light reaching the camera is dimmed by the air in between.
 
 /*[EXTRA_CODE_HERE]*/
 
@@ -88,21 +85,11 @@ float airDensity(vec3 p)
     return fs_scatter_density;
 }
 
-// asinh without the cancellation of log(x + sqrt(x^2 + 1)) for large negative x
-float fsAsinh(float x)
-{
-    float a = abs(x);
-    return sign(x) * log(a + sqrt(a * a + 1.0));
-}
-
-// Antiderivative of (1 - r/S)^2 along the ray, u from the closest approach, h its distance
-float falloffPrimitive(float u, float h, float range)
-{
-    float r = sqrt(u * u + h * h);
-    float int_r = 0.5 * (u * r + h * h * fsAsinh(u / h));
-    float int_r2 = u * u * u / 3.0 + h * h * u;
-    return u - 2.0 * int_r / range + int_r2 / (range * range);
-}
+// The glow's soft core, as a fraction of the light's range, and the factor that gives the air the
+// same total light as the surface falloff (1 - r/S)^2 did: the volume integrals of
+// x^2 (1 - x)^2 and x^2 (1 - x^2)^2 c / (c + x^2) over 0..1, c = 0.02, are 1/30 and 1/140.2
+const float FS_SCATTER_CORE = 0.1414214;
+const float FS_SCATTER_NORM = 4.6735;
 
 void main()
 {
@@ -147,45 +134,53 @@ void main()
         {
             continue;
         }
-        float h = max(sqrt(h2), 1e-4);
-
-        // Falloff integrated over the segment, with calcLegacyDistanceAttenuation's scale
+        // The air's glow around a light falls off like light in fog does, with the inverse square
+        // of the distance (softened inside a core of FS_SCATTER_CORE x the range, so it stays
+        // finite at the light), times a window that reaches zero with zero slope at the range:
+        //     N * c / (c + (r/S)^2) * (1 - (r/S)^2)^2,   c = FS_SCATTER_CORE^2
+        // So the glow gathers around the light with a long faint halo and no visible edge. The
+        // surface falloff (1 - r/S)^2 stays bright almost out to the range, which drew every light
+        // as an evenly lit ball. N keeps the air's total light the same as that falloff gave, so
+        // the strength setting means what it did.
+        // Along the ray, u = H tan(theta) with H^2 = c S^2 + h^2 turns the inverse square into a
+        // constant: integral of f(u) du / (H^2 + u^2) = (1 / H) integral of f dtheta. The window and
+        // the phase function are smooth in theta, so four Gauss-Legendre points on each side of the
+        // closest approach integrate them closely, also for rays passing right by a light.
         float falloff = light_col.a;
-        float atten = (falloffPrimitive(t1 - b, h, range) - falloffPrimitive(t0 - b, h, range)) * 2.0 / ((1.0 + falloff) * (1.0 + falloff));
+        float c_s2 = FS_SCATTER_CORE * FS_SCATTER_CORE * range2;
+        float big_h = sqrt(c_s2 + h2);
+        float th0 = atan((t0 - b) / big_h);
+        float th1 = atan((t1 - b) / big_h);
+        float th_near = clamp(0.0, th0, th1);
+        float sum = 0.0;
+        for (int side = 0; side < 2; ++side)
+        {
+            float s0 = side == 0 ? th0 : th_near;
+            float s1 = side == 0 ? th_near : th1;
+            float mid = 0.5 * (s0 + s1);
+            float half_len = 0.5 * (s1 - s0);
+            for (int k = 0; k < 4; ++k)
+            {
+                float u = big_h * tan(mid + half_len * gauss_x[k]);
+                float r2 = u * u + h2;
+                float win = max(1.0 - r2 / range2, 0.0);
+                float r = sqrt(r2);
+                // toward the light from the point on the ray: cos = (b - t) / r
+                sum += gauss_w[k] * half_len * win * win * phase(-u / max(r, 1e-4), g);
+            }
+        }
+        float atten = sum * FS_SCATTER_NORM * c_s2 / big_h * 2.0 / ((1.0 + falloff) * (1.0 + falloff));
         if (atten <= 0.0)
         {
             continue;
         }
 
-        // The phase function averaged over the segment, weighted by the falloff, split at the
-        // closest approach (one side is empty when the segment does not reach it)
-        float t_near = clamp(b, t0, t1);
-        float phase_sum = 0.0;
-        float weight_sum = 0.0;
-        for (int side = 0; side < 2; ++side)
-        {
-            float s0 = side == 0 ? t0 : t_near;
-            float s1 = side == 0 ? t_near : t1;
-            float mid = 0.5 * (s0 + s1);
-            float half_len = 0.5 * (s1 - s0);
-            for (int k = 0; k < 4; ++k)
-            {
-                float u = mid + half_len * gauss_x[k] - b;
-                float r = sqrt(u * u + h2);
-                float a = max(1.0 - r / range, 0.0);
-                float w = gauss_w[k] * half_len * a * a;
-                // toward the light from the point on the ray: cos = (b - t) / r
-                phase_sum += w * phase(-u / max(r, 1e-4), g);
-                weight_sum += w;
-            }
-        }
-        float mean_phase = weight_sum > 1e-12 ? phase_sum / weight_sum : phase(0.0, g);
-
         // The air at the closest approach scatters; the air on the way to the camera dims it
+        float t_near = clamp(b, t0, t1);
         float sigma = airDensity(view_dir * t_near);
         float transmit = exp(-airDensity(view_dir * (0.5 * t_near)) * t_near);
 
-        result += light_col.rgb * (atten * mean_phase * sigma * transmit);
+        result += light_col.rgb * (atten * sigma * transmit);
     }
 
     frag_color = vec4(max(result * fs_scatter_strength, vec3(0.0)), scene_dist);
