@@ -93,6 +93,10 @@ LLUrlRegistry::LLUrlRegistry()
     registerUrl(new LLUrlEntryRegion());
     registerUrl(new LLUrlEntryWorldMap());
     registerUrl(new LLUrlEntryObjectIM());
+    // <FS:Trish> Camera links: before LLUrlEntryPlace, whose pattern also takes a camera link up to its
+    // last "digits/digits" (where the two start at the same place, the one registered first wins)
+    registerUrl(new FSUrlEntryCamera());
+    // </FS:Trish>
     registerUrl(new LLUrlEntryPlace());
     registerUrl(new LLUrlEntryInventory());
     registerUrl(new LLUrlEntryExperienceProfile());
@@ -113,7 +117,7 @@ LLUrlRegistry::LLUrlRegistry()
     registerUrl(new LLUrlEntryIPv6());
     // parse jira issue names to links -KC
     registerUrl(new LLUrlEntryJira());
-    registerUrl(new FSUrlEntryCamera()); // <FS:Trish/> Camera links
+    //registerUrl(new FSUrlEntryCamera()); // <FS:Trish/> Camera links, moved up before LLUrlEntryPlace
 }
 
 LLUrlRegistry::~LLUrlRegistry()
