@@ -134,6 +134,10 @@ namespace FSGLStream
     // default; the stats line counts them). Main thread.
     void setFilter(bool filter);
 
+    // FSRenderThreadCallStats: count the recorded calls per entry point and per GPU zone for the
+    // stats lines (off by default: a few ns on every recorded call). Main thread.
+    void setCallStats(bool on);
+
     struct Stats
     {
         U32 mPresents = 0;
@@ -145,9 +149,9 @@ namespace FSGLStream
         F64 mRenderBusyMs = 0.0;    // render thread replaying
         F64 mRenderIdleMs = 0.0;    // render thread waiting for work
         std::string mTopSyncs;      // "glGetError x12, ..." most frequent synchronous calls
-        std::string mTopCalls;      // "glUniformMatrix4fv 812 (50 KB), ..." most recorded calls, per frame
+        std::string mTopCalls;      // "glUniformMatrix4fv 812 (50 KB), ..." most recorded calls, per frame (FSRenderThreadCallStats)
         std::string mTopSkips;      // "glBindTexture 340, ..." calls dropped as redundant, per frame
-        std::string mTopZones;      // "shadow simple 4100 (draws 900, texture binds 20), ..." calls per GPU zone, per frame
+        std::string mTopZones;      // "shadow simple 4100 (draws 900, texture binds 20), ..." calls per GPU zone, per frame (FSRenderThreadCallStats)
         U64 mSkippedCalls = 0;      // calls dropped as redundant (they would set state to what it is)
     };
     // Main thread. Returns the counters since the last call and resets them.

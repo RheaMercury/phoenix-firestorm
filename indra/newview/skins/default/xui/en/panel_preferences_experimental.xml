@@ -8474,7 +8474,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="588"
+                 height="614"
                  layout="topleft"
                  left="0"
                  name="experimental_logging_settings"
@@ -8503,7 +8503,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSHitchLogThresholdMs,FSHitchStackMs,FSPerfProfileLogInterval,FSRenderGPUTimings,FSRenderGPUTimingsInterval,FSRenderThreadCheck" />
+                         parameter="FSHitchLogThresholdMs,FSHitchStackMs,FSPerfProfileLogInterval,FSRenderGPUTimings,FSRenderGPUTimingsInterval,FSRenderThreadCheck,FSRenderThreadCallStats" />
                     </button>
                     <text
                      follows="left|top"
@@ -8628,6 +8628,18 @@
                      tool_tip="Debug. Writes OpenGL calls made from the wrong thread, and calls that make the main thread wait for the render thread, to the log. Only for testing."
                      top="188"
                      width="455" />
+                    <check_box
+                     control_name="FSRenderThreadCallStats"
+                     enabled_control="FSRenderThread"
+                     follows="left|top"
+                     height="20"
+                     label="Log render thread calls per type and per pass"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderthreadcallstats"
+                     tool_tip="Adds two lines to the render thread statistics in the log (every 60 seconds): the OpenGL calls made most per frame, and the calls per frame of each GPU pass. Costs a little main thread time on every call while on."
+                     top="214"
+                     width="455" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -8635,7 +8647,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_gdd_logging"
-                     top="226"
+                     top="252"
                      width="340">
                         GPU-driven draws
                     </text>
@@ -8647,7 +8659,7 @@
                      left="370"
                      name="reset_fs_heading_gdd_logging"
                      tool_tip="Set every option in &quot;GPU-driven draws&quot; back to its default value."
-                     top="225"
+                     top="251"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -8663,7 +8675,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenpbrstats"
                      tool_tip="Every 10 seconds, logs (FSGPUDrivenPBR) how many PBR batches went out in how many multi-draw calls, why batches were drawn the old way, the arena sizes and the bindless texture handles (made, resident, dropped). No stalls."
-                     top="254"
+                     top="280"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenLegacyStats"
@@ -8675,7 +8687,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenlegacystats"
                      tool_tip="Every 10 seconds, logs (FSGPUDrivenLegacy) how many legacy batches went out in how many multi-draw calls, why batches were drawn the old way and the arena sizes. No stalls."
-                     top="282"
+                     top="308"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenMaterialsStats"
@@ -8687,7 +8699,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenmaterialsstats"
                      tool_tip="Every 10 seconds, logs (FSGPUDrivenMaterials) how many material batches went out in how many multi-draw calls, why batches were drawn the old way and the arena sizes, used and allocated. No stalls."
-                     top="310"
+                     top="336"
                      width="455" />
                     <check_box
                      control_name="FSPerfShadowBatchStats"
@@ -8698,7 +8710,7 @@
                      left="35"
                      name="fs_fsperfshadowbatchstats"
                      tool_tip="Every 10 seconds, logs how many opaque shadow batches were drawn in how many draw calls, and how often the far sun cascade cache was reused or drawn again. Works with the shadow options on or off, to compare."
-                     top="338"
+                     top="364"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenPBRVerify"
@@ -8710,7 +8722,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenpbrverify"
                      tool_tip="Debug. Draws the PBR batches a second time the old way and logs any place where the result would differ, plus statistics every 10 seconds. Stalls the GPU; for testing only."
-                     top="366"
+                     top="392"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenLegacyVerify"
@@ -8722,7 +8734,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenlegacyverify"
                      tool_tip="Debug. Draws the legacy batches a second time the old way and logs any place where the result would differ, plus statistics every 10 seconds. Stalls the GPU; for testing only."
-                     top="394"
+                     top="420"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenMaterialsVerify"
@@ -8734,7 +8746,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenmaterialsverify"
                      tool_tip="Debug. Draws the material batches a second time the old way and logs any place where the result would differ, plus statistics every 10 seconds. Stalls the GPU; for testing only."
-                     top="422"
+                     top="448"
                      width="455" />
                     <text
                      follows="left|top"
@@ -8743,7 +8755,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_render_logging"
-                     top="460"
+                     top="486"
                      width="340">
                         Rendering
                     </text>
@@ -8755,7 +8767,7 @@
                      left="370"
                      name="reset_fs_heading_render_logging"
                      tool_tip="Set every option in &quot;Rendering&quot; back to its default value."
-                     top="459"
+                     top="485"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -8768,7 +8780,7 @@
                      left="35"
                      name="fs_fsrendervrsloginterval_label"
                      tool_tip="Variable rate shading: seconds between log lines giving the share of tiles at each shading rate and the G-buffer pass GPU time with and without it. 0 turns the log off."
-                     top="488"
+                     top="514"
                      width="290">
                         Variable rate shading log interval (seconds)
                     </text>
@@ -8784,7 +8796,7 @@
                      min_val="0"
                      name="fs_fsrendervrsloginterval"
                      tool_tip="Variable rate shading: seconds between log lines giving the share of tiles at each shading rate and the G-buffer pass GPU time with and without it. 0 turns the log off."
-                     top="486"
+                     top="512"
                      width="100" />
                     <check_box
                      control_name="FSDebugReflectionProbeCulls"
@@ -8795,7 +8807,7 @@
                      left="35"
                      name="fs_fsdebugreflectionprobeculls"
                      tool_tip="Logs every time a reflection probe stops being rendered."
-                     top="516"
+                     top="542"
                      width="455" />
                     <check_box
                      control_name="FSDiagnosticsGPUWork"
@@ -8806,7 +8818,7 @@
                      left="35"
                      name="fs_fsdiagnosticsgpuwork"
                      tool_tip="Diagnostics. Every 10 seconds, logs (FSGPUWork) how many objects share one mesh or prim shape and the geometry their copies take, how much of what is in view the occlusion queries hide and how much of what is drawn is behind the finished depth anyway (one box test per object on one frame), and texture memory by whether its faces are visible, hidden or off screen. Each log costs a few milliseconds once."
-                     top="544"
+                     top="570"
                      width="455" />
                 </panel>
             </scroll_container>

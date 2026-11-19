@@ -125,10 +125,19 @@ namespace
                id == FSGL_ID_glDrawElementsIndirect;
     }
 
+    // FSRenderThreadCallStats: count recorded calls per entry point and per GPU zone. Off, a
+    // recorded call costs one test of this flag here.
+    bool sCallStats = false;                    // main thread
+
     template <int ID>
-    inline void noteCall()
+    inline void noteCall(size_t bytes)
     {
+        if (!sCallStats)
+        {
+            return;
+        }
         ++sCallCount[ID];
+        sCallBytes[ID] += bytes;
         const char* zone = LLFSGPUZone::tZone;
         if (zone != sLastZone || !sLastZoneCalls)
         {
@@ -489,8 +498,7 @@ namespace
         {
             U8* p = allocRecord(&execTuple<ID, Fn, T>, sizeof(T));
             new (p) T(a...);
-            noteCall<ID>();
-            sCallBytes[ID] += sizeof(RecHdr) + align16(sizeof(T));
+            noteCall<ID>(sizeof(RecHdr) + align16(sizeof(T)));
             commitRecord();
         }
 
@@ -550,8 +558,7 @@ namespace
             {
                 memcpy(p + align16(sizeof(T)), src, blob);
             }
-            noteCall<ID>();
-            sCallBytes[ID] += sizeof(RecHdr) + align16(align16(sizeof(T)) + blob);
+            noteCall<ID>(sizeof(RecHdr) + align16(align16(sizeof(T)) + blob));
             commitRecord();
         }
     };
@@ -4087,6 +4094,20 @@ namespace FSGLStream
         sRenderPoll.store(fn, std::memory_order_release);
     }
 
+    void setCallStats(bool on)
+    {
+        if (on != sCallStats)
+        {
+            // the counts so far would cover only part of the period
+            memset(sCallCount, 0, sizeof(sCallCount));
+            memset(sCallBytes, 0, sizeof(sCallBytes));
+            sZoneCalls.clear();
+            sLastZone = nullptr;
+            sLastZoneCalls = nullptr;
+        }
+        sCallStats = on;
+    }
+
     void setFilter(bool filter)
     {
         if (filter && !sFilter)
@@ -4281,6 +4302,7 @@ namespace FSGLStream
     bool reserveTextures(U32, U32) { return true; }
     void setRenderPoll(bool (*)(bool)) {}
     void setFilter(bool) {}
+    void setCallStats(bool) {}
     void clearErrors()
     {
         for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i)

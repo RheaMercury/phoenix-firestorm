@@ -59,7 +59,6 @@ std::atomic<U64> sFrameCpuStart{ 0 }; // main thread CPU time at frame start, 10
 std::atomic<bool> sWatching{ false };
 std::atomic<F32> sStackMs{ 0.f };
 std::atomic<bool> sShutdown{ false };
-std::string sLastCosts;
 
 #if LL_WINDOWS
 U64 filetime(const FILETIME& ft)
@@ -507,7 +506,9 @@ private:
 
 Watcher sWatcher;
 Counters sFrameCounters;
+Counters sLastFrame;    // the last frame's share of the counters, formatted only when a hitch asks for it
 bool sHaveCounters = false;
+bool sHaveLastFrame = false;
 #endif // LL_WINDOWS
 } // namespace
 
@@ -521,10 +522,12 @@ void FSStallWatch::frameMark(bool watching, F32 stack_ms)
     const Counters now = read_counters(GetCurrentThread());
     if (sHaveCounters)
     {
-        sLastCosts = llformat("main thread CPU %.0f ms (kernel %.0f), page faults %u, process I/O read %.1f MB write %.1f MB",
-                              (now.mUser + now.mKernel - sFrameCounters.mUser - sFrameCounters.mKernel) / 10000.0,
-                              (now.mKernel - sFrameCounters.mKernel) / 10000.0, now.mFaults - sFrameCounters.mFaults,
-                              (now.mRead - sFrameCounters.mRead) / 1048576.0, (now.mWrite - sFrameCounters.mWrite) / 1048576.0);
+        sLastFrame.mUser = now.mUser - sFrameCounters.mUser;
+        sLastFrame.mKernel = now.mKernel - sFrameCounters.mKernel;
+        sLastFrame.mFaults = now.mFaults - sFrameCounters.mFaults;
+        sLastFrame.mRead = now.mRead - sFrameCounters.mRead;
+        sLastFrame.mWrite = now.mWrite - sFrameCounters.mWrite;
+        sHaveLastFrame = true;
     }
     sFrameCounters = now;
     sHaveCounters = true;
@@ -542,7 +545,15 @@ void FSStallWatch::frameMark(bool watching, F32 stack_ms)
 
 std::string FSStallWatch::lastFrameCosts()
 {
-    return sLastCosts;
+#if LL_WINDOWS
+    if (sHaveLastFrame)
+    {
+        return llformat("main thread CPU %.0f ms (kernel %.0f), page faults %u, process I/O read %.1f MB write %.1f MB",
+                        (sLastFrame.mUser + sLastFrame.mKernel) / 10000.0, sLastFrame.mKernel / 10000.0, sLastFrame.mFaults,
+                        sLastFrame.mRead / 1048576.0, sLastFrame.mWrite / 1048576.0);
+    }
+#endif
+    return std::string();
 }
 
 void FSStallWatch::shutdown()

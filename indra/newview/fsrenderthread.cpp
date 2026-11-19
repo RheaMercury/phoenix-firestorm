@@ -215,6 +215,8 @@ namespace FSRenderThread
         FSGLStream::setCheck(check);
         static LLCachedControl<bool> filter(gSavedSettings, "FSRenderThreadFilter", true);
         FSGLStream::setFilter(filter);
+        static LLCachedControl<bool> call_stats(gSavedSettings, "FSRenderThreadCallStats", false);
+        FSGLStream::setCallStats(call_stats);
 
         ++sFrames;
         sFrameSeconds += sFrameTimer.getElapsedTimeAndResetF64();

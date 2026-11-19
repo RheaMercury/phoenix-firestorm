@@ -468,6 +468,7 @@ namespace
         { "FSRenderGPUTimings", CM, VN },
         { "FSRenderGPUTimingsInterval", CL, VN },
         { "FSRenderThreadCheck", CM, VN },
+        { "FSRenderThreadCallStats", CL, VN },
         { "FSPerfGPUDrivenPBRStats", CL, VN },
         { "FSPerfGPUDrivenLegacyStats", CL, VN },
         { "FSPerfGPUDrivenMaterialsStats", CL, VN },

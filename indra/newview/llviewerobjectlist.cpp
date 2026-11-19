@@ -1378,14 +1378,28 @@ void LLViewerObjectList::update(LLAgent &agent)
     else
     {
         FSParallelAvatar::beginIdle(); // <FS:Trish/> FSPerfParallelAvatarUpdate
-        for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
-            idle_iter != idle_end; idle_iter++)
+        // <FS:Trish> FSPerfProfileLogInterval: one timer per run of avatars or other objects, not
+        // one per object, in the same order as before
+        //for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
+        //    idle_iter != idle_end; idle_iter++)
+        //{
+        //    objectp = *idle_iter;
+        //    llassert(objectp->isActive());
+        //        objectp->idleUpdate(agent, frame_time);
+        //}
+        std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
+        while (idle_iter != idle_end)
         {
-            objectp = *idle_iter;
-            llassert(objectp->isActive());
-            FS_RECORD_BLOCK_TIME(objectp->isAvatar() ? FTM_FS_OBJ_IDLE_AVATARS : FTM_FS_OBJ_IDLE_OTHER); // <FS:Trish/> FSPerfProfileLogInterval
+            const bool avatar_run = (*idle_iter)->isAvatar();
+            FS_RECORD_BLOCK_TIME(avatar_run ? FTM_FS_OBJ_IDLE_AVATARS : FTM_FS_OBJ_IDLE_OTHER);
+            for (; idle_iter != idle_end && (*idle_iter)->isAvatar() == avatar_run; ++idle_iter)
+            {
+                objectp = *idle_iter;
+                llassert(objectp->isActive());
                 objectp->idleUpdate(agent, frame_time);
+            }
         }
+        // </FS:Trish>
         // <FS:Trish> FSPerfParallelAvatarUpdate: evaluate the queued avatar poses
         {
             FS_RECORD_BLOCK_TIME(FTM_FS_OBJ_AVATAR_POSES); // FSPerfProfileLogInterval
