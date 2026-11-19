@@ -301,6 +301,9 @@ namespace
     void build_commands(const std::vector<Item>& items, std::vector<Item>& left, bool single_pass, bool verify)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_SHADOW);
+        FSGDDBuildScope scope(FS_GDD_BUILDER_SHADOW);
+        scope.addBatches(items.size());
         sCommands.clear();
         sDraws.clear();
         sSegments.clear();
@@ -345,6 +348,7 @@ namespace
             {
                 ++group_end;
             }
+            fsGDDLap(FS_GDD_STAGE_WALK);
 
             const FSGDDArenaEntry* entry = sArena.find(vb, frame);
             bool in_range = entry != nullptr;
@@ -353,6 +357,7 @@ namespace
                 const LLDrawInfo* params = items[j].mParams;
                 in_range = params->mOffset + params->mCount <= entry->mNumIndices && params->mEnd < entry->mNumVerts;
             }
+            fsGDDLap(FS_GDD_STAGE_ARENA);
             if (!in_range)
             {
                 left.insert(left.end(), items.begin() + i, items.begin() + group_end);
@@ -365,6 +370,7 @@ namespace
                 sSegments.push_back({ first.mMask, (U32)sCommands.size(), 0 });
             }
             const U32 matrix = sMatrices.mvpIndex(model, proj, view);
+            fsGDDLap(FS_GDD_STAGE_MATRICES);
             const U32 instances = single_pass ? fsGDDPopcount4(first.mMask) : 1;
             U32 cascades[4] = { 0, 0, 0, 0 };   // the cascade of each instance
             if (single_pass)
@@ -412,6 +418,7 @@ namespace
                 sHandled.insert(sHandled.end(), items.begin() + i, items.begin() + group_end);
             }
             i = group_end;
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
     }
 

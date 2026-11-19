@@ -419,6 +419,7 @@ namespace
         bool double_sided = false;
         bool needs_color = false;
 
+        fsGDDLap(FS_GDD_STAGE_WALK);
         if (params.mAvatar.notNull() || params.mSkinInfo.notNull())
         {
             reason = R_RIGGED;
@@ -500,6 +501,7 @@ namespace
             }
         }
 
+        fsGDDLap(FS_GDD_STAGE_TEXTURES);
         const FSGDDArenaEntry* entry = nullptr;
         if (reason < 0)
         {
@@ -521,6 +523,7 @@ namespace
                 reason = R_RANGE;
             }
         }
+        fsGDDLap(FS_GDD_STAGE_ARENA);
 
         if (reason >= 0)
         {
@@ -535,6 +538,7 @@ namespace
         sTextures[tex_first].mY = (U32)sTextures.size() - tex_first - 1;
         sItems.push_back({ pparams, mask, kind, cutoff, tex_first, tex_matrix, material, entry->mVertex, entry->mIndex, double_sided });
         ++sStatDrawn;
+        fsGDDLap(FS_GDD_STAGE_RECORDS);
         return true;
     }
 }
@@ -546,6 +550,9 @@ void fsGDDShadowAlphaCollect(U32 kind, std::vector<LLDrawInfo*>& batches, F32 fi
         return;
     }
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    LL_RECORD_BLOCK_TIME(FTM_FS_GDD_COLLECT_SHADOW_ALPHA);
+    FSGDDBuildScope scope(FS_GDD_BUILDER_SHADOW_ALPHA_COLLECT);
+    scope.addBatches(batches.size());
     size_t out = 0;
     for (size_t i = 0; i < batches.size(); ++i)
     {
@@ -565,6 +572,9 @@ void fsGDDShadowAlphaCollectSP(U32 kind, std::vector<LLPipeline::FSShadowSPEntry
         return;
     }
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    LL_RECORD_BLOCK_TIME(FTM_FS_GDD_COLLECT_SHADOW_ALPHA);
+    FSGDDBuildScope scope(FS_GDD_BUILDER_SHADOW_ALPHA_COLLECT);
+    scope.addBatches(list.size());
     size_t out = 0;
     const size_t count = list.size();
     for (size_t i = 0; i < count; ++i)
@@ -631,6 +641,9 @@ namespace
     void build(bool single_pass)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_SHADOW_ALPHA);
+        FSGDDBuildScope scope(FS_GDD_BUILDER_SHADOW_ALPHA);
+        scope.addBatches(sItems.size());
         // A bucket sort: single sided first, then by cascade set (four bits; 1 outside the single pass). Stable,
         // so batches that share matrices stay next to each other.
         constexpr U32 BUCKETS = 32;
@@ -654,6 +667,7 @@ namespace
             sSortedItems[starts[bucket(item)]++] = item;
         }
         sItems.swap(sSortedItems);
+        fsGDDLap(FS_GDD_STAGE_WALK);
 
         sCommands.clear();
         sRecords.clear();
@@ -674,8 +688,10 @@ namespace
             // base instance: this command's first record, one per instance
             sCommands.push_back({ params.mCount, instances, item.mIndex + params.mOffset, (GLint)item.mVertex, (GLuint)sRecords.size() });
             const U32 transform = item.mKind == MODE_GLTF ? transform_index(item.mMaterial) : 0;
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
             const U32 matrix = sMatrices.mvpIndex(params.mModelMatrix, proj, view);
             const U32 tex_matrix = sMatrices.textureIndex(item.mTexMatrix);
+            fsGDDLap(FS_GDD_STAGE_MATRICES);
             llassert(matrix < (1u << FS_GDD_SA_CASCADE_SHIFT));
             if (single_pass)
             {
@@ -692,6 +708,7 @@ namespace
                 sRecords.push_back({ matrix, tex_matrix, item.mTextures, item.mKind | (transform << 2) });
             }
             ++sSegments.back().mCount;
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
     }
 

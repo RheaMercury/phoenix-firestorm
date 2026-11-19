@@ -705,6 +705,9 @@ namespace
 bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool& palettes_moved)
 {
     LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+    LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_ALPHA);
+    FSGDDBuildScope scope(FS_GDD_BUILDER_ALPHA);
+    scope.addBatches(draws.size());
     palettes_moved = false;
     sDrawCommand.assign(draws.size(), -1);
     sPendingSlot = -1;

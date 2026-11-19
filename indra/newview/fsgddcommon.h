@@ -301,6 +301,72 @@ void fsGDDCommonReleaseGL();
 // For the render breakdown, over every GPU-driven pass: turning the batches into commands, and the uploads
 extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD;
 extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_UPLOAD;
+// FTM_FS_GDD_BUILD by builder, inside it (the shadow alpha collect is outside: its callers time it)
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_SHADOW;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_SHADOW_ALPHA;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_MATERIALS;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_LEGACY;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_PBR;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_ALPHA;
+extern LLTrace::BlockTimerStatHandle FTM_FS_GDD_COLLECT_SHADOW_ALPHA;
+
+// The build time of each builder, and what it goes on, for the #FSGPUDrivenBuild statistics line (every 10 s while
+// one of the GPU-driven statistics or verify settings is on; fsgddcommon.cpp). A builder's passes are timed whole;
+// one pass in eight is also split into stages by fsGDDLap, and the stage shares are those of the split passes.
+enum EFSGDDBuilder : U32
+{
+    FS_GDD_BUILDER_SHADOW = 0,              // fsgpudrivendraws.cpp: the opaque shadow casters
+    FS_GDD_BUILDER_SHADOW_ALPHA,            // fsgpudrivenshadowalpha.cpp: sorting the collected casters, the commands
+    FS_GDD_BUILDER_SHADOW_ALPHA_COLLECT,    // and the collecting: handles and arena lookups
+    FS_GDD_BUILDER_MATERIALS,               // fsgpudrivenmaterials.cpp
+    FS_GDD_BUILDER_LEGACY,                  // fsgpudrivenlegacy.cpp
+    FS_GDD_BUILDER_PBR,                     // fsgpudrivenpbr.cpp
+    FS_GDD_BUILDER_ALPHA,                   // fsgpudrivenalpha.cpp
+    FS_GDD_BUILDER_COUNT
+};
+
+enum EFSGDDStage : U32
+{
+    FS_GDD_STAGE_WALK = 0,      // walking the input (reading the draw infos, the checks, grouping) and the rest
+    FS_GDD_STAGE_ARENA,         // arena lookups, and the copies they start
+    FS_GDD_STAGE_TEXTURES,      // bindless handles and material records
+    FS_GDD_STAGE_MATRICES,      // the matrix table: lookups and the matrices computed
+    FS_GDD_STAGE_RECORDS,       // writing the commands, per draw records and ops
+    FS_GDD_STAGE_COUNT
+};
+
+// The stage counters of the pass being split, null while none is
+extern U64* gFSGDDStageTicks;
+extern U64 gFSGDDStageLast;
+
+// The time since the last lap (or the start of the pass) went on stage. Nothing but a test while no pass is split.
+inline void fsGDDLap(EFSGDDStage stage)
+{
+    if (gFSGDDStageTicks)
+    {
+        const U64 now = LLTrace::BlockTimer::getCPUClockCount64();
+        gFSGDDStageTicks[stage] += now - gFSGDDStageLast;
+        gFSGDDStageLast = now;
+    }
+}
+
+// One pass of a builder, for the statistics. Does nothing while they are off. Not nested.
+class FSGDDBuildScope
+{
+public:
+    explicit FSGDDBuildScope(EFSGDDBuilder builder);
+    ~FSGDDBuildScope();
+    FSGDDBuildScope(const FSGDDBuildScope&) = delete;
+    FSGDDBuildScope& operator=(const FSGDDBuildScope&) = delete;
+
+    void addBatches(size_t batches)     { mBatches += (U32)batches; }
+
+private:
+    U64 mStart = 0;
+    U32 mBuilder = FS_GDD_BUILDER_COUNT;    // FS_GDD_BUILDER_COUNT: statistics off
+    U32 mBatches = 0;
+    bool mSplit = false;
+};
 
 inline void fsGDDDeleteQuery(GLuint& query)
 {

@@ -37,9 +37,187 @@
 
 LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD("FS GDD Build");
 LLTrace::BlockTimerStatHandle FTM_FS_GDD_UPLOAD("FS GDD Upload");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_SHADOW("FS GDD Build Shadow");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_SHADOW_ALPHA("FS GDD Build Shadow Alpha");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_MATERIALS("FS GDD Build Materials");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_LEGACY("FS GDD Build Legacy");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_PBR("FS GDD Build PBR");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_BUILD_ALPHA("FS GDD Build Alpha");
+LLTrace::BlockTimerStatHandle FTM_FS_GDD_COLLECT_SHADOW_ALPHA("FS GDD Collect Shadow Alpha");
 
 U64 gFSGDDStatModelsComputed = 0;
 U64 gFSGDDStatModelsFound = 0;
+
+U64* gFSGDDStageTicks = nullptr;
+U64 gFSGDDStageLast = 0;
+
+//-----------------------------------------------------------------------------
+// The build statistics (FSGDDBuildScope, fsGDDLap)
+
+namespace
+{
+    struct BuilderStats
+    {
+        U64 mTicks = 0;                         // every timed pass
+        U64 mPasses = 0;
+        U64 mBatches = 0;
+        U64 mSplitTicks = 0;                    // the passes split into stages
+        U64 mStageTicks[FS_GDD_STAGE_COUNT] = {};
+        U32 mSplitCounter = 0;
+    };
+
+    BuilderStats sBuilders[FS_GDD_BUILDER_COUNT];
+    U64 sUploadTicks = 0;   // FSGDDBuffer writes, while the statistics are on
+    bool sBuildStatsOn = false; // this frame's answer of build_stats_wanted
+    bool sBuildStatsRestart = true; // just turned on: the next line starts counting from here
+
+    const char* builder_name(U32 builder)
+    {
+        static const char* names[FS_GDD_BUILDER_COUNT] = { "shadow", "shadow alpha", "shadow alpha collect", "materials",
+                                                           "legacy", "PBR", "alpha" };
+        return builder < FS_GDD_BUILDER_COUNT ? names[builder] : "?";
+    }
+
+    const char* stage_name(U32 stage)
+    {
+        static const char* names[FS_GDD_STAGE_COUNT] = { "walk", "arena", "textures", "matrices", "records" };
+        return stage < FS_GDD_STAGE_COUNT ? names[stage] : "?";
+    }
+
+    // Any of the GPU-driven statistics or verify settings: the build statistics come with theirs
+    bool build_stats_wanted()
+    {
+        static LLCachedControl<bool> materials(gSavedSettings, "FSPerfGPUDrivenMaterialsStats", false);
+        static LLCachedControl<bool> legacy(gSavedSettings, "FSPerfGPUDrivenLegacyStats", false);
+        static LLCachedControl<bool> pbr(gSavedSettings, "FSPerfGPUDrivenPBRStats", false);
+        static LLCachedControl<bool> shadow(gSavedSettings, "FSPerfShadowBatchStats", false);
+        static LLCachedControl<bool> draws_verify(gSavedSettings, "FSPerfGPUDrivenDrawsVerify", false);
+        static LLCachedControl<bool> materials_verify(gSavedSettings, "FSPerfGPUDrivenMaterialsVerify", false);
+        static LLCachedControl<bool> legacy_verify(gSavedSettings, "FSPerfGPUDrivenLegacyVerify", false);
+        static LLCachedControl<bool> pbr_verify(gSavedSettings, "FSPerfGPUDrivenPBRVerify", false);
+        return materials || legacy || pbr || shadow || draws_verify || materials_verify || legacy_verify || pbr_verify;
+    }
+
+    void log_build_stats()
+    {
+        static LLFrameTimer timer;
+        static U32 s_first_frame = 0;
+        if (sBuildStatsRestart)
+        {   // what the builders counted before was dropped when the statistics went off
+            sBuildStatsRestart = false;
+            timer.reset();
+            s_first_frame = LLFrameTimer::getFrameCount();
+        }
+        if (timer.getElapsedTimeF32() < 10.f)
+        {
+            return;
+        }
+        timer.reset();
+        const U32 frame = LLFrameTimer::getFrameCount();
+        const U32 frames = llmax(frame - s_first_frame, 1u);
+        s_first_frame = frame;
+        const F64 ms_per_tick = 1000.0 / (F64)llmax(LLTrace::BlockTimer::countsPerSecond(), (U64)1);
+
+        std::ostringstream out;
+        out << std::fixed;
+        out.precision(2);
+        out << "GPU-driven build, last 10 s (" << frames << " frames), ms a frame:";
+        F64 total_ms = 0.0;
+        for (U32 b = 0; b < FS_GDD_BUILDER_COUNT; ++b)
+        {
+            BuilderStats& s = sBuilders[b];
+            if (!s.mPasses)
+            {
+                continue;
+            }
+            const F64 ms = (F64)s.mTicks * ms_per_tick / frames;
+            if (b != FS_GDD_BUILDER_SHADOW_ALPHA_COLLECT)
+            {
+                total_ms += ms;
+            }
+            out << " " << builder_name(b) << " " << ms << " (" << (s.mPasses / frames) << " passes, "
+                << (s.mBatches / frames) << " batches a frame";
+            if (s.mBatches)
+            {
+                out.precision(3);
+                out << ", " << ((F64)s.mTicks * ms_per_tick * 1000.0 / (F64)s.mBatches) << " us a batch";
+                out.precision(2);
+            }
+            if (s.mSplitTicks)
+            {
+                out << "; split:";
+                for (U32 st = 0; st < FS_GDD_STAGE_COUNT; ++st)
+                {
+                    if (s.mStageTicks[st])
+                    {
+                        out << " " << stage_name(st) << " " << (U32)(100 * s.mStageTicks[st] / s.mSplitTicks) << "%";
+                    }
+                }
+            }
+            out << ");";
+            const U32 counter = s.mSplitCounter;
+            s = BuilderStats();
+            s.mSplitCounter = counter;
+        }
+        out << " all but the collect " << total_ms << "; uploads " << ((F64)sUploadTicks * ms_per_tick / frames);
+        sUploadTicks = 0;
+        LL_INFOS("FSGPUDrivenBuild") << out.str() << LL_ENDL;
+    }
+}
+
+FSGDDBuildScope::FSGDDBuildScope(EFSGDDBuilder builder)
+{
+    static U32 s_frame = U32_MAX;
+    const U32 frame = LLFrameTimer::getFrameCount();
+    if (frame != s_frame)
+    {   // the settings once a frame
+        s_frame = frame;
+        const bool was_on = sBuildStatsOn;
+        sBuildStatsOn = build_stats_wanted();
+        if (sBuildStatsOn && !was_on)
+        {
+            for (BuilderStats& s : sBuilders)
+            {
+                s = BuilderStats();
+            }
+            sUploadTicks = 0;
+            sBuildStatsRestart = true;
+        }
+    }
+    if (!sBuildStatsOn || builder >= FS_GDD_BUILDER_COUNT || gFSGDDStageTicks)
+    {
+        return;
+    }
+    mBuilder = builder;
+    BuilderStats& s = sBuilders[builder];
+    mSplit = (++s.mSplitCounter & 7) == 0;
+    mStart = LLTrace::BlockTimer::getCPUClockCount64();
+    if (mSplit)
+    {
+        gFSGDDStageTicks = s.mStageTicks;
+        gFSGDDStageLast = mStart;
+    }
+}
+
+FSGDDBuildScope::~FSGDDBuildScope()
+{
+    if (mBuilder >= FS_GDD_BUILDER_COUNT)
+    {
+        return;
+    }
+    const U64 end = LLTrace::BlockTimer::getCPUClockCount64();
+    BuilderStats& s = sBuilders[mBuilder];
+    s.mTicks += end - mStart;
+    ++s.mPasses;
+    s.mBatches += mBatches;
+    if (mSplit)
+    {   // what came after the last lap
+        s.mStageTicks[FS_GDD_STAGE_WALK] += end - gFSGDDStageLast;
+        s.mSplitTicks += end - mStart;
+        gFSGDDStageTicks = nullptr;
+    }
+    log_build_stats();
+}
 
 //-----------------------------------------------------------------------------
 // The upload ring. Three slots, one per frame in turn, each a buffer the frame's uploads take consecutive
@@ -340,6 +518,17 @@ void FSGDDBuffer::allocate(GLenum target, size_t capacity, const void* data, siz
 {
     LL_RECORD_BLOCK_TIME(FTM_FS_GDD_UPLOAD);
     log_stats();
+    struct UploadClock     // the build statistics' upload time
+    {
+        U64 mStart = sBuildStatsOn ? LLTrace::BlockTimer::getCPUClockCount64() : 0;
+        ~UploadClock()
+        {
+            if (mStart)
+            {
+                sUploadTicks += LLTrace::BlockTimer::getCPUClockCount64() - mStart;
+            }
+        }
+    } upload_clock;
     static LLCachedControl<bool> use_ring(gSavedSettings, "FSPerfGPUDrivenUploadRing", false);
     if (use_ring)
     {
@@ -406,6 +595,7 @@ bool FSGDDBuffer::writeAt(GLenum target, size_t offset, const void* data, size_t
         return false;
     }
     LL_RECORD_BLOCK_TIME(FTM_FS_GDD_UPLOAD);
+    const U64 start = sBuildStatsOn ? LLTrace::BlockTimer::getCPUClockCount64() : 0;
     ++sStatTailWrites;
     glBindBuffer(target, mName);
     if (bytes)
@@ -418,6 +608,10 @@ bool FSGDDBuffer::writeAt(GLenum target, size_t offset, const void* data, size_t
         {
             glBufferSubData(target, (GLintptr)(mOffset + offset), (GLsizeiptr)bytes, data);
         }
+    }
+    if (start)
+    {
+        sUploadTicks += LLTrace::BlockTimer::getCPUClockCount64() - start;
     }
     return true;
 }

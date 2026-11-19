@@ -1514,6 +1514,9 @@ namespace
     void build(LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool bindless, bool group_runs)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_PBR);
+        FSGDDBuildScope scope(FS_GDD_BUILDER_PBR);
+        scope.addBatches((size_t)(end - begin));
         sPending.clear();
         sStockParams.clear();
         sStockRigged.clear();
@@ -1569,6 +1572,7 @@ namespace
             }
             else
             {
+                fsGDDLap(FS_GDD_STAGE_WALK);
                 U32 fail = 0;
                 entry = arena.find(params.mVertexBuffer.get(), frame, &fail);
                 if (!entry)
@@ -1579,6 +1583,7 @@ namespace
                 {   // never for a valid batch; anything else is left to the stock path rather than read past the copy
                     reason = R_RANGE;
                 }
+                fsGDDLap(FS_GDD_STAGE_ARENA);
             }
 
             if (reason >= 0)
@@ -1618,13 +1623,16 @@ namespace
                 }
             }
             const bool double_sided = mat->mDoubleSided;
-            const Record record = { sMatrices.modelIndex(params.mModelMatrix, proj, view), sMatrices.textureIndex(params.mTextureMatrix.get()),
-                                    info.mIndex, 0 };
+            fsGDDLap(FS_GDD_STAGE_TEXTURES);
+            const U32 model_matrix = sMatrices.modelIndex(params.mModelMatrix, proj, view);
+            const Record record = { model_matrix, sMatrices.textureIndex(params.mTextureMatrix.get()), info.mIndex, 0 };
+            fsGDDLap(FS_GDD_STAGE_MATRICES);
 
             if (group_runs)
             {
                 sPending.push_back({ &params, mat, media, params.mCount, entry->mIndex + params.mOffset, (GLint)entry->mVertex,
                                      record, kind, double_sided, (U32)sPending.size() });
+                fsGDDLap(FS_GDD_STAGE_RECORDS);
                 continue;
             }
 
@@ -1643,11 +1651,13 @@ namespace
             {
                 sOps.push_back({ kind, double_sided, command, 1, mat, media, nullptr });
             }
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
 
         if (group_runs)
         {
             emit_grouped();
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
     }
 

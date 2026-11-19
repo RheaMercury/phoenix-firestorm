@@ -519,6 +519,9 @@ namespace
     void build(U32 index, LLCullResult::drawinfo_iterator begin, LLCullResult::drawinfo_iterator end, bool grouped)
     {
         LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD);
+        LL_RECORD_BLOCK_TIME(FTM_FS_GDD_BUILD_MATERIALS);
+        FSGDDBuildScope scope(FS_GDD_BUILDER_MATERIALS);
+        scope.addBatches((size_t)(end - begin));
         sOps.clear();
         sCommands.clear();
         sRecords.clear();
@@ -587,6 +590,7 @@ namespace
             }
             else
             {
+                fsGDDLap(FS_GDD_STAGE_WALK);
                 // the textures the stock loop binds for this batch
                 U64 handle = 0;
                 reason = texture_of(params.mTexture.get(), frame, handle);
@@ -603,6 +607,7 @@ namespace
                     reason = texture_of(params.mSpecularMap.get(), frame, handle);
                     set_handle(mat, 2, handle);
                 }
+                fsGDDLap(FS_GDD_STAGE_TEXTURES);
 
                 if (reason < 0)
                 {
@@ -624,6 +629,7 @@ namespace
                         reason = R_RANGE;
                     }
                 }
+                fsGDDLap(FS_GDD_STAGE_ARENA);
             }
 
             if (reason >= 0)
@@ -651,12 +657,15 @@ namespace
                 sMaterials.push_back(mat);
             }
             const U32 material = (U32)sMaterials.size() - 1;
+            fsGDDLap(FS_GDD_STAGE_TEXTURES);
+            const U32 model_matrix = sMatrices.modelIndex(params.mModelMatrix, proj, view);
+            const U32 texture_matrix = sMatrices.textureIndex(params.mTextureMatrix.get());
+            fsGDDLap(FS_GDD_STAGE_MATRICES);
 
             ++sStatDrawn;
             const U32 command = (U32)sCommands.size();
             sCommands.push_back({ params.mCount, 1, entry->mIndex + params.mOffset, (GLint)entry->mVertex, command });
-            sRecords.push_back({ sMatrices.modelIndex(params.mModelMatrix, proj, view), sMatrices.textureIndex(params.mTextureMatrix.get()),
-                                 material, 0 });
+            sRecords.push_back({ model_matrix, texture_matrix, material, 0 });
             sCommandParams.push_back(&params);
             if (palette)
             {
@@ -665,6 +674,7 @@ namespace
 
             if (grouped)
             {
+                fsGDDLap(FS_GDD_STAGE_RECORDS);
                 continue;
             }
             Op* last = sOps.empty() ? nullptr : &sOps.back();
@@ -676,6 +686,7 @@ namespace
             {
                 sOps.push_back({ false, command, 1, nullptr });
             }
+            fsGDDLap(FS_GDD_STAGE_RECORDS);
         }
         if (grouped && !sCommands.empty())
         {   // the commands first, as one run
