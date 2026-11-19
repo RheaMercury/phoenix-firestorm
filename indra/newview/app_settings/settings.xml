@@ -29268,6 +29268,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>10.0</real>
     </map>
+    <key>FSDiagnosticsGPUWork</key>
+    <map>
+      <key>Comment</key>
+      <string>Diagnostics. Every 10 seconds, log (FSGPUWork) how many world objects share one mesh or prim shape and the geometry their per-object copies take; how many groups in view the occlusion queries hide, and how many drawn objects are behind the finished G-buffer depth anyway (one box occlusion query per object on one frame, read back without waiting); and texture memory by whether its faces are visible, in view but occluded, or off screen. Each log walks the objects and textures once (a few milliseconds).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderGPUTimings</key>
     <map>
       <key>Comment</key>

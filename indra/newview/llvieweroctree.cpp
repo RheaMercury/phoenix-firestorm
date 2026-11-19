@@ -34,6 +34,7 @@
 #include "llviewershadermgr.h"
 #include "lldrawpoolwater.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
+#include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
 
 //-----------------------------------------------------------------------------------
 //static variables definitions
@@ -1180,6 +1181,7 @@ void LLOcclusionCullingGroup::checkOcclusion()
                 {
                     setOcclusionState(LLOcclusionCullingGroup::OCCLUDED, LLOcclusionCullingGroup::STATE_MODE_DIFF);
                 }
+                FSGPUWorkDiag::noteGroupQuery(query_result == 0); // <FS:Trish/> FSDiagnosticsGPUWork
                 clearOcclusionState(QUERY_PENDING);
             }
         }

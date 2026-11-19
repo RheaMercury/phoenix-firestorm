@@ -476,6 +476,7 @@ namespace
         { "FSPerfGPUDrivenMaterialsVerify", CH, VN },
         { "FSRenderVRSLogInterval", CL, VN },
         { "FSDebugReflectionProbeCulls", CL, VN },
+        { "FSDiagnosticsGPUWork", CL, VN },
     };
 
     const LLColor4& costColor(Cost cost)

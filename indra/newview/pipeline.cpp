@@ -46,6 +46,7 @@
 #include "llglheaders.h"
 #include "llrender.h"
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
+#include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
 #include "llstartup.h"
 #include "llwindow.h"   // swapBuffers()
 
@@ -5238,6 +5239,8 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
             iter1 = iter2;
             stop_glerror();
         }
+
+        FSGPUWorkDiag::afterGBuffer(camera, sCull); // <FS:Trish/> FSDiagnosticsGPUWork: box queries against the finished depth
 
         gGLLastMatrix = NULL;
         gGL.matrixMode(LLRender::MM_MODELVIEW);
