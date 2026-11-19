@@ -95,7 +95,10 @@ namespace
     // the legacy and PBR passes use the same bindings; each pass binds its buffers and clears them again
     constexpr GLuint FS_GDD_SA_MATRIX_BINDING = 5;     // shader storage binding of FSGDDShadowAlphaMatrices
     constexpr GLuint FS_GDD_SA_TEXTURE_BINDING = 6;    // and of FSGDDShadowAlphaTextures
-    constexpr GLuint FS_GDD_SA_RECORD_DIVISOR = 4;     // instances per record step: at least the most cascades a command has
+    // One record per instance (divisor 1), the cascade in it, as the opaque path (fsGPUDrivenShadowV.glsl):
+    // a divisor of 4 with a base instance, and gl_InstanceID, are what drivers get wrong
+    constexpr GLuint FS_GDD_SA_RECORD_DIVISOR = 1;
+    constexpr U32 FS_GDD_SA_CASCADE_SHIFT = 30;        // the cascade, in the top bits of the record's matrix index
     constexpr U32 FS_GDD_SA_VERIFY_SAMPLES = 64;       // samples a verify pass may let through before it warns
     // the attributes the arena can feed; a program wanting any other is not used
     constexpr U32 FS_GDD_SA_ATTRIBS = LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_TEXCOORD0 | LLVertexBuffer::MAP_COLOR |
@@ -125,7 +128,7 @@ namespace
 
     struct Record       // fs_gdd_draw
     {
-        U32 mMatrix;    // model view projection (single pass: model)
+        U32 mMatrix;    // model view projection (single pass: model, and the instance's cascade in bits 30-31)
         U32 mTexMatrix;
         U32 mTextures;  // first entry in FSGDDShadowAlphaTextures: the header, then the handles
         U32 mMode;      // bits 0-1: kind; bits 2-31: GLTF base colour transform (a matrix whose first two columns hold it)
@@ -766,13 +769,27 @@ namespace
                 sSegments.push_back({ item.mMask, item.mDoubleSided, (U32)sCommands.size(), 0 });
             }
             const LLDrawInfo& params = *item.mParams;
-            const U32 command = (U32)sCommands.size();
             const U32 instances = single_pass ? popcount4(item.mMask) : 1;
-            // base instance: this command's record
-            sCommands.push_back({ params.mCount, instances, item.mIndex + params.mOffset, (GLint)item.mVertex, command });
+            // base instance: this command's first record, one per instance
+            sCommands.push_back({ params.mCount, instances, item.mIndex + params.mOffset, (GLint)item.mVertex, (GLuint)sRecords.size() });
             const U32 transform = item.mKind == MODE_GLTF ? transform_index(item.mMaterial) : 0;
-            sRecords.push_back({ matrix_index(params.mModelMatrix, proj, view), texture_matrix_index(item.mTexMatrix),
-                                 item.mTextures, item.mKind | (transform << 2) });
+            const U32 matrix = matrix_index(params.mModelMatrix, proj, view);
+            const U32 tex_matrix = texture_matrix_index(item.mTexMatrix);
+            llassert(matrix < (1u << FS_GDD_SA_CASCADE_SHIFT));
+            if (single_pass)
+            {
+                for (U32 c = 0; c < 4; ++c)
+                {
+                    if (item.mMask & (1u << c))
+                    {
+                        sRecords.push_back({ matrix | (c << FS_GDD_SA_CASCADE_SHIFT), tex_matrix, item.mTextures, item.mKind | (transform << 2) });
+                    }
+                }
+            }
+            else
+            {
+                sRecords.push_back({ matrix, tex_matrix, item.mTextures, item.mKind | (transform << 2) });
+            }
             ++sSegments.back().mCount;
         }
     }
@@ -1072,10 +1089,7 @@ namespace
             for (const Segment& segment : sSegments)
             {
                 LLGLDisable no_cull(segment.mDoubleSided ? GL_CULL_FACE : 0);
-                if (single_pass)
-                {
-                    set_cascades(&shader, segment.mMask);
-                }
+                // single pass: each instance's record names its cascade, no uniform needed
                 glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_SHORT,
                                             (const void*)((size_t)segment.mFirst * sizeof(DrawCommand)), (GLsizei)segment.mCount, 0);
                 ++calls;

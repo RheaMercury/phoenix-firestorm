@@ -198,8 +198,9 @@ namespace
     struct RecHdr
     {
         ExecFn mFn;
-        U32 mSize;      // header + payload, multiple of 16
-        U32 mPad;
+        // header + payload, multiple of 16. 64 bits: a U32 cut a 4 GB upload's size, and replay
+        // then took its payload for the next record's header.
+        size_t mSize;
     };
     static_assert(sizeof(RecHdr) == 16, "record header must keep payloads 16 byte aligned");
 
@@ -233,6 +234,14 @@ namespace
     std::mutex sQueueMutex;
     std::condition_variable sQueueCond;
     std::deque<Chunk*> sQueue;
+    // Backpressure: the recorded bytes not yet taken by the render thread. Past MAX_QUEUED_BYTES (frames
+    // the render thread can't keep up with: a minimised window, a resize, a snapshot, an upload burst)
+    // the main thread waits until it is down to half, so the queue's memory stays bounded.
+    constexpr size_t MAX_QUEUED_BYTES = 256 * 1024 * 1024;
+    size_t sQueuedBytes = 0;                // sQueueMutex
+    bool sDrainWaiting = false;             // sQueueMutex: the main thread waits on sQueueDrained
+    std::condition_variable sQueueDrained;
+    U64 sStatQueueWaitNs = 0;               // main
     std::vector<Chunk*> sFreeChunks;
     std::vector<Chunk*> sFreeLargeChunks;
     size_t sFreeLargeBytes = 0;
@@ -313,8 +322,18 @@ namespace
     void submitChunk(Chunk* c)
     {
         {
-            std::lock_guard<std::mutex> lock(sQueueMutex);
+            std::unique_lock<std::mutex> lock(sQueueMutex);
+            if (sQueuedBytes + c->mUsed > MAX_QUEUED_BYTES && !sQueue.empty())
+            {
+                LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("FSRT queue full");
+                const U64 t0 = nowNs();
+                sDrainWaiting = true;
+                sQueueDrained.wait(lock, []() { return sQueuedBytes <= MAX_QUEUED_BYTES / 2 || sQueue.empty(); });
+                sDrainWaiting = false;
+                sStatQueueWaitNs += nowNs() - t0;
+            }
             sQueue.push_back(c);
+            sQueuedBytes += c->mUsed;
         }
         sQueueCond.notify_one();
     }
@@ -345,8 +364,7 @@ namespace
         }
         RecHdr* hdr = reinterpret_cast<RecHdr*>(sCur->mData + sCur->mUsed);
         hdr->mFn = fn;
-        hdr->mSize = (U32)need;
-        hdr->mPad = 0;
+        hdr->mSize = need;
         sCur->mUsed += need;
         ++sStatCalls;
         sStatBytes += need;
@@ -1831,6 +1849,24 @@ namespace
             sSh.mBlend[0] = src; sSh.mBlend[1] = dst; sSh.mBlend[2] = src; sSh.mBlend[3] = dst;
             sSh.mBlendOk = true;
             P::record(src, dst);
+        }
+    FSGL_END
+
+    // One draw buffer's blend: glBlendFunc(Separate) sets them all, so they can't be dropped
+    // while one differs (as glColorMaski)
+    FSGL_BEGIN(glBlendFunci)
+        static void APIENTRY call(GLuint buf, GLenum src, GLenum dst)
+        {
+            if (tRecording) { sSh.mBlendOk = false; }
+            P::generic(buf, src, dst);
+        }
+    FSGL_END
+
+    FSGL_BEGIN(glBlendFuncSeparatei)
+        static void APIENTRY call(GLuint buf, GLenum src_rgb, GLenum dst_rgb, GLenum src_a, GLenum dst_a)
+        {
+            if (tRecording) { sSh.mBlendOk = false; }
+            P::generic(buf, src_rgb, dst_rgb, src_a, dst_a);
         }
     FSGL_END
 
@@ -3744,6 +3780,11 @@ namespace
                 }
                 c = sQueue.front();
                 sQueue.pop_front();
+                sQueuedBytes -= llmin(sQueuedBytes, c->mUsed);
+                if (sDrainWaiting && sQueuedBytes <= MAX_QUEUED_BYTES / 2)
+                {
+                    sQueueDrained.notify_one();
+                }
             }
             const U64 t0 = nowNs();
             sStatRenderIdleNs.fetch_add(t0 - wait0, std::memory_order_relaxed);
@@ -4117,6 +4158,33 @@ namespace FSGLStream
         sFilter = filter;
     }
 
+    bool peekQueryResult(U32 id, U64& value)
+    {
+        if (!tRecording)
+        {
+            return false;
+        }
+        const U64* issued = sQueryIssued.find(id);
+        if (!issued)
+        {
+            return false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(sQueryResultMutex);
+            const QueryResult* r = sQueryResults.find(id);
+            if (r && r->mGen == *issued && !r->mDropped)
+            {
+                value = r->mValue;
+                return true;
+            }
+        }
+        if (sQueryEndUnsubmitted)
+        {   // the caller asks again later: make sure the render thread has the query's end
+            submitCurrent();
+        }
+        return false;
+    }
+
     void clearErrors()
     {
         if (!tRecording)
@@ -4181,7 +4249,7 @@ namespace FSGLStream
         s.mRecordedBytes = sStatBytes;
         s.mSyncCalls = sStatSyncs;
         s.mSyncWaitMs = (F64)sStatSyncWaitNs * 1e-6;
-        s.mPresentWaitMs = (F64)sStatPresentWaitNs * 1e-6;
+        s.mPresentWaitMs = (F64)(sStatPresentWaitNs + sStatQueueWaitNs) * 1e-6;  // waits for the render thread to catch up
         s.mRenderBusyMs = (F64)sStatRenderBusyNs.exchange(0) * 1e-6;
         s.mRenderIdleMs = (F64)sStatRenderIdleNs.exchange(0) * 1e-6;
 
@@ -4265,6 +4333,7 @@ namespace FSGLStream
         sStatSyncs = 0;
         sStatSyncWaitNs = 0;
         sStatPresentWaitNs = 0;
+        sStatQueueWaitNs = 0;
         return s;
     }
 }
@@ -4300,6 +4369,7 @@ namespace FSGLStream
     Stats takeStats() { return Stats(); }
     void recordCall(void (*fn)(U64), U64 value) { fn(value); }
     bool reserveTextures(U32, U32) { return true; }
+    bool peekQueryResult(U32, U64&) { return false; }
     void setRenderPoll(bool (*)(bool)) {}
     void setFilter(bool) {}
     void setCallStats(bool) {}

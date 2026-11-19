@@ -30,6 +30,7 @@
 #include "llrender.h"
 #include "llgl.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
+#include <atomic> // <FS:Trish/>
 
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
 U32 LLRenderTarget::sBytesAllocated = 0;
@@ -54,21 +55,28 @@ void check_framebuffer_status()
 // <FS:Trish> FSRenderThread: glGetError makes the main thread wait for the render thread to work
 // through everything queued, once per attachment (impostors as avatars switch, resizes, dynamic
 // resolution). While it records, the check runs on the render thread in stream order and only logs.
+// Once one such check has found a failure, video memory is short and more are likely: from then on
+// the check waits for its answer, so the callers see the failure and take their fallbacks.
 namespace
 {
+    std::atomic<bool> sFSAllocFailedSeen{ false };
+
     void fs_check_alloc_error(U64 depth)
     {
         if (glGetError() != GL_NO_ERROR)
         {
             LL_WARNS() << (depth ? "Unable to allocate depth buffer for render target."
-                                 : "Could not allocate color buffer for render target.") << LL_ENDL;
+                                 : "Could not allocate color buffer for render target.")
+                       << " Found after the fact (render thread): that target stays empty until it is allocated again;"
+                       << " later allocations are checked at once." << LL_ENDL;
+            sFSAllocFailedSeen.store(true, std::memory_order_relaxed);
         }
     }
 
-    // True when the allocation just made failed (always false while recording, see above)
+    // True when the allocation just made failed (while recording, false until a failure has been seen once)
     bool fs_alloc_failed(bool depth)
     {
-        if (FSGLStream::isRecording())
+        if (FSGLStream::isRecording() && !sFSAllocFailedSeen.load(std::memory_order_relaxed))
         {
             FSGLStream::recordCall(&fs_check_alloc_error, depth ? 1 : 0);
             return false;

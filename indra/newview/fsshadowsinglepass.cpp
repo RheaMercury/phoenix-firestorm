@@ -338,6 +338,15 @@ void LLPipeline::fsShadowSinglePassBegin()
     mFSShadowSPRecorded = 0;
     mFSShadowSPColored = 0;
     mFSShadowSPLastCull = nullptr;
+    // Finish empties them, but an update that never reached it (an early return) would leave raw pointers to
+    // batches that may be gone by the next one
+    for (auto& kind : mFSShadowSPEntries)
+    {
+        for (auto& list : kind)
+        {
+            list.clear();
+        }
+    }
 
     if (gCubeSnapshot)
     {   // probe shadows have their own path; keep the atlas for the main view

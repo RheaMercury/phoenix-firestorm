@@ -31,6 +31,7 @@
 
 #include "llframetimer.h" // <FS:Trish/> shrink interval
 #include "llgl.h"
+#include "fsglstream.h"
 #include "llviewercontrol.h"
 #include "llviewertexture.h" // <FS:Trish/> sFreeVRAMMegabytes
 
@@ -62,6 +63,31 @@ namespace
     constexpr U32 FS_GDD_FIRST_VERTS = 1u << 20;
     constexpr U32 FS_GDD_FIRST_INDICES = 3u << 20;
     // </FS:Trish>
+
+    // A growth that isn't checked at once (FS_GDD_GROW_CHECK_FREE_MB) is checked in stream order instead,
+    // without waiting: the render thread (or the main thread, without one) reads the new buffer's size, and
+    // a buffer the driver gave no storage sets its arena's bit here. The arena drops everything at its next
+    // frame (beginFrame) and doesn't grow for FS_GDD_GROW_BLOCK_SECONDS.
+    std::atomic<U32> sGrowFailedSlots{ 0 };
+    constexpr F64 FS_GDD_GROW_BLOCK_SECONDS = 60.0;
+
+    // value: buffer name << 32 | arena slot << 24 | expected size in KB (up to 16 GB)
+    void verify_grown(U64 value)
+    {
+        const GLuint buffer = (GLuint)(value >> 32);
+        const U32 slot = (U32)(value >> 24) & 0xff;
+        const U64 expected = (value & 0xffffff) << 10;
+        if (!buffer || !glGetNamedBufferParameteriv || slot >= 32)
+        {
+            return;
+        }
+        GLint size = 0;
+        glGetNamedBufferParameteriv(buffer, GL_BUFFER_SIZE, &size);
+        if ((U64)(U32)size < expected)
+        {
+            sGrowFailedSlots.fetch_or(1u << slot, std::memory_order_relaxed);
+        }
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -254,7 +280,16 @@ bool FSGDDArena::growBuffer(GLuint& buffer, U64& buffer_bytes, U32 old_bytes, U3
         clear_glerror();
     }
     glBufferData(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, GL_STATIC_DRAW);
-    if (check && glGetError() != GL_NO_ERROR)
+    bool failed = check && glGetError() != GL_NO_ERROR;
+    if (!check && mSlot < 32)
+    {   // checked without waiting; without the render thread that is right here
+        FSGLStream::recordCall(&verify_grown, ((U64)grown << 32) | ((U64)mSlot << 24) | (U64)(new_bytes >> 10));
+        if (!FSGLStream::isRecording())
+        {
+            failed = (sGrowFailedSlots.fetch_and(~(1u << mSlot), std::memory_order_relaxed) & (1u << mSlot)) != 0;
+        }
+    }
+    if (failed)
     // </FS:Trish>
     {
         glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
@@ -368,7 +403,9 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 }
             }
             constexpr F32 GROW_HEADROOM_MB = 256.f;
-            const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes;
+            //const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes;
+            const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes &&
+                              LLFrameTimer::getElapsedSeconds() >= mGrowBlockedUntil; // nor after a growth failed
             if (!room)
             {   // no room to refill in one step: grow by doubling from here, as far as there is room
                 mRefillVerts = 0;
@@ -423,6 +460,19 @@ void FSGDDArena::beginFrame(U32 frame)
     }
     mFrame = frame;
     mCopies = 0;
+    // <FS:Trish> A growth the driver gave no storage (checked in stream order, see verify_grown): what the
+    // arena holds can't be trusted. Drop it all and draw the old way until growing is allowed again.
+    if (mSlot < 32 && (sGrowFailedSlots.load(std::memory_order_relaxed) & (1u << mSlot)))
+    {
+        sGrowFailedSlots.fetch_and(~(1u << mSlot), std::memory_order_relaxed);
+        LL_WARNS("FSGPUDriven") << mName << ": the driver could not make room to grow it (out of video memory); dropped, "
+                                << "its draws go the old way for " << (S32)FS_GDD_GROW_BLOCK_SECONDS << " s" << LL_ENDL;
+        releaseGL();
+        mRefillVerts = 0;
+        mRefillIndices = 0;
+        mGrowBlockedUntil = LLFrameTimer::getElapsedSeconds() + FS_GDD_GROW_BLOCK_SECONDS;
+    }
+    // </FS:Trish>
     if (frame - mLastSweep >= 120)
     {   // forget the copies of buffers that stopped being drawn (or were freed)
         mLastSweep = frame;

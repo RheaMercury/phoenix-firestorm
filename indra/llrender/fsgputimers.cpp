@@ -29,6 +29,8 @@
 
 #include "fsgputimers.h"
 
+#include "fsglstream.h"
+
 #include "llgl.h"
 #include "llglheaders.h"
 #include "llprofiler.h"
@@ -160,19 +162,33 @@ namespace
         glQueryCounter(r.mEnd, GL_TIMESTAMP);
     }
 
-    // Timestamps finish in order, so the frame's last one being ready means all of it is
+    // Timestamps finish in order, so the frame's last one being ready means all of it is.
+    // With the render thread on, only what it has collected counts: a read the stream can't answer from
+    // there (a query from before a DirectScope, or from before the render thread started) waited for
+    // the render thread to catch up, a frame's worth at times. Such a frame stays pending and is dropped
+    // (closeFrame); a zone of it is left out (timestamp).
     bool ready(const Frame& f)
     {
+        if (FSGLStream::isRecording())
+        {
+            U64 t = 0;
+            return FSGLStream::peekQueryResult(f.mFrameEnd, t);
+        }
         GLint avail = 0;
         glGetQueryObjectiv(f.mFrameEnd, GL_QUERY_RESULT_AVAILABLE, &avail);
         return avail != 0;
     }
 
-    U64 timestamp(GLuint q)
+    bool timestamp(GLuint q, U64& t)
     {
-        GLuint64 t = 0;
-        glGetQueryObjectui64v(q, GL_QUERY_RESULT, &t);
-        return (U64)t;
+        if (FSGLStream::isRecording())
+        {
+            return FSGLStream::peekQueryResult(q, t);
+        }
+        GLuint64 value = 0;
+        glGetQueryObjectui64v(q, GL_QUERY_RESULT, &value);
+        t = (U64)value;
+        return true;
     }
 
     const std::string& nameOf(const char* name)
@@ -187,9 +203,9 @@ namespace
 
     void collect(Frame& f)
     {
-        const U64 t0 = timestamp(f.mFrameBegin);
-        const U64 t1 = timestamp(f.mFrameEnd);
-        if (t1 > t0)
+        U64 t0 = 0;
+        U64 t1 = 0;
+        if (timestamp(f.mFrameBegin, t0) && timestamp(f.mFrameEnd, t1) && t1 > t0)
         {
             sFrameNs += t1 - t0;
         }
@@ -199,8 +215,12 @@ namespace
             {
                 continue; // still open at the end of the frame
             }
-            const U64 b = timestamp(r.mBegin);
-            const U64 e = timestamp(r.mEnd);
+            U64 b = 0;
+            U64 e = 0;
+            if (!timestamp(r.mBegin, b) || !timestamp(r.mEnd, e))
+            {
+                continue;
+            }
             Total& total = sTotals[nameOf(r.mName)];
             total.mNs += e > b ? e - b : 0;
             ++total.mCalls;

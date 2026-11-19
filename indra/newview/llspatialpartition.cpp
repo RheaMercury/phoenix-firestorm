@@ -359,12 +359,28 @@ void LLSpatialGroup::rebuildGeom()
 {
     if (!isDead())
     {
-        const bool fs_geom_dirty = hasState(LLSpatialGroup::GEOM_DIRTY); // <FS:Trish/>
+        // <FS:Trish> FSPerfShadowStaticCache: the extents before the rebuild as well, or geometry that
+        // shrank in place would keep its old, larger shadow in the cache
+        const bool fs_geom_dirty = hasState(LLSpatialGroup::GEOM_DIRTY);
+        LLVector4a fs_before[2];
+        if (fs_geom_dirty)
+        {
+            fs_before[0] = getObjectExtents()[0];
+            fs_before[1] = getObjectExtents()[1];
+        }
+        // </FS:Trish>
         getSpatialPartition()->rebuildGeom(this);
         // <FS:Trish> FSPerfShadowStaticCache
         if (fs_geom_dirty)
         {
-            fs_note_static_shadow_change(this, getObjectExtents());
+            //fs_note_static_shadow_change(this, getObjectExtents());
+            LLVector4a fs_changed[2] = { getObjectExtents()[0], getObjectExtents()[1] };
+            if (!fs_before[0].equals3(fs_before[1]))    // a group never built has empty extents
+            {
+                fs_changed[0].setMin(fs_before[0], fs_changed[0]);
+                fs_changed[1].setMax(fs_before[1], fs_changed[1]);
+            }
+            fs_note_static_shadow_change(this, fs_changed);
         }
         // </FS:Trish>
 

@@ -177,6 +177,7 @@ private:
     F64 mLastShrink = -1.0e9;       // when it was last dropped to shrink (seconds, LLFrameTimer)
     U32 mRefillVerts = 0;           // after a drop, the size it grows back to in one step (allocate)
     U32 mRefillIndices = 0;
+    F64 mGrowBlockedUntil = -1.0;   // after a growth the driver gave no storage: no growing before then (seconds)
     // </FS:Trish>
     U32 mTypeMask = 0;              // the types a buffer must have
     U32 mStride = 0;                // sum of the types' sizes

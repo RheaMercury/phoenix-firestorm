@@ -141,10 +141,22 @@ namespace
         FSGeometryPool()
         {
             U32 hw = std::thread::hardware_concurrency();
-            mWorkerCount = (hw > 3) ? llmin(hw - 2, (U32)6) : 1;
-            for (U32 i = 0; i < mWorkerCount; ++i)
+            const U32 wanted = (hw > 3) ? llmin(hw - 2, (U32)6) : 1;
+            mWorkerCount = 0;
+            for (U32 i = 0; i < wanted; ++i)
             {
-                std::thread(&FSGeometryPool::workerLoop, this).detach();
+                // a thread that can't be created (out of handles or memory) threw out of the viewer;
+                // with fewer or none, run() fills the chunks no worker takes on the main thread
+                try
+                {
+                    std::thread(&FSGeometryPool::workerLoop, this).detach();
+                    ++mWorkerCount;
+                }
+                catch (const std::exception& e)
+                {
+                    LL_WARNS("FSParallelGeometry") << "Could not start a geometry fill thread: " << e.what() << LL_ENDL;
+                    break;
+                }
             }
         }
 
@@ -676,7 +688,21 @@ void FSParallelGeometry::flush()
     // Failure handling of the callers, in order.
     for (FSGeomJob& job : sJobs)
     {
-        if (job.mSkip || job.mResult)
+        if (job.mSkip)
+        {
+            // The face kept stale (or never written) vertices and nothing asked for them again. The
+            // object rebuilds its volume and group at the next geometry update: the group can't be
+            // queued from here (rebuildGeom runs while the group queue is locked), and its
+            // rebuild flags are cleared once this returns.
+            LLDrawable* drawablep = job.mFace->getDrawable();
+            LLVOVolume* vobj = drawablep && !drawablep->isDead() ? drawablep->getVOVolume() : nullptr;
+            if (vobj)
+            {
+                vobj->markForUpdate();
+            }
+            continue;
+        }
+        if (job.mResult)
         {
             continue;
         }

@@ -9251,10 +9251,14 @@ void LLPipeline::getExposureRange(F32& exp_min, F32& exp_max)
 
     LLSettingsSky::ptr_t sky = LLEnvironment::instance().getCurrentSky();
 
-    F32 probe_ambiance = sky->getReflectionProbeAmbiance(should_auto_adjust());
-
     exp_min = 1.f;
     exp_max = 1.f;
+    if (!sky)
+    {   // no sky yet (as at the login screen once): a fixed exposure
+        return;
+    }
+
+    F32 probe_ambiance = sky->getReflectionProbeAmbiance(should_auto_adjust());
 
     if (use_exposure_sky_settings)
     {
@@ -9345,7 +9349,9 @@ static bool fs_tonemap_no_post()
     static LLCachedControl<bool> buildNoPost(gSavedSettings, "RenderDisablePostProcessing", false);
     static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
-    return gSnapshotNoPost || psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f || (buildNoPost && gFloaterTools && gFloaterTools->isAvailable());
+    // no sky yet (as at the login screen once): not the legacy no-post case
+    return gSnapshotNoPost || (psky && psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f) ||
+           (buildNoPost && gFloaterTools && gFloaterTools->isAvailable());
 }
 // </FS:Trish>
 

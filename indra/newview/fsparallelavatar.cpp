@@ -189,9 +189,19 @@ namespace
             U32 count = hardware >= 4 ? llmin(hardware - 2, 6u) : 0u;
             for (U32 i = 0; i < count; ++i)
             {
-                mThreads.emplace_back([this] { threadLoop(); });
+                // a thread that can't be created (out of handles or memory) threw out of the viewer;
+                // with fewer or none, run() does the rest on the main thread
+                try
+                {
+                    mThreads.emplace_back([this] { threadLoop(); });
+                }
+                catch (const std::exception& e)
+                {
+                    LL_WARNS("FSParallelAvatar") << "Could not start an avatar pose thread: " << e.what() << LL_ENDL;
+                    break;
+                }
             }
-            LL_INFOS("FSParallelAvatar") << "Avatar pose threads: " << count << LL_ENDL;
+            LL_INFOS("FSParallelAvatar") << "Avatar pose threads: " << mThreads.size() << LL_ENDL;
         }
 
         void work()

@@ -397,7 +397,8 @@ bool LLImageGL::fsPrepareUpload(S32 discard_level, const LLImageRaw* imageraw, S
     // setImage's CPU work, with the decoder's analysis when it matches
     mUploadAlphaInfo = imageraw->getAlphaInfo();
     analyzeAlpha(data, w, h);
-    updatePickMask(w, h, data);
+    //updatePickMask(w, h, data);
+    fsBuildPickMask(w, h, data, out); // the main thread may be picking with the current mask: swapped at the commit
     mUploadAlphaInfo = nullptr;
 
     out.mDiscard = discard_level;
@@ -486,6 +487,22 @@ bool LLImageGL::fsCommitPreparedUpload(FSPreparedUpload& prepared)
     mTexName = new_texname;
     mFSNoBindlessUntil = 0.f; // a fresh texture can have a handle again
 
+    // the pick mask that goes with the new pixels
+    if (prepared.mPick == FSPreparedUpload::PICK_FREE)
+    {
+        freePickMask();
+    }
+    else if (prepared.mPick == FSPreparedUpload::PICK_SET)
+    {
+        freePickMask();
+        mPickMask = new U8[prepared.mPickMask.size()];
+        memcpy(mPickMask, prepared.mPickMask.data(), prepared.mPickMask.size());
+        mPickMaskWidth = prepared.mPickMaskWidth;
+        mPickMaskHeight = prepared.mPickMaskHeight;
+    }
+    prepared.mPick = FSPreparedUpload::PICK_KEEP;
+    prepared.mPickMask.clear();
+
     mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
     mLastBindTime = sLastFrameTime;
     prepared.mDiscard = -1;
@@ -497,6 +514,54 @@ void LLImageGL::fsDropPreparedUpload(FSPreparedUpload& prepared)
 {
     FSTextureUpload::release(prepared.mStaged);
     prepared.mDiscard = -1;
+    prepared.mPick = FSPreparedUpload::PICK_KEEP;
+    prepared.mPickMask.clear();
+}
+
+// What updatePickMask would make, without touching this image's mask (createPickMask's size and layout)
+void LLImageGL::fsBuildPickMask(S32 width, S32 height, const U8* data_in, FSPreparedUpload& out) const
+{
+    out.mPick = FSPreparedUpload::PICK_KEEP;
+    out.mPickMask.clear();
+    if (!mNeedsAlphaAndPickMask)
+    {
+        return;
+    }
+    if (mFormatType != GL_UNSIGNED_BYTE || (mFormatPrimary != GL_RGBA && mFormatPrimary != GL_SRGB_ALPHA))
+    {
+        out.mPick = FSPreparedUpload::PICK_FREE;
+        return;
+    }
+    const U32 pick_width = width / 2 + 1;
+    const U32 pick_height = height / 2 + 1;
+    const U32 size = (pick_width * pick_height + 7) / 8;
+    out.mPick = FSPreparedUpload::PICK_SET;
+    out.mPickMaskWidth = (U16)(pick_width - 1);
+    out.mPickMaskHeight = (U16)(pick_height - 1);
+
+    // built by the decoder with the same layout
+    if (const LLImageBase::AlphaInfo* info = getUploadAlphaInfo(data_in, width, height))
+    {
+        if (info->mComponents == 4 && info->mPickMask.size() == LLImageBase::pickMaskBytes(width, height))
+        {
+            out.mPickMask.assign(info->mPickMask.data(), info->mPickMask.data() + size);
+            return;
+        }
+    }
+
+    out.mPickMask.assign(size, 0);
+    U32 pick_bit = 0;
+    for (S32 y = 0; y < height; y += 2)
+    {
+        for (S32 x = 0; x < width; x += 2)
+        {
+            if (data_in[(y * width + x) * 4 + 3] > 32)
+            {
+                out.mPickMask[pick_bit / 8] |= 1 << (pick_bit % 8);
+            }
+            ++pick_bit;
+        }
+    }
 }
 // </FS:Trish>
 std::unordered_set<LLImageGL*> LLImageGL::sImageList;

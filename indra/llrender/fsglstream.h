@@ -110,6 +110,11 @@ namespace FSGLStream
     // shortly after. Always true when not recording. Main thread.
     bool reserveTextures(U32 target, U32 count);
 
+    // While recording: the result of the query id's latest end or timestamp if the render thread has
+    // collected it already. Never waits (a glGetQueryObject* read the cache can't answer does). False when
+    // not recording, or when the result isn't known (yet, or since a DirectScope). Main thread.
+    bool peekQueryResult(U32 id, U64& value);
+
     // Render thread work that waits on the GPU (fences of asynchronous readbacks). fn runs on the
     // render thread after each replayed chunk and while it waits for work, and returns true while
     // it still has work, which keeps the waiting thread polling. stop() calls it once more on the

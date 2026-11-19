@@ -2109,6 +2109,14 @@ namespace
         }
         const U32 width = (U32)gViewerWindow->getWindowWidthRaw();
         const U32 height = (U32)gViewerWindow->getWindowHeightRaw();
+        // A minimised window can be 0x0: allocate(0, 0) then "succeeds" with no framebuffer, and
+        // binding that drew into the default one and logged an invalid attachment every frame
+        if (!width || !height)
+        {
+            sFSUILastDraw = -1.0;
+            gViewerWindow->draw();
+            return;
+        }
         if (!sFSUIBuffer)
         {
             sFSUIBuffer = new LLRenderTarget();
@@ -2117,7 +2125,7 @@ namespace
         if (!sFSUIBuffer->isComplete() || sFSUIBuffer->getWidth() != width || sFSUIBuffer->getHeight() != height)
         {
             sFSUIBuffer->release();
-            if (!sFSUIBuffer->allocate(width, height, GL_RGBA, false))
+            if (!sFSUIBuffer->allocate(width, height, GL_RGBA, false) || !sFSUIBuffer->isComplete())
             {
                 sFSUIBuffer->release();
                 gViewerWindow->draw(); // no buffer: draw it directly

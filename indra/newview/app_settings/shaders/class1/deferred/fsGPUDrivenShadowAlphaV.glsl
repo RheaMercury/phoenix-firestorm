@@ -27,18 +27,19 @@
 
 // The stand-in for shadowAlphaMaskV.glsl, treeShadowV.glsl and pbrShadowAlphaMaskV.glsl (not rigged) when
 // the alpha tested shadow casters come out of a vertex arena in multi-draws (fsgpudrivenshadowalpha.cpp).
-// Every draw command has a record, fetched as an instanced vertex attribute: the command's base instance
-// points at it and the attribute divisor (4) is at least the instance count, so all instances of the command
-// read the same record. It names the command's matrix (the model view projection the stock path would have
-// put in modelview_projection_matrix, or for the single pass the model matrix), its texture matrix, its
-// textures (the minimum alpha and texture count, then a bindless handle per texture unit the stock path would
-// bind) and how the fragment shader tests it.
+// Every instance of every draw command has a record, fetched as an instanced vertex attribute with divisor 1:
+// the command's base instance points at its first record and instance i reads the record after it (one
+// instance outside the single pass, one per cascade in it). It names the command's matrix (the model view
+// projection the stock path would have put in modelview_projection_matrix, or for the single pass the model
+// matrix, with the instance's cascade in the top two bits), its texture matrix, its textures (the minimum
+// alpha and texture count, then a bindless handle per texture unit the stock path would bind) and how the
+// fragment shader tests it. Nothing reads gl_InstanceID (see fsGPUDrivenShadowV.glsl).
 
 #extension GL_ARB_shader_storage_buffer_object : require
 
 #ifdef FS_SHADOW_SINGLE_PASS
-// Single pass sun shadow cascades (FSPerfShadowSinglePass), as in shadowAlphaMaskV.glsl: instance i draws
-// the vertex into the atlas viewport of cascade fs_shadow_cascade[i].
+// Single pass sun shadow cascades (FSPerfShadowSinglePass), as in shadowAlphaMaskV.glsl: each instance draws
+// the vertex into the atlas viewport of the cascade its record names.
 #if FS_SHADOW_SINGLE_PASS == 2
 #extension GL_NV_viewport_array2 : require
 #elif FS_SHADOW_SINGLE_PASS == 3
@@ -47,7 +48,6 @@
 #extension GL_ARB_shader_viewport_layer_array : require
 #endif
 uniform mat4 fs_shadow_clip[4];     // light projection * view of each cascade, from agent space
-uniform vec4 fs_shadow_cascade;     // cascade drawn by each instance
 uniform vec4 fs_shadow_width;       // shadow_target_width of each cascade
 #else
 uniform float shadow_target_width;
@@ -72,7 +72,7 @@ in vec3 position;
 in vec4 diffuse_color;
 in vec2 texcoord0;
 in int texture_index;       // the unit diffuseLookup would pick (indexedTextureV.glsl)
-in uvec4 fs_gdd_draw;       // x: matrix, y: texture matrix, z: first entry in fs_gdd_tex,
+in uvec4 fs_gdd_draw;       // x: matrix (single pass: cascade in bits 30-31), y: texture matrix, z: first entry in fs_gdd_tex,
                             // w: mode (bits 0-1), GLTF base colour transform matrix (bits 2-31)
 
 out vec4 post_pos;
@@ -89,11 +89,11 @@ void main()
 {
     //transform vertex
     vec4 pre_pos = vec4(position.xyz, 1.0);
-    vec4 pos = fs_gdd_matrix[fs_gdd_draw.x] * pre_pos;
+    vec4 pos = fs_gdd_matrix[fs_gdd_draw.x & 0x3FFFFFFFu] * pre_pos;
 
 #ifdef FS_SHADOW_SINGLE_PASS
     // the model matrix above leaves pos in agent space
-    int cascade = int(fs_shadow_cascade[gl_InstanceID]);
+    int cascade = int(fs_gdd_draw.x >> 30u);
     pos = fs_shadow_clip[cascade] * pos;
     gl_ViewportIndex = cascade;
     target_pos_x = 0.5 * (fs_shadow_width[cascade] - 1.0) * pos.x;

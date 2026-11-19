@@ -140,6 +140,13 @@ public:
     {
         FSTextureUpload::Staged mStaged;        // the pixels waiting in the upload ring
         S32 mDiscard = -1;                      // and the discard level they are for
+        // The pick mask for them, made on the texture thread and put in place on the main thread at the
+        // commit: the main thread may be picking with the current one meanwhile
+        enum EPick : U8 { PICK_KEEP, PICK_FREE, PICK_SET };
+        EPick mPick = PICK_KEEP;
+        std::vector<U8> mPickMask;
+        U16 mPickMaskWidth = 0;
+        U16 mPickMaskHeight = 0;
         FSPreparedUpload() = default;
         FSPreparedUpload(const FSPreparedUpload&) = delete;
         FSPreparedUpload& operator=(const FSPreparedUpload&) = delete;
@@ -148,6 +155,7 @@ public:
     bool fsPrepareUpload(S32 discard_level, const LLImageRaw* imageraw, S32 category, FSPreparedUpload& out);
     bool fsCommitPreparedUpload(FSPreparedUpload& prepared);
     static void fsDropPreparedUpload(FSPreparedUpload& prepared);
+    void fsBuildPickMask(S32 width, S32 height, const U8* data_in, FSPreparedUpload& out) const; // as updatePickMask, into out
     // As fsMakeWritable for the image that owns tex_name (parameter changes through LLTexUnit only know the name),
     // before setting address_mode or filter_option (-1 for the one not set). A locked texture that already has
     // that value doesn't move: true then, and the caller skips setting it (the locked texture can't take it).
