@@ -27,7 +27,7 @@
     <string name="indicator_tooltip">Performance cost: [COST]. Visual impact: [VISUAL].</string>
     <!-- Settings on the preset tabs that presets leave alone: driver workarounds and skinning tests that need a restart -->
     <string name="preset_excluded_settings">FSDecodedTextureCacheMode,FSDecodedTextureCacheRegions,FSDecodedTextureCacheSizeMB,FSDecodedTextureCacheMinSize,FSDecodedTextureCacheUncompressed,FSLowPriorityTextureThreads,FSTextureUseLiveVRAM,FSTextureBiasSoftZone,RenderTextureMemoryUsageBias,TextureFetchPipelineDiagnostics,FSTextureFetchSelfHeal,FSExperimentalRepairAnimations,FSExperimentalSyncAnimationClock,FSAvatarDropStaleAppearance</string>
-    <string name="preset_extra_settings">FSFetchOfflineIMsWhileOnline,FSBuildClientUndo,FSChatHistoryLinesShown</string>
+    <string name="preset_extra_settings">FSFetchOfflineIMsWhileOnline,FSBuildClientUndo,FSChatHistoryLinesShown,RenderShadowDetail</string>
     <text
      follows="left|top|right"
      height="18"

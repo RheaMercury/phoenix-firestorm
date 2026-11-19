@@ -1,5 +1,5 @@
 <?xml version="1.0" ?>
-<!-- Built-in Experimental preset: Trish's settings, Mid: Ultra without its most expensive effects (SSGI, screen space reflections, volumetric projector light, coloured projector shadows, dust motes). Settings not listed here are set to their defaults when it is loaded. -->
+<!-- Built-in Experimental preset: only the options that save time; every effect at its default (off), and no sun or projector shadows. Settings not listed here are set to their defaults when it is loaded. -->
 <llsd>
 <map>
   <key>Version</key>
@@ -14,28 +14,14 @@
     <boolean>1</boolean>
     <key>FSChatHistoryLinesShown</key>
     <integer>50</integer>
-    <key>FSColorGradeGain</key>
-    <real>1.12</real>
-    <key>FSColorGradeGamma</key>
-    <real>0.5</real>
-    <key>FSColorGradeLift</key>
-    <real>-0.09</real>
-    <key>FSColorGradeSaturation</key>
-    <real>0.85</real>
-    <key>FSColorGradeTemperature</key>
-    <real>9300.0</real>
-    <key>FSColorGradeTint</key>
-    <real>1.0</real>
-    <key>FSColorGradeVibrance</key>
-    <real>0.2</real>
     <key>FSDecodedTextureCache</key>
     <boolean>1</boolean>
     <key>FSFastSelfRez</key>
     <boolean>1</boolean>
+    <key>FSFetchOfflineIMsWhileOnline</key>
+    <boolean>1</boolean>
     <key>FSImpostorMinInterval</key>
-    <real>1.0</real>
-    <key>FSImpostorUpdateBudget</key>
-    <integer>1</integer>
+    <real>2.0</real>
     <key>FSPerfAlphaGlowSkip</key>
     <boolean>1</boolean>
     <key>FSPerfAlphaResortOnly</key>
@@ -55,6 +41,8 @@
     <key>FSPerfBatchedSpotLights</key>
     <boolean>1</boolean>
     <key>FSPerfDiskThread</key>
+    <boolean>1</boolean>
+    <key>FSPerfDSATextureBinds</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenAlpha</key>
     <boolean>1</boolean>
@@ -82,14 +70,26 @@
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenShadowAlpha</key>
     <boolean>1</boolean>
+    <key>FSPerfGPUDrivenShadowAlphaArenaMB</key>
+    <integer>256</integer>
+    <key>FSPerfGPUDrivenSharedMatrices</key>
+    <boolean>1</boolean>
+    <key>FSPerfGPUDrivenUploadRing</key>
+    <boolean>1</boolean>
     <key>FSPerfHeroProbeSkipHiddenFaces</key>
     <boolean>1</boolean>
     <key>FSPerfHoverPickThrottle</key>
     <boolean>1</boolean>
+    <key>FSPerfImageBufferPoolMB</key>
+    <integer>256</integer>
     <key>FSPerfInventoryIdleThrottle</key>
     <boolean>1</boolean>
+    <key>FSPerfInventoryLazySort</key>
+    <integer>1</integer>
     <key>FSPerfLightRescanThrottle</key>
     <boolean>1</boolean>
+    <key>FSPerfOpenJPEGBufferCacheMB</key>
+    <integer>64</integer>
     <key>FSPerfParallelAvatarUpdate</key>
     <boolean>1</boolean>
     <key>FSPerfParallelGeometry</key>
@@ -100,16 +100,36 @@
     <boolean>1</boolean>
     <key>FSPerfParallelPostSort</key>
     <boolean>1</boolean>
+    <key>FSPerfParallelPostSortMinGroups</key>
+    <integer>128</integer>
     <key>FSPerfParallelShaderCompile</key>
     <boolean>1</boolean>
     <key>FSPerfParallelShadowCull</key>
     <boolean>1</boolean>
     <key>FSPerfParallelSkinPalettes</key>
     <boolean>1</boolean>
+    <key>FSPerfParallelTextureEncode</key>
+    <integer>1</integer>
     <key>FSPerfParallelTexturePriority</key>
+    <boolean>1</boolean>
+    <key>FSPerfProbeFastLights</key>
+    <boolean>1</boolean>
+    <key>FSPerfProbeIrradianceMaxAge</key>
+    <real>60.0</real>
+    <key>FSPerfProbeMaxStaleSeconds</key>
+    <real>120.0</real>
+    <key>FSPerfProbeRealtimeFacesPerFrame</key>
+    <integer>6</integer>
+    <key>FSPerfProbeReuseIrradiance</key>
     <boolean>1</boolean>
     <key>FSPerfProbeSkipUnchanged</key>
     <boolean>1</boolean>
+    <key>FSPerfProbeSkyUnchangedPeriod</key>
+    <real>10.0</real>
+    <key>FSPerfProbeSlowSky</key>
+    <boolean>1</boolean>
+    <key>FSPerfProbeSunAngleThreshold</key>
+    <real>2.0</real>
     <key>FSPerfProbeUniformCache</key>
     <boolean>1</boolean>
     <key>FSPerfProbeUpdatePriority</key>
@@ -138,6 +158,12 @@
     <boolean>1</boolean>
     <key>FSPerfSpotShadowSplit</key>
     <boolean>1</boolean>
+    <key>FSPerfTextureUpdateSlice</key>
+    <boolean>1</boolean>
+    <key>FSPerfTextureUpdateSlicePasses</key>
+    <integer>4</integer>
+    <key>FSPerfTextureUploadBudgetMB</key>
+    <real>0.0</real>
     <key>FSPerfTextureUploadPBO</key>
     <boolean>1</boolean>
     <key>FSPerfThreadedGeometry</key>
@@ -146,72 +172,26 @@
     <boolean>1</boolean>
     <key>FSPerfVertexArrayObjects</key>
     <boolean>1</boolean>
-    <key>FSRenderAnamorphicStreaks</key>
-    <real>0.05</real>
+    <key>FSPrioritizeTextureDecodes</key>
+    <integer>0</integer>
     <key>FSRenderAvatarShadowCascades</key>
     <integer>1</integer>
     <key>FSRenderAvatarShadowDistance</key>
     <real>30.0</real>
-    <key>FSRenderBentNormals</key>
-    <boolean>1</boolean>
-    <key>FSRenderBloom</key>
-    <boolean>1</boolean>
-    <key>FSRenderBloomLensDirt</key>
-    <boolean>1</boolean>
-    <key>FSRenderBloomLensDirtStrength</key>
-    <real>0.0</real>
-    <key>FSRenderChromaticAberration</key>
-    <real>2.0</real>
-    <key>FSRenderCloudShadows</key>
-    <boolean>1</boolean>
-    <key>FSRenderCloudSilverLining</key>
-    <real>0.2</real>
     <key>FSRenderClusteredLights</key>
     <boolean>1</boolean>
-    <key>FSRenderContactShadowLength</key>
-    <real>1.0</real>
-    <key>FSRenderContactShadowStrength</key>
-    <real>1.0</real>
-    <key>FSRenderDeband</key>
-    <boolean>1</boolean>
-    <key>FSRenderDynamicResolutionInterval</key>
-    <real>4.0</real>
+    <key>FSRenderDynamicResolution</key>
+    <integer>0</integer>
     <key>FSRenderDynamicResolutionMinScale</key>
     <real>0.85</real>
     <key>FSRenderDynamicResolutionTargetFPS</key>
     <real>60.0</real>
-    <key>FSRenderExposureRangeLimit</key>
-    <real>1.5</real>
-    <key>FSRenderFadeIn</key>
-    <boolean>0</boolean>
-    <key>FSRenderFadeInTime</key>
-    <real>0.6</real>
-    <key>FSRenderFoliage</key>
-    <boolean>1</boolean>
-    <key>FSRenderGTAO</key>
-    <boolean>1</boolean>
     <key>FSRenderGTAOHalfRes</key>
     <boolean>1</boolean>
-    <key>FSRenderHairAlphaThreshold</key>
-    <real>0.86</real>
-    <key>FSRenderHeightFog</key>
+    <key>FSRenderMergePostPasses</key>
     <boolean>1</boolean>
-    <key>FSRenderHeightFogAnisotropy</key>
-    <real>0.45</real>
-    <key>FSRenderHeightFogBaseHeight</key>
-    <real>-3.0</real>
-    <key>FSRenderHeightFogInteriorRange</key>
-    <real>64.0</real>
-    <key>FSRenderHeightFogInteriors</key>
+    <key>FSRenderOcclusionAfterOpaque</key>
     <boolean>1</boolean>
-    <key>FSRenderLensFlare</key>
-    <real>0.35</real>
-    <key>FSRenderMicroShadows</key>
-    <boolean>1</boolean>
-    <key>FSRenderMoonCorona</key>
-    <real>0.1</real>
-    <key>FSRenderShadowAlphaCascades</key>
-    <integer>2</integer>
     <key>FSRenderShadowFarCascadeInterval</key>
     <integer>8</integer>
     <key>FSRenderShadowFarCascadeMinCasterScale</key>
@@ -220,102 +200,24 @@
     <real>0.5</real>
     <key>FSRenderShadowFastFilter</key>
     <boolean>1</boolean>
-    <key>FSRenderShadowMaxDistance</key>
-    <real>280.0</real>
     <key>FSRenderShadowReduceWhileMoving</key>
     <boolean>1</boolean>
-    <key>FSRenderShadowSmoothFade</key>
+    <key>FSRenderSkinTapLOD</key>
     <boolean>1</boolean>
-    <key>FSRenderShadowTexelSnap</key>
+    <key>FSRenderSpotShadowUpdateInterval</key>
+    <integer>1</integer>
+    <key>FSRenderSpotVolumetricTemporal</key>
     <boolean>1</boolean>
-    <key>FSRenderSkinDetectMaterial</key>
+    <key>FSRenderSSRConeTrace</key>
     <boolean>1</boolean>
-    <key>FSRenderSkinDualSpecular</key>
-    <boolean>1</boolean>
-    <key>FSRenderSkinSSS</key>
-    <boolean>1</boolean>
-    <key>FSRenderSkinSheen</key>
-    <boolean>1</boolean>
-    <key>FSRenderSkinWarmShadows</key>
-    <boolean>1</boolean>
-    <key>FSRenderSpecularAA</key>
-    <boolean>1</boolean>
-    <key>FSRenderSpecularAAStrength</key>
-    <real>0.1</real>
-    <key>FSRenderSpecularAAThreshold</key>
-    <real>0.17</real>
-    <key>FSRenderSpecularOcclusion</key>
-    <boolean>1</boolean>
-    <key>FSRenderStarExtinction</key>
-    <boolean>1</boolean>
-    <key>FSRenderSunDiscDetail</key>
-    <boolean>1</boolean>
-    <key>FSRenderSunGlints</key>
-    <boolean>1</boolean>
-    <key>FSRenderSunGlintsDensity</key>
-    <real>0.4</real>
-    <key>FSRenderSunGlintsIntensity</key>
-    <real>0.4</real>
-    <key>FSRenderSunRays</key>
-    <boolean>1</boolean>
-    <key>FSRenderSunRaysAnisotropy</key>
-    <real>0.75</real>
-    <key>FSRenderSunRaysDistance</key>
-    <real>152.0</real>
-    <key>FSRenderSunRaysHeightFalloff</key>
-    <real>0.003</real>
-    <key>FSRenderSunRaysSteps</key>
-    <integer>4</integer>
-    <key>FSRenderSunRaysStrength</key>
-    <real>0.25</real>
     <key>FSRenderThread</key>
     <boolean>1</boolean>
-    <key>FSRenderTwilightBands</key>
-    <real>0.4</real>
     <key>FSRenderUICap</key>
     <integer>30</integer>
-    <key>FSRenderUIIdleRate</key>
-    <real>5.5</real>
-    <key>FSRenderUnderwaterRays</key>
-    <boolean>1</boolean>
-    <key>FSRenderUnderwaterRaysClarity</key>
-    <real>24.0</real>
-    <key>FSRenderUnderwaterRaysDensity</key>
-    <real>0.025</real>
-    <key>FSRenderUnderwaterRaysDistance</key>
-    <real>12.0</real>
-    <key>FSRenderUnderwaterRaysShafts</key>
-    <real>0.75</real>
-    <key>FSRenderUnderwaterRaysSteps</key>
-    <integer>20</integer>
-    <key>FSRenderUnderwaterRaysStrength</key>
-    <real>0.4</real>
-    <key>FSRenderUpscaler</key>
-    <integer>1</integer>
     <key>FSRenderVRS</key>
     <boolean>1</boolean>
-    <key>FSRenderVRSQuality</key>
-    <real>0.9</real>
-    <key>FSRenderWaterCaustics</key>
-    <boolean>1</boolean>
-    <key>FSRenderWaterCausticsScale</key>
-    <real>1.35</real>
-    <key>FSRenderWaterFoam</key>
-    <boolean>1</boolean>
-    <key>FSRenderWaterFoamStrength</key>
-    <real>0.2</real>
-    <key>FSRenderWaterFoamWidth</key>
-    <real>1.55</real>
-    <key>FSRenderWaterFogVariation</key>
-    <real>0.25</real>
-    <key>FSRenderWetShore</key>
-    <boolean>1</boolean>
-    <key>FSRenderWetShoreHeight</key>
-    <real>0.15</real>
-    <key>FSSnapshotTextureWaitTimeout</key>
-    <real>2.0</real>
-    <key>RLVaDebugSphereUseOpaqueDepth</key>
-    <boolean>1</boolean>
+    <key>FSRenderVRSPeriphery</key>
+    <real>0.0</real>
     <key>RenderAMDDisableShaderCache</key>
     <boolean>1</boolean>
     <key>RenderAMDDisableTextureThreading</key>
@@ -338,12 +240,14 @@
     <boolean>1</boolean>
     <key>RenderShadowCullMode</key>
     <integer>1</integer>
+    <key>RenderShadowDetail</key>
+    <integer>0</integer>
     <key>RenderShadowMinCasterTexels</key>
     <real>4.0</real>
-    <key>RenderShadowSplitExponent</key>
-    <array><real>3.0</real><real>2.75</real><real>2.0</real></array>
-    <key>RenderShadowSplits</key>
-    <integer>2</integer>
+    <key>RenderSpotShadowMaxResolution</key>
+    <integer>2048</integer>
+    <key>RLVaDebugSphereUseOpaqueDepth</key>
+    <boolean>1</boolean>
   </map>
 </map>
 </llsd>

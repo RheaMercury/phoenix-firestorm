@@ -3734,10 +3734,10 @@ bool LLAppViewer::initConfiguration()
         }
         // </FS>
 
-        // <FS:Trish> A fresh install starts on the built-in Trish Recommended Mid experimental preset.
+        // <FS:Trish> A fresh install starts on the built-in Mid-Nvidia experimental preset.
         // Settings it doesn't list keep their defaults; Stock Firestorm in the preset bar goes back to stock.
         {
-            const std::string preset_path = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "experimental_presets", "Trish%20Recommended%20Mid.xml");
+            const std::string preset_path = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "experimental_presets", "Mid-Nvidia.xml");
             llifstream preset_file(preset_path.c_str());
             LLSD preset;
             if (preset_file.is_open() && LLSDSerialize::fromXML(preset, preset_file) != LLSDParser::PARSE_FAILURE

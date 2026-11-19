@@ -1326,7 +1326,7 @@ private:
     static constexpr const char* PRESET_STOCK = "stock";
     static constexpr const char* PRESET_BUILTIN_PREFIX = "builtin:";
     static constexpr const char* PRESET_USER_PREFIX = "user:";
-    static constexpr const char* PRESET_DEFAULT_BUILTIN = "Trish Recommended Mid";
+    static constexpr const char* PRESET_DEFAULT_BUILTIN = "Mid-Nvidia";
     static constexpr S32 PRESET_VERSION = 1;
     static constexpr size_t PRESET_NAME_MAX_LENGTH = 64;
 
