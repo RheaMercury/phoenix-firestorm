@@ -7202,7 +7202,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1127"
+                 height="1311"
                  layout="topleft"
                  left="0"
                  name="experimental_avatar_settings"
@@ -7867,6 +7867,146 @@
                      tool_tip="EXPERIMENTAL. The solid part of all alpha (hair, glass, particles; at or above the threshold above) is depth sorted per pixel, and the soft rest of all of it is blended order independently. Stops hair showing through or cutting holes into glass and other alpha. Replaces the two options above in the main view while on. Costs an extra draw of all alpha, and alpha is no longer GPU driven. Rebuilds shaders when changed."
                      top="1085"
                      width="475" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_avatar_occlusion"
+                     top="1127"
+                     width="340">
+                        Soft occlusion around avatars
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_avatar_occlusion"
+                     tool_tip="Set every option in &quot;Soft occlusion around avatars&quot; back to its default value."
+                     top="1126"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderAvatarOcclusion,FSRenderAvatarOcclusionStrength,FSRenderAvatarOcclusionShadow,FSRenderAvatarOcclusionMaxAvatars,FSRenderAvatarOcclusionDistance" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderAvatarOcclusion"
+                     follows="left|top"
+                     height="20"
+                     label="Soft occlusion around avatars"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderavatarocclusion"
+                     tool_tip="EXPERIMENTAL. Avatars darken the ambient light around them: the ground under their feet, a wall they stand by, the sofa they sit on, the avatar next to them. Each frame a few rounded shapes are fitted to the skeletons of the nearest avatars and their shade is worked out exactly, so it also works at night, indoors and with ambient occlusion or shadows off. Rebuilds shaders."
+                     top="1153"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderavatarocclusionstrength_label"
+                     tool_tip="EXPERIMENTAL. How dark the occlusion around avatars gets, 0-1."
+                     top="1181"
+                     width="285">
+                        Strength
+                    </text>
+                    <spinner
+                     control_name="FSRenderAvatarOcclusionStrength"
+                     decimal_digits="2"
+                     enabled_control="FSRenderAvatarOcclusion"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderavatarocclusionstrength"
+                     tool_tip="EXPERIMENTAL. How dark the occlusion around avatars gets, 0-1."
+                     top="1179"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderavatarocclusionshadow_label"
+                     tool_tip="EXPERIMENTAL. A broad soft shadow each avatar casts against the open sky above it, on the ambient light only (so mostly seen in shade, indoors and at night). 0 keeps only the occlusion close around the avatar."
+                     top="1209"
+                     width="285">
+                        Shadow from the sky above
+                    </text>
+                    <spinner
+                     control_name="FSRenderAvatarOcclusionShadow"
+                     decimal_digits="2"
+                     enabled_control="FSRenderAvatarOcclusion"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderavatarocclusionshadow"
+                     tool_tip="EXPERIMENTAL. A broad soft shadow each avatar casts against the open sky above it, on the ambient light only (so mostly seen in shade, indoors and at night). 0 keeps only the occlusion close around the avatar."
+                     top="1207"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderavatarocclusionmaxavatars_label"
+                     tool_tip="EXPERIMENTAL. How many of the nearest avatars get it. Each one costs GPU time on the pixels around it."
+                     top="1237"
+                     width="285">
+                        Avatars with occlusion
+                    </text>
+                    <spinner
+                     control_name="FSRenderAvatarOcclusionMaxAvatars"
+                     decimal_digits="0"
+                     enabled_control="FSRenderAvatarOcclusion"
+                     follows="left|top"
+                     height="20"
+                     increment="1"
+                     layout="topleft"
+                     left="330"
+                     max_val="16"
+                     min_val="1"
+                     name="fs_fsrenderavatarocclusionmaxavatars"
+                     tool_tip="EXPERIMENTAL. How many of the nearest avatars get it. Each one costs GPU time on the pixels around it."
+                     top="1235"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderavatarocclusiondistance_label"
+                     tool_tip="EXPERIMENTAL. Only avatars within this distance of the camera, in meters."
+                     top="1265"
+                     width="285">
+                        Up to distance (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderAvatarOcclusionDistance"
+                     decimal_digits="0"
+                     enabled_control="FSRenderAvatarOcclusion"
+                     follows="left|top"
+                     height="20"
+                     increment="4"
+                     layout="topleft"
+                     left="330"
+                     max_val="256"
+                     min_val="4"
+                     name="fs_fsrenderavatarocclusiondistance"
+                     tool_tip="EXPERIMENTAL. Only avatars within this distance of the camera, in meters."
+                     top="1263"
+                     width="100" />
                 </panel>
             </scroll_container>
         </panel>

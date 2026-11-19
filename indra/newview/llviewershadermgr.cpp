@@ -60,6 +60,7 @@
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
 #include "fssoftparticles.h" // <FS:Trish/>
+#include "fsavatarocclusion.h" // <FS:Trish/>
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsglstream.h" // <FS:Trish/> FSGLStream::DirectScope
 
@@ -3383,6 +3384,13 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         // <FS:Trish> Avatar skin lighting, before the coloured shadow file, which the fallback below pops
         fs_add_skin_lighting(gDeferredSoftenProgram, true);
+        // Soft occlusion around avatars (FSRenderAvatarOcclusion), likewise before it. Its values
+        // and capsules are uniforms (FSAvatarOcclusion::bind).
+        if (FSAvatarOcclusion::enabled())
+        {
+            gDeferredSoftenProgram.mShaderFiles.push_back(make_pair("deferred/fsAvatarOcclusionF.glsl", GL_FRAGMENT_SHADER));
+            gDeferredSoftenProgram.addPermutation("FS_AVATAR_OCCLUSION", "1");
+        }
         // </FS:Trish>
 
         // Coloured shadows: sunlight through translucent casters

@@ -222,6 +222,7 @@ set(viewer_SOURCE_FILES
     fsstallwatch.cpp
     fsasyncfilewriter.cpp
     fsavatarcostlog.cpp
+    fsavatarocclusion.cpp
     fsradarentry.cpp
     fsradarlistctrl.cpp
     fsradarmenu.cpp
@@ -1150,6 +1151,7 @@ set(viewer_HEADER_FILES
     fsstallwatch.h
     fsasyncfilewriter.h
     fsavatarcostlog.h
+    fsavatarocclusion.h
     fsradarentry.h
     fsradarlistctrl.h
     fsradarmenu.h

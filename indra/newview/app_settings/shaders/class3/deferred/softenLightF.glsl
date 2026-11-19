@@ -125,6 +125,12 @@ float sunDiscRoughness(float perceptualRoughness);
 #endif
 // </FS:Trish>
 
+// <FS:Trish> Soft occlusion around avatars (fsAvatarOcclusionF.glsl, FSRenderAvatarOcclusion)
+#ifdef FS_AVATAR_OCCLUSION
+float fsAvatarOcclusion(vec3 pos, vec3 n);
+#endif
+// </FS:Trish>
+
 uniform int cube_snapshot;
 
 uniform float sky_hdr_scale;
@@ -540,6 +546,12 @@ void main()
         // adjustIrradiance stays on the legacy branch below, where its saturation matrix and
         // absolute clamp are part of the intended look rather than an obstacle to a physical one.
         float visibility = min(ao, ssaoVisibility(ambocc));
+        // <FS:Trish> Soft occlusion around avatars: one more measure of the same visibility, so
+        // the darker of it and the rest, as above
+#ifdef FS_AVATAR_OCCLUSION
+        visibility = min(visibility, fsAvatarOcclusion(pos.xyz, gb.normal));
+#endif
+        // </FS:Trish>
 
         vec3 diffuseColor = vec3(0.0);
         vec3 specularColor = vec3(0.0);
@@ -653,6 +665,13 @@ void main()
         }
 #endif
         // </FS:Trish>
+        // <FS:Trish> Soft occlusion around avatars: the darker of it and the screen-space term, on
+        // the visibility scale ssaoVisibility gives the screen-space term
+#ifdef FS_AVATAR_OCCLUSION
+        float fs_cap = fsAvatarOcclusion(pos.xyz, gb.normal);
+        irradiance *= min(1.0, fs_cap / max(ssaoVisibility(ambocc), 0.05));
+#endif
+        // </FS:Trish>
         irradiance += fs_gi; // light bounced from nearby surfaces (FSRenderSSGI)
 
         // The environment lobes get the same ambient visibility the diffuse one does.
@@ -662,6 +681,11 @@ void main()
         // reads as contact. On the response curve the settings describe, not the raw buffer;
         // see ssaoVisibility.
         float envVisibility = ssaoVisibility(ambocc);
+        // <FS:Trish> Soft occlusion around avatars
+#ifdef FS_AVATAR_OCCLUSION
+        envVisibility = min(envVisibility, fs_cap);
+#endif
+        // </FS:Trish>
         // Specular occlusion (see fsSpecularOcclusion): envVisibility itself when off. glossenv
         // is filtered by (1 - glossiness), legacyenv is the mirror lookup.
         float fs_nv = dot(gb.normal, -normalize(pos.xyz));

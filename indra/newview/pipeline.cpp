@@ -149,6 +149,7 @@
 #include "fstoolmeasure.h" // <FS:Trish/> Measuring tool
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
 #include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
+#include "fsavatarocclusion.h" // <FS:Trish/> FSRenderAvatarOcclusion
 #include "fsparallelcull.h" // <FS:Trish/> FSPerfParallelShadowCull
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsgpudrivenshadowalpha.h" // <FS:Trish/> FSPerfGPUDrivenShadowAlpha
@@ -953,6 +954,7 @@ void LLPipeline::cleanup()
     gFSPointLightBatch.release(); // <FS:Trish/>
     gFSClusteredLights.release(); // <FS:Trish/>
     gFSSpotLightBatch.release(); // <FS:Trish/>
+    FSAvatarOcclusion::release(); // <FS:Trish/>
 
     mReflectionMapManager.cleanup();
     mHeroProbeManager.cleanup();
@@ -12316,6 +12318,7 @@ void LLPipeline::renderDeferredLighting()
             fs_bind_water_caustics(soften_shader); // <FS:Trish/>
             fs_bind_wet_shore(soften_shader); // <FS:Trish/>
             fs_bind_foliage(soften_shader); // <FS:Trish/>
+            FSAvatarOcclusion::bind(soften_shader); // <FS:Trish/> capsules of the nearby avatars
 
             {
                 LLGLDepthTest depth(GL_FALSE);

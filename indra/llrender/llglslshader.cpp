@@ -1174,6 +1174,23 @@ bool LLGLSLShader::mapUniforms()
         }
     }
 
+    // <FS:Trish> Fork blocks with fixed binding points outside the enum above, set once per link
+    // (and per load from the binary cache, which also comes through here). Looking the index up at
+    // every bind instead cost a main-to-render-thread sync each time.
+    static const std::pair<const char*, GLuint> fs_ubos[] =
+    {
+        { "FSAvatarCapsules", 13 }, // FSAvatarOcclusion::UBO_BINDING (fsavatarocclusion.h)
+    };
+    for (const auto& fs_ubo : fs_ubos)
+    {
+        GLuint fs_index = glGetUniformBlockIndex(mProgramObject, fs_ubo.first);
+        if (fs_index != GL_INVALID_INDEX)
+        {
+            glUniformBlockBinding(mProgramObject, fs_index, fs_ubo.second);
+        }
+    }
+    // </FS:Trish>
+
     unbind();
 
     LL_DEBUGS("ShaderUniform") << "Total Uniform Size: " << mTotalUniformSize << LL_ENDL;

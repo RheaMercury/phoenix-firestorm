@@ -28010,6 +28010,61 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.8</real>
     </map>
+    <key>FSRenderAvatarOcclusion</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Soft occlusion around avatars: capsules built each frame on the skeletons of the nearest avatars take ambient light away from what is around them (the ground under their feet, walls and furniture next to them, other avatars), with a soft shadow of the open sky above them. Combined with screen-space ambient occlusion by taking the darker of the two. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderAvatarOcclusionStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Strength of the soft occlusion around avatars, 0-1.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.8</real>
+    </map>
+    <key>FSRenderAvatarOcclusionShadow</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Strength of the soft shadow avatars cast against the open sky above them (ambient light only), 0-1; 0 leaves only the occlusion close around them.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
+    <key>FSRenderAvatarOcclusionMaxAvatars</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Soft occlusion around avatars: how many of the nearest avatars get capsules, 1-16.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>8</integer>
+    </map>
+    <key>FSRenderAvatarOcclusionDistance</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Soft occlusion around avatars: only avatars within this many meters of the camera, 4-256.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>32.0</real>
+    </map>
     <key>FSRenderFadeIn</key>
     <map>
       <key>Comment</key>
