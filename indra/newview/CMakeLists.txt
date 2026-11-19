@@ -196,6 +196,7 @@ set(viewer_SOURCE_FILES
     fsmirrorplanar.cpp
     fsmoneytracker.cpp
     fsregionluascripts.cpp
+    fsregionobjectscanner.cpp
     fsnamelistavatarmenu.cpp
     fsnativepopout.cpp
     fsnearbychatbarlistener.cpp
@@ -1149,6 +1150,7 @@ set(viewer_HEADER_FILES
     fsmaniprotatejoint.h
     fsmaniptranslatejoint.h
     fsregionluascripts.h
+    fsregionobjectscanner.h
     fsnamelistavatarmenu.h
     fsnearbychatbarlistener.h
     fsnearbychatcontrol.h
