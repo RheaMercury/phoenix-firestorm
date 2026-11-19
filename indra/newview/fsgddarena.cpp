@@ -591,8 +591,11 @@ void FSGDDArena::beginFrame(U32 frame)
         if (mGLBytes >= FS_GDD_SHRINK_MIN_BYTES && mGLBytes >= 2 * first_bytes &&
             usedBytes() * FS_GDD_SHRINK_USED_SHARE < mGLBytes && now - mLastShrink >= FS_GDD_SHRINK_INTERVAL &&
             // with the texture bias at its cap, textures take what the arena gives back at once, and it
-            // can't grow again (no headroom): what doesn't fit is drawn the old way. Keep it until there is room.
-            !LLViewerTexture::sFSBiasAtCap)
+            // can't grow again (no headroom): what doesn't fit is drawn the old way. Keep it until there is room,
+            // unless video memory is over its budget already: then the driver is paging to system memory and
+            // every frame pays for it, and the textures can't shrink any further, so the unused part of the
+            // arena is the one thing that can still be given back.
+            (!LLViewerTexture::sFSBiasAtCap || LLViewerTexture::sFreeVRAMMegabytes <= 0.f))
         {
             mLastShrink = now;
             LL_INFOS("FSGPUDriven") << mName << ": " << allocatedMB() << " MB allocated, " << (U32)(usedBytes() >> 20)
