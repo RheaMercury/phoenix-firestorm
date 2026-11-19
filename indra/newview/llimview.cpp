@@ -1639,7 +1639,7 @@ void LLIMModel::LLIMSession::loadHistory()
         // <FS:Trish> FSChatHistoryLinesShown: only the most recent lines of the log are shown. Each one
         // builds its own widgets in the conversation, and a full recall (about 200 lines) took about
         // half a second when a session opened, in the middle of handling the message that opened it.
-        static LLCachedControl<U32> lines_shown(gSavedSettings, "FSChatHistoryLinesShown", 50);
+        static LLCachedControl<U32> lines_shown(gSavedSettings, "FSChatHistoryLinesShown", 0);
         while (lines_shown > 0 && chat_history.size() > (size_t)lines_shown)
         {
             chat_history.pop_front();

@@ -533,7 +533,7 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     sFSFoamDepthValid = false; // <FS:Trish/> one view per capture
     fs_bind_water_glints(shader); // <FS:Trish/>
     // <FS:Trish> Snell's window, seen from below the surface
-    static LLCachedControl<F32> fs_snell_window(gSavedSettings, "FSRenderSnellsWindow", 1.f);
+    static LLCachedControl<F32> fs_snell_window(gSavedSettings, "FSRenderSnellsWindow", 0.f);
     static LLStaticHashedString s_snell_window("fs_snell_window");
     shader->uniform1f(s_snell_window, llclamp((F32)fs_snell_window, 0.f, 1.f));
     // </FS:Trish>

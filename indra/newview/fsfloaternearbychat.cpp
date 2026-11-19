@@ -628,7 +628,7 @@ void FSFloaterNearbyChat::loadHistory()
     std::list<LLSD> history;
     LLLogChat::loadChatHistory("chat", history);
     // FSChatHistoryLinesShown: only the most recent lines, as for conversations (llimview.cpp)
-    static LLCachedControl<U32> lines_shown(gSavedSettings, "FSChatHistoryLinesShown", 50);
+    static LLCachedControl<U32> lines_shown(gSavedSettings, "FSChatHistoryLinesShown", 0);
     while (lines_shown > 0 && history.size() > (size_t)lines_shown)
     {
         history.pop_front();

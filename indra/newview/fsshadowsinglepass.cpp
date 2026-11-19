@@ -95,7 +95,7 @@ namespace
     // as the stock programs' add_common_permutations
     void add_common_permutations(LLGLSLShader& shader)
     {
-        static LLCachedControl<bool> emissive(gSavedSettings, "RenderEnableEmissiveBuffer", false);
+        static LLCachedControl<bool> emissive(gSavedSettings, "RenderEnableEmissiveBuffer", true);
         if (emissive)
         {
             shader.addPermutation("HAS_EMISSIVE", "1");

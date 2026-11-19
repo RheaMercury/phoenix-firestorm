@@ -1138,7 +1138,7 @@ bool LLVOSky::updateHeavenlyBodyGeometry(LLDrawable *drawable, F32 scale, const 
     // <FS:Trish> Right at the horizon the air bends the light of the disc's lower edge up more
     // than its upper edge, squashing the sun or moon: about a fifth at the horizon, gone a few
     // degrees above it
-    static LLCachedControl<bool> fs_disc_detail(gSavedSettings, "FSRenderSunDiscDetail", true);
+    static LLCachedControl<bool> fs_disc_detail(gSavedSettings, "FSRenderSunDiscDetail", false);
     if (fs_disc_detail)
     {
         const F32 elevation_deg = llmax(asinf(llclamp(to_dir.mV[VZ], -1.f, 1.f)) * RAD_TO_DEG, 0.f);

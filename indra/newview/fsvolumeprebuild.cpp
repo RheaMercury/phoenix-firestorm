@@ -233,7 +233,12 @@ bool FSVolumePrebuild::lodReady(LLVOVolume* volobj, S32 lod)
     {
         return true;
     }
-    LL::WorkQueue::ptr_t queue = LL::WorkQueue::getInstance("General");
+    // a pool of their own when it was made at startup (LLAppViewer::initGeneralThread), else "General"
+    LL::WorkQueue::ptr_t queue = LL::WorkQueue::getInstance("FSWorker");
+    if (!queue)
+    {
+        queue = LL::WorkQueue::getInstance("General");
+    }
     if (!queue)
     {
         return true;

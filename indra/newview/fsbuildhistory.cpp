@@ -49,7 +49,7 @@ FSBuildHistory::FSBuildHistory()
 //static
 bool FSBuildHistory::enabled()
 {
-    static LLCachedControl<bool> client_undo(gSavedSettings, "FSBuildClientUndo", true);
+    static LLCachedControl<bool> client_undo(gSavedSettings, "FSBuildClientUndo", false);
     return client_undo;
 }
 

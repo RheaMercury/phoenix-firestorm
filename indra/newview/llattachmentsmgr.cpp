@@ -132,7 +132,7 @@ void fs_login_idle()
     {
         return;
     }
-    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", true);
+    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", false);
     if (!sFSLoginTracking)
     {
         if (!fast_self_rez)
@@ -294,7 +294,7 @@ void LLAttachmentsMgr::requestAttachments(attachments_vec_t& attachment_requests
     // <FS:Trish> FSFastSelfRez: adding attachments (not replacing what is worn, the FIRE-6070
     // case) goes out a packet's worth at a time; at login that is every attachment worn
     S32 max_objects_per_request = 1;
-    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", true);
+    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", false);
     if (fast_self_rez)
     {
         S32 adds = 0;

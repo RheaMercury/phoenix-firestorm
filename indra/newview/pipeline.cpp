@@ -3529,7 +3529,7 @@ void LLPipeline::updateGeom(F32 max_dtime)
     const bool fs_budget_active = rebuild_budget || fs_throttling;
     // When the queue may be cut short, what is in view and nearest goes first: coming back to where you
     // were, the objects around you sharpen before the distant ones (as the viewer used to sort it)
-    static LLCachedControl<bool> nearest_first(gSavedSettings, "FSPerfRebuildNearestFirst", true);
+    static LLCachedControl<bool> nearest_first(gSavedSettings, "FSPerfRebuildNearestFirst", false);
     if (fs_budget_active && nearest_first && mBuildQ1.size() > 1)
     {
         LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("fs sort build queue");
@@ -5258,6 +5258,49 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 
 // Render all of our geometry that's required after our deferred pass.
 // This is gonna be stuff like alpha, water, etc.
+// <FS:Trish> FSNameTagIgnoreAlpha: the window's depth, which the UI drawn over the world tests against,
+// was the scene's after alpha. Rigged alpha writes depth for every fragment it blends (hair, layered
+// clothing, even nearly invisible parts), as does alpha below the water and the depth of field pass,
+// so name tags and floating text behind them were cut away. The depth before alpha is kept here and
+// presented instead (renderFinalize). Main view only. Taken just before the first alpha pool, after the
+// fullbright ones (fullbright prims hide tags behind them, as everything opaque does), which is also
+// where the water haze needs the depth: it reads this copy instead of making its own (doWaterHaze).
+static U32 sFSTagDepthHazeFrame = U32_MAX;  // frame whose snapshot the water haze may read
+
+static void fs_take_tag_depth(LLPipeline& pipe)
+{
+    static LLCachedControl<bool> tag_ignore_alpha(gSavedSettings, "FSNameTagIgnoreAlpha", true);
+    if (tag_ignore_alpha && pipe.mRT == &pipe.mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender &&
+        !LLPipeline::sRenderingHUDs && !LLPipeline::sImpostorRender && !pipe.isAvatarOnlyRender())
+    {
+        LLRenderTarget& src = pipe.mRT->deferredScreen;     // shares its depth with mRT->screen
+        const U32 depth_w = src.getWidth();
+        const U32 depth_h = src.getHeight();
+        if (!pipe.mFSTagDepth.isComplete() || pipe.mFSTagDepth.getWidth() != depth_w || pipe.mFSTagDepth.getHeight() != depth_h)
+        {
+            if (!pipe.mFSTagDepth.allocate(depth_w, depth_h, 0, true))
+            {
+                pipe.mFSTagDepth.release();
+            }
+        }
+        if (pipe.mFSTagDepth.isComplete())
+        {
+            LL_PROFILE_GPU_ZONE("tag depth snapshot");
+            LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
+            pipe.mRT->screen.flush();
+            pipe.mFSTagDepth.copyContents(src, 0, 0, depth_w, depth_h, 0, 0, depth_w, depth_h, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            pipe.mRT->screen.bindTarget();
+            pipe.mFSTagDepthFrame = LLFrameTimer::getFrameCount();
+            sFSTagDepthHazeFrame = pipe.mFSTagDepthFrame;
+        }
+    }
+    else if (!tag_ignore_alpha && pipe.mFSTagDepth.isComplete())
+    {
+        pipe.mFSTagDepth.release();
+    }
+}
+// </FS:Trish>
+
 void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
@@ -5276,6 +5319,8 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
     bool done_water_haze = done_atmospherics;
     bool done_water_exclusion = false;
     bool fs_foam_depth_done = false; // <FS:Trish/> shoreline foam depth
+    bool fs_tag_depth_done = false; // <FS:Trish/> FSNameTagIgnoreAlpha
+    sFSTagDepthHazeFrame = U32_MAX; // <FS:Trish/> only a snapshot of this pass is shared with its water haze
 
     // do water exclusion just before water pass.
     U32 water_exclusion_pass = LLDrawPool::POOL_WATEREXCLUSION;
@@ -5342,6 +5387,14 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
             doAtmospherics();
             done_atmospherics = true;
         }
+
+        // <FS:Trish> FSNameTagIgnoreAlpha: the depth before any alpha, after the fullbright pools
+        if (cur_type >= LLDrawPool::POOL_ALPHA_PRE_WATER && !fs_tag_depth_done)
+        {
+            fs_take_tag_depth(*this);
+            fs_tag_depth_done = true;
+        }
+        // </FS:Trish>
 
         if (cur_type >= water_haze_pass && !done_water_haze)
         { // do water haze against depth buffer before rendering alpha
@@ -9443,7 +9496,7 @@ void LLPipeline::tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_co
             // Night vision: fades in through twilight, from the sun a little above the horizon
             // to about six degrees below it, or wherever the sky gives little light (night
             // presets that keep the sun up, with dark sunlight and ambient colours)
-            static LLCachedControl<F32> night_vision(gSavedSettings, "FSRenderNightVision", 0.8f);
+            static LLCachedControl<F32> night_vision(gSavedSettings, "FSRenderNightVision", 0.f);
             static LLStaticHashedString s_night_vision("fs_night_vision");
             F32 night = 0.f;
             if (night_vision > 0.f)
@@ -12526,38 +12579,8 @@ void LLPipeline::renderDeferredLighting()
 
     fs_render_skin_sss(screen_target); // <FS:Trish/>
 
-    // <FS:Trish> FSNameTagIgnoreAlpha: the window's depth, which the UI drawn over the world tests against,
-    // was the scene's after alpha. Rigged alpha writes depth for every fragment it blends (hair, layered
-    // clothing, even nearly invisible parts), as does alpha below the water and the depth of field pass,
-    // so name tags and floating text behind them were cut away. The depth before alpha is kept here and
-    // presented instead (renderFinalize). Main view only.
-    {
-        static LLCachedControl<bool> tag_ignore_alpha(gSavedSettings, "FSNameTagIgnoreAlpha", true);
-        if (tag_ignore_alpha && mRT == &mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender && !isAvatarOnlyRender())
-        {
-            const U32 depth_w = mRT->deferredScreen.getWidth();
-            const U32 depth_h = mRT->deferredScreen.getHeight();
-            if (!mFSTagDepth.isComplete() || mFSTagDepth.getWidth() != depth_w || mFSTagDepth.getHeight() != depth_h)
-            {
-                if (!mFSTagDepth.allocate(depth_w, depth_h, 0, true))
-                {
-                    mFSTagDepth.release();
-                }
-            }
-            if (mFSTagDepth.isComplete())
-            {
-                LL_PROFILE_GPU_ZONE("tag depth snapshot");
-                LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
-                mFSTagDepth.copyContents(mRT->deferredScreen, 0, 0, depth_w, depth_h, 0, 0, depth_w, depth_h,
-                                         GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-                mFSTagDepthFrame = LLFrameTimer::getFrameCount();
-            }
-        }
-        else if (!tag_ignore_alpha && mFSTagDepth.isComplete())
-        {
-            mFSTagDepth.release();
-        }
-    }
+    // <FS:Trish> FSNameTagIgnoreAlpha: the depth snapshot is taken in renderGeomPostDeferred now, after the
+    // fullbright pools (fs_take_tag_depth)
     // </FS:Trish>
 
     static LLCachedControl<bool> rlv_sphere_opaque_depth(gSavedSettings, "RLVaDebugSphereUseOpaqueDepth", false);
@@ -12707,6 +12730,19 @@ void LLPipeline::doWaterHaze()
 
     if (RenderDeferredAtmospheric)
     {
+        // <FS:Trish> FSNameTagIgnoreAlpha took the same depth a moment ago (fs_take_tag_depth): read that copy.
+        // Only with transparent water, whose pass copies its own depth into the water target before reading
+        // it; opaque water reads what this copy left there.
+        LLRenderTarget* fs_haze_depth = &getWaterDisTarget();
+        if (LLPipeline::sRenderTransparentWater &&
+            sFSTagDepthHazeFrame == LLFrameTimer::getFrameCount() && mFSTagDepthFrame == sFSTagDepthHazeFrame &&
+            mFSTagDepth.isComplete() && mFSTagDepth.getWidth() == mRT->screen.getWidth() &&
+            mFSTagDepth.getHeight() == mRT->screen.getHeight())
+        {
+            fs_haze_depth = &mFSTagDepth;
+        }
+        else
+        // </FS:Trish>
         // copy depth buffer for use in haze shader (use water displacement map as temp storage)
         {
             LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
@@ -12731,7 +12767,7 @@ void LLPipeline::doWaterHaze()
 
         LL_PROFILE_GPU_ZONE("haze");
         //bindDeferredShader(haze_shader, nullptr, &mWaterDis);
-        bindDeferredShader(haze_shader, nullptr, &getWaterDisTarget()); // <FS:Trish/>
+        bindDeferredShader(haze_shader, nullptr, fs_haze_depth); // <FS:Trish/>
 
         haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
 
@@ -13404,7 +13440,7 @@ void LLPipeline::renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCa
     // <FS:Trish> FSRenderShadowAlphaCascades: alpha tested casters (leaves, grass, fences, alpha
     // masked materials) only in the nearer sun cascades. In the far ones their shadows are a few
     // texels of a large map, and they are a large share of the shadow pass.
-    static LLCachedControl<U32> alpha_cascades(gSavedSettings, "FSRenderShadowAlphaCascades", 3);
+    static LLCachedControl<U32> alpha_cascades(gSavedSettings, "FSRenderShadowAlphaCascades", 4);
     // FSRenderShadowReduceWhileMoving: none in the far cascades while the camera moves fast
     const S32 fs_alpha_limit = sFSShadowCameraMoving ? llmin((S32)alpha_cascades, 2) : (S32)alpha_cascades;
     const bool fs_alpha_casters = gCubeSnapshot || mFSSunShadowCascade < 0 ||
@@ -15676,11 +15712,11 @@ static void fs_draw_screen_triangle(LLVertexBuffer* vb)
 void LLPipeline::renderSunRays()
 {
     static LLCachedControl<bool> enabled(gSavedSettings, "FSRenderSunRays", false);
-    static LLCachedControl<F32> strength(gSavedSettings, "FSRenderSunRaysStrength", 1.f);
-    static LLCachedControl<F32> density(gSavedSettings, "FSRenderSunRaysDensity", 0.004f);
+    static LLCachedControl<F32> strength(gSavedSettings, "FSRenderSunRaysStrength", 0.5f);
+    static LLCachedControl<F32> density(gSavedSettings, "FSRenderSunRaysDensity", 0.002f);
     static LLCachedControl<F32> anisotropy(gSavedSettings, "FSRenderSunRaysAnisotropy", 0.6f);
     static LLCachedControl<S32> steps(gSavedSettings, "FSRenderSunRaysSteps", 24);
-    static LLCachedControl<F32> max_distance(gSavedSettings, "FSRenderSunRaysDistance", 256.f);
+    static LLCachedControl<F32> max_distance(gSavedSettings, "FSRenderSunRaysDistance", 128.f);
     static LLCachedControl<F32> resolution(gSavedSettings, "FSRenderSunRaysResolution", 0.5f);
     static LLCachedControl<bool> sky_color(gSavedSettings, "FSRenderSunRaysSkyColor", true);
     static LLCachedControl<LLColor4> tint(gSavedSettings, "FSRenderSunRaysTint", LLColor4::white);
@@ -18645,7 +18681,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 bool LLPipeline::generateProbeSunShadow(LLCamera& camera, const LLVector3& light_dir, const LLPlane& shadow_near_clip,
                                         const glm::mat4& inv_view, glm::mat4* view, glm::mat4* proj)
 {
-    static LLCachedControl<bool> shared_probe_shadows(gSavedSettings, "RenderReflectionProbeSharedShadows", true);
+    static LLCachedControl<bool> shared_probe_shadows(gSavedSettings, "RenderReflectionProbeSharedShadows", false);
     if (!shared_probe_shadows || mRT != &mAuxillaryRT || !mRT->shadow[0].isComplete() || !mRT->shadow[1].isComplete())
     {
         return false;
@@ -19796,7 +19832,7 @@ bool LLPipeline::fsShadowSkipsAvatar(const LLVOAvatar* avatar)
     {
         return false;
     }
-    static LLCachedControl<U32> cascades(gSavedSettings, "FSRenderAvatarShadowCascades", 2);
+    static LLCachedControl<U32> cascades(gSavedSettings, "FSRenderAvatarShadowCascades", 4);
     return gPipeline.mFSSunShadowCascade >= (S32)cascades;
 }
 

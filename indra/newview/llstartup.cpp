@@ -2993,7 +2993,7 @@ bool idle_startup()
         // loading the outfit now rather than in STATE_PRECACHE (after the inventory views are
         // built and more), so attachments are requested and the region rezzes them sooner. Others
         // see the avatar half loaded until then. Same steps as there, which then find it started.
-        static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", true);
+        static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", false);
         if (fast_self_rez && isAgentAvatarValid() && !gAgent.isFirstLogin() && !gAgent.isOutfitChosen())
         {
             LL_INFOS("Avatar") << "Starting the outfit load early (FSFastSelfRez)" << LL_ENDL;

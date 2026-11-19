@@ -722,7 +722,7 @@ void AISAPI::FetchCOF(completion_t callback)
     // on the 8 connections of the default HTTP policy, and the outfit request queued behind them for
     // seconds while the avatar waited half loaded. Send it on the inventory policy instead, whose
     // connections only the legacy (non AIS) inventory fetch uses, so it goes out at once.
-    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", true);
+    static LLCachedControl<bool> fast_self_rez(gSavedSettings, "FSFastSelfRez", false);
     const F64 sent_at = LLTimer::getTotalSeconds();
     completion_t timed_callback = [callback, sent_at](const LLUUID& id)
         {

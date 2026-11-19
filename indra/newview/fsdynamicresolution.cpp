@@ -199,8 +199,8 @@ namespace
         F32 fps = target;
         if (fps <= 0.f)
         {
-            static LLCachedControl<bool> limit_framerate(gSavedSettings, "FSLimitFramerate", false);
-            static LLCachedControl<U32> max_fps(gSavedSettings, "FramePerSecondLimit", 0);
+            static LLCachedControl<bool> limit_framerate(gSavedSettings, "FSLimitFramerate", true);
+            static LLCachedControl<U32> max_fps(gSavedSettings, "FramePerSecondLimit", 60);
             fps = (limit_framerate && max_fps > 0) ? (F32)max_fps : 60.f;
         }
         return llclamp(fps, 15.f, 240.f);

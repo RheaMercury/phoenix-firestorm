@@ -226,11 +226,11 @@ void LLDrawPoolWLSky::renderSkyHazeDeferred(const LLVector3& camPosLocal, F32 ca
         sky_shader->uniform1i(LLShaderMgr::SUN_UP_FACTOR, psky->getIsSunUp() ? 1 : 0);
 
         // <FS:Trish> The moon's aureole and corona
-        static LLCachedControl<F32> moon_corona(gSavedSettings, "FSRenderMoonCorona", 1.f);
+        static LLCachedControl<F32> moon_corona(gSavedSettings, "FSRenderMoonCorona", 0.f);
         static LLStaticHashedString s_moon_corona("fs_moon_corona");
         sky_shader->uniform1f(s_moon_corona, moon_corona > 0.f ? llmin((F32)moon_corona, 4.f) * fs_moonlight_share() : 0.f);
         // The twilight bands, from just before sunset to about nine degrees below the horizon
-        static LLCachedControl<F32> twilight(gSavedSettings, "FSRenderTwilightBands", 1.f);
+        static LLCachedControl<F32> twilight(gSavedSettings, "FSRenderTwilightBands", 0.f);
         static LLStaticHashedString s_twilight("fs_twilight");
         {
             LLEnvironment& environment = LLEnvironment::instance();
@@ -245,7 +245,7 @@ void LLDrawPoolWLSky::renderSkyHazeDeferred(const LLVector3& camPosLocal, F32 ca
         // sky showed below the horizon between the water's edge and the horizon. Below the horizon the
         // sky is drawn as the distant sea looks instead, the sky mirrored in it. Not on mainland, where
         // land beyond the draw distance would turn into sea.
-        static LLCachedControl<bool> sea_horizon(gSavedSettings, "FSRenderSeaHorizon", true);
+        static LLCachedControl<bool> sea_horizon(gSavedSettings, "FSRenderSeaHorizon", false);
         static LLStaticHashedString s_sea_horizon("fs_sea_horizon");
         {
             LLVector4 sea(0.f, 0.f, 0.f, 0.f);
@@ -332,7 +332,7 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
 
     // <FS:Trish> Stars dim toward the horizon and in bright moonlight. Not in reflections,
     // which show them at full brightness anyway.
-    static LLCachedControl<bool> star_extinction(gSavedSettings, "FSRenderStarExtinction", true);
+    static LLCachedControl<bool> star_extinction(gSavedSettings, "FSRenderStarExtinction", false);
     static LLStaticHashedString s_star_params("fs_star_params");
     const bool extinction = star_extinction && !LLPipeline::sReflectionRender;
     gDeferredStarProgram.uniform2f(s_star_params, extinction ? 0.08f : 0.f, extinction ? 0.5f * fs_moonlight_share() : 0.f);
@@ -402,7 +402,7 @@ void LLDrawPoolWLSky::renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 
         cloudshader->uniform1f(LLShaderMgr::CLOUD_VARIANCE, cloud_variance);
         cloudshader->uniform1f(LLShaderMgr::SUN_MOON_GLOW_FACTOR, psky->getSunMoonGlowFactor());
         // <FS:Trish> Silver lining, with the moon's as bright as the sky sets it
-        static LLCachedControl<F32> silver_lining(gSavedSettings, "FSRenderCloudSilverLining", 1.f);
+        static LLCachedControl<F32> silver_lining(gSavedSettings, "FSRenderCloudSilverLining", 0.f);
         static LLStaticHashedString s_silver_lining("fs_silver_lining");
         F32 lining = llclamp((F32)silver_lining, 0.f, 4.f);
         if (!psky->getIsSunUp())
@@ -477,7 +477,7 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
                 sun_shader->uniform4fv(LLShaderMgr::DIFFUSE_COLOR, 1, color.mV);
                 sun_shader->uniform1f(LLShaderMgr::BLEND_FACTOR, blend_factor);
                 // <FS:Trish> Limb darkening
-                static LLCachedControl<bool> sun_detail(gSavedSettings, "FSRenderSunDiscDetail", true);
+                static LLCachedControl<bool> sun_detail(gSavedSettings, "FSRenderSunDiscDetail", false);
                 static LLStaticHashedString s_sun_limb("fs_sun_limb");
                 sun_shader->uniform1f(s_sun_limb, sun_detail ? 0.4f : 0.f);
                 // </FS:Trish>

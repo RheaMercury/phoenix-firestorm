@@ -1891,7 +1891,7 @@ bool LLAppViewer::doFrame()
         {
             FSGPUWorkDiag::frame(); // FSDiagnosticsGPUWork
         }
-        static LLCachedControl<bool> vaos(gSavedSettings, "FSPerfVertexArrayObjects", true);
+        static LLCachedControl<bool> vaos(gSavedSettings, "FSPerfVertexArrayObjects", false);
         LLVertexBuffer::fsSetVAOEnabled(vaos);
     }
     // </FS:Trish>
@@ -2358,6 +2358,13 @@ void LLAppViewer::flushLFSIO()
     }
 }
 
+// <FS:Trish> FSPerfThreadedObjectUpdates and FSPerfThreadedGeometry post their work to a pool of their own
+// ("FSWorker", 2 threads; ThreadPoolSizes can change that). On "General", which ThreadPoolSizes keeps at one
+// thread for the stock jobs, their work mostly found it busy and fell back to the main thread. Only made
+// when one of them is on at startup; otherwise they use "General" as before.
+static LL::ThreadPool* sFSWorkerPool = nullptr;
+// </FS:Trish>
+
 bool LLAppViewer::cleanup()
 {
     FSRenderThread::shutdown(); // <FS:Trish/> FSRenderThread: GL back to the main thread before any teardown
@@ -2787,6 +2794,12 @@ bool LLAppViewer::cleanup()
     {
         mGeneralThreadPool->close();
     }
+    // <FS:Trish>
+    if (sFSWorkerPool)
+    {
+        sFSWorkerPool->close();
+    }
+    // </FS:Trish>
 
     sTextureFetch->shutDownTextureCacheThread() ;
     LLLFSThread::sLocal->shutdown();
@@ -2848,6 +2861,10 @@ bool LLAppViewer::cleanup()
     sPurgeDiskCacheThread = NULL;
     delete mGeneralThreadPool;
     mGeneralThreadPool = NULL;
+    // <FS:Trish>
+    delete sFSWorkerPool;
+    sFSWorkerPool = nullptr;
+    // </FS:Trish>
     // <FS:TJ> For CEF cache purging in a background thread
     delete mCefCachePurgeThread;
     mCefCachePurgeThread = NULL;
@@ -2963,6 +2980,15 @@ void LLAppViewer::initGeneralThread()
 
     mGeneralThreadPool = new LL::ThreadPool("General", 3);
     mGeneralThreadPool->start();
+
+    // <FS:Trish>
+    if (!sFSWorkerPool &&
+        (gSavedSettings.getBOOL("FSPerfThreadedObjectUpdates") || gSavedSettings.getBOOL("FSPerfThreadedGeometry")))
+    {
+        sFSWorkerPool = new LL::ThreadPool("FSWorker", 2);
+        sFSWorkerPool->start();
+    }
+    // </FS:Trish>
 }
 
 bool LLAppViewer::initThreads()

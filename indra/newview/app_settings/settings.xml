@@ -12333,13 +12333,13 @@ Change of this parameter will affect the layout of buttons in notification toast
   <key>RenderSpotShadowMaxResolution</key>
   <map>
     <key>Comment</key>
-    <string>Maximum width and height of the two projector shadow maps, which otherwise follow the screen width. 0 for no limit.</string>
+    <string>Maximum width and height of the projector shadow maps, which otherwise follow the screen width (3840 pixels square each at 4K). 0 for no limit, as the standard viewer.</string>
     <key>Persist</key>
     <integer>1</integer>
     <key>Type</key>
     <string>U32</string>
     <key>Value</key>
-    <integer>0</integer>
+    <integer>2048</integer>
   </map>
   <key>RenderSpotShadowOffset</key>
   <map>

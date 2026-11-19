@@ -887,8 +887,8 @@ bool LLSnapshotLivePreview::onIdle( void* snapshot_preview )
 // Returns true while the capture should keep waiting.
 bool LLSnapshotLivePreview::waitForTextures()
 {
-    static LLCachedControl<bool> wait_for_textures(gSavedSettings, "FSSnapshotWaitForTextures", true);
-    static LLCachedControl<F32> wait_timeout(gSavedSettings, "FSSnapshotTextureWaitTimeout", 15.f);
+    static LLCachedControl<bool> wait_for_textures(gSavedSettings, "FSSnapshotWaitForTextures", false);
+    static LLCachedControl<F32> wait_timeout(gSavedSettings, "FSSnapshotTextureWaitTimeout", 10.f);
 
     if (!wait_for_textures || wait_timeout <= 0.f ||
         mSnapshotBufferType == LLSnapshotModel::SNAPSHOT_TYPE_DEPTH ||

@@ -1424,7 +1424,7 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     }
     // Backlit foliage: alpha masked g-buffer writers mark their pixels (FS_MASK_FLAG) and the sun
     // light pass lights them from behind
-    static LLCachedControl<bool> fs_foliage(gSavedSettings, "FSRenderFoliage", true);
+    static LLCachedControl<bool> fs_foliage(gSavedSettings, "FSRenderFoliage", false);
     if (fs_foliage)
     {
         attribs["FS_FOLIAGE"] = "1";

@@ -490,7 +490,7 @@ void LLReflectionMapManager::update()
         // every frame forever. Refreshing a probe that already has a good map can go slower; new and
         // incomplete probes, the default probe and dynamic ones keep one face per frame.
         //doProbeUpdate();
-        static LLCachedControl<U32> refresh_interval(gSavedSettings, "RenderReflectionProbeRefreshFrameInterval", 3);
+        static LLCachedControl<U32> refresh_interval(gSavedSettings, "RenderReflectionProbeRefreshFrameInterval", 1);
         // The default (sky) probe and dynamic ones on moving objects refresh the same way once their
         // map is complete: the sky changes slowly, and a moving probe's cube still turns over every
         // 6 x interval frames. A probe still filling its first map keeps one face a frame.
@@ -759,7 +759,7 @@ void LLReflectionMapManager::update()
         {
             // <FS:Trish> Once every probe is complete the oldest one was re-rendered forever, one cube face every frame.
             // Leave complete static probes alone until they reach a minimum age, sky changes reset their update time.
-            static LLCachedControl<F32> sMinRefresh(gSavedSettings, "RenderReflectionProbeMinRefresh", 10.f);
+            static LLCachedControl<F32> sMinRefresh(gSavedSettings, "RenderReflectionProbeMinRefresh", 0.f);
             const bool recently_refreshed = probe->mComplete && !probe->getIsDynamic() &&
                 (gFrameTimeSeconds - probe->mLastUpdateTime) < sMinRefresh;
             // </FS:Trish>

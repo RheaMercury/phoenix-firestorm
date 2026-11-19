@@ -5554,7 +5554,7 @@ void LLVOAvatar::computeUpdatePeriod()
         && !isUIAvatar()
         && !mNeedsAnimUpdate)
     {
-        static LLCachedControl<U32> hidden_update_period(gSavedSettings, "RenderHiddenAvatarUpdatePeriod", 4);
+        static LLCachedControl<U32> hidden_update_period(gSavedSettings, "RenderHiddenAvatarUpdatePeriod", 1);
         S32 period = llmax(1, (S32)hidden_update_period());
         if (LLPipeline::RenderShadowDetail > 0)
         {
@@ -12954,7 +12954,7 @@ void LLVOAvatar::updateImpostors()
     // every FSImpostorMinInterval seconds; until then it keeps showing its current impostor. A
     // missing impostor or an appearance change still redraws at once. The scan starts one avatar
     // further each frame so none waits behind the others for long. Budget 0: as before.
-    static LLCachedControl<U32> fs_budget(gSavedSettings, "FSImpostorUpdateBudget", 1);
+    static LLCachedControl<U32> fs_budget(gSavedSettings, "FSImpostorUpdateBudget", 0);
     static LLCachedControl<F32> fs_min_interval(gSavedSettings, "FSImpostorMinInterval", 0.25f);
     static size_t fs_start = 0;
     const size_t fs_count = LLCharacter::sInstances.size();

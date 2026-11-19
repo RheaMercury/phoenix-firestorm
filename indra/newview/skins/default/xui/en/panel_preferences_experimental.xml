@@ -6238,7 +6238,7 @@
                      layout="topleft"
                      left="35"
                      name="fs_renderspotshadowmaxresolution_label"
-                     tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. 0: no limit, as standard."
+                     tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. Default 2048. 0: no limit, as standard."
                      top="1462"
                      width="285">
                         Projector shadow map size limit
@@ -6254,7 +6254,7 @@
                      max_val="8192"
                      min_val="0"
                      name="fs_renderspotshadowmaxresolution"
-                     tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. 0: no limit, as standard."
+                     tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. Default 2048. 0: no limit, as standard."
                      top="1460"
                      width="100" />
                 </panel>
