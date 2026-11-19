@@ -88,6 +88,119 @@ vec3 fsSkinLocalTranslucency(vec3 albedo, vec3 n, vec3 l, float thickness_mm, fl
 vec3 fsSkinAlbedo(GBufferInfo gb);
 #endif
 
+#ifdef FS_POINT_SHADOWS
+// Short-range shadows of the strongest point lights (FSRenderPointLightShadows), screen-space like
+// the sun's contact shadows (fsShadowExtrasF.glsl): from the lit pixel, a march through the depth
+// buffer towards the light, up to the march length or the light, whichever is nearer. Only the
+// first fs_pl_shadow.x lights of the light buffer: fsclusteredlights.cpp moves the lights that
+// matter most on screen (brightness, size, nearness) to the front. Lights in SL often sit inside
+// their lamp or bulb mesh, so the stretch of the ray nearest the light is never marched: an
+// occluder there is taken to be the light's own fitting. Nothing is known in screen space about
+// which object a depth sample belongs to, so the light's linkset can't be told apart otherwise.
+uniform vec4 fs_pl_shadow;          // x: lights shadowed, y: march length (m), z: strength 0-1
+uniform mat4 fs_pl_shadow_proj;     // this view's projection (eye to clip)
+
+float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
+float ndcZFromScreenDepth(float d);
+
+#define FS_PLS_MIN_STEPS   4
+#define FS_PLS_MAX_STEPS   12
+#define FS_PLS_SKIP_LIGHT  0.2      // metres of the ray next to the light that are not marched
+#define FS_PLS_FADE_NEAR   20.0     // metres from the camera: full strength up to here
+#define FS_PLS_FADE_FAR    40.0     // and none from here on
+
+// interleaved gradient noise (Jimenez 2014), offset per light so two lights don't dither alike
+float fsPointShadowNoise(vec2 frag, float light)
+{
+    frag += vec2(light * 5.588238, light * 3.13);
+    return fract(52.9829189 * fract(0.06711056 * frag.x + 0.00583715 * frag.y));
+}
+
+// eye space distance in front of the camera of a stored depth, through the matrix that
+// getPositionWithDepth uses, so it agrees with the depth buffer under either depth convention
+float fsPointShadowSceneDistance(float d)
+{
+    float ndc = ndcZFromScreenDepth(d);
+    float z = inv_proj[2][2] * ndc + inv_proj[3][2];
+    float w = inv_proj[2][3] * ndc + inv_proj[3][3];
+    return -z / w;
+}
+
+// 1: lit, down to 1 - strength: something in the depth buffer lies between pos and the light.
+// lv: unit vector to the light, light_dist: distance to it, idx: the light's index.
+float fsPointShadow(int idx, vec3 pos, vec3 n, vec3 lv, float light_dist)
+{
+    if (float(idx) >= fs_pl_shadow.x)
+    {
+        return 1.0;
+    }
+    float dist = -pos.z;
+    float strength = clamp(fs_pl_shadow.z, 0.0, 1.0) * (1.0 - smoothstep(FS_PLS_FADE_NEAR, FS_PLS_FADE_FAR, dist));
+    float nl = dot(n, lv);
+    float len = min(light_dist - FS_PLS_SKIP_LIGHT, fs_pl_shadow.y);
+    if (strength <= 0.0 || len <= 0.02 || nl <= 0.0)
+    {
+        return 1.0;
+    }
+
+    // off the surface, further with distance (depth precision) and at grazing light
+    float bias = (0.01 + 0.002 * dist) / max(nl, 0.25);
+    float thickness = 0.2 + 0.01 * dist;
+    float min_delta = 0.004 + 0.0015 * dist;
+    vec3 origin = pos + n * bias;
+
+    // The ray in clip space is linear in its length: interpolate the two ends instead of
+    // projecting every step. Cut it where it would pass behind the camera.
+    vec4 c0 = fs_pl_shadow_proj * vec4(origin, 1.0);
+    vec4 c1 = fs_pl_shadow_proj * vec4(origin + lv * len, 1.0);
+    if (c0.w <= 0.05)
+    {
+        return 1.0;
+    }
+    if (c1.w < 0.05)
+    {
+        float cut = (c0.w - 0.05) / (c0.w - c1.w);
+        c1 = mix(c0, c1, cut);
+        len *= cut;
+    }
+    float px = length((c1.xy / c1.w - c0.xy / c0.w) * 0.5 * screen_res);
+    int steps = int(clamp(px * 0.5, float(FS_PLS_MIN_STEPS), float(FS_PLS_MAX_STEPS)));
+    float jitter = fsPointShadowNoise(gl_FragCoord.xy, float(idx));
+
+    for (int i = 0; i < FS_PLS_MAX_STEPS; ++i)
+    {
+        if (i >= steps)
+        {
+            break;
+        }
+        float t = (float(i) + jitter) / float(steps);
+        vec4 clip = mix(c0, c1, t);
+        vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
+        {
+            break; // left the screen
+        }
+        float d = getDepth(uv);
+        if (isFarDepth(d))
+        {
+            continue;
+        }
+        // > 0: the surface the depth buffer has there is in front of the ray
+        float delta = clip.w - fsPointShadowSceneDistance(d);
+        if (delta > min_delta && delta < thickness)
+        {
+            // fades out towards the end of the march, so the shadow has no hard end where the
+            // march length runs out, and at the screen edges
+            vec2 edge = min(uv, vec2(1.0) - uv);
+            float fade = (1.0 - smoothstep(0.6, 1.0, t * len / max(fs_pl_shadow.y, 0.01))) * smoothstep(0.0, 0.04, min(edge.x, edge.y));
+            return 1.0 - strength * fade;
+        }
+    }
+    return 1.0;
+}
+#endif
+
 // The cluster of a pixel, as fsclusteredlights.cpp bins them
 int clusterOf(vec2 tc, float depth)
 {
@@ -185,6 +298,9 @@ void main()
                 }
 #endif
                 intensity *= fsMicroShadow(nl, orm.r);
+#ifdef FS_POINT_SHADOWS
+                intensity *= fsPointShadow(idx, pos, n, lv, lightDist);
+#endif
                 final_color += intensity * clampRadiance(nl * (diff + specPunc));
             }
 #ifdef FS_SKIN_TRANS_LOCAL
@@ -253,7 +369,11 @@ void main()
 #endif
 
                     // Bounded per light, as the stock passes do
+#ifdef FS_POINT_SHADOWS
+                    final_color += clampRadiance(col) * fsPointShadow(idx, pos, n, l, lightDist);
+#else
                     final_color += clampRadiance(col);
+#endif
                 }
 #ifdef FS_SKIN_TRANS_LOCAL
                 else if (fs_thick > 0.0) // skin: light through it from behind

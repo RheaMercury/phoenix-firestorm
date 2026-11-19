@@ -4210,7 +4210,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1972"
+                 height="2082"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -5392,7 +5392,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderClusteredLights,FSRenderClusteredLightsDebug" />
+                         parameter="FSRenderClusteredLights,FSRenderClusteredLightsDebug,FSRenderPointLightShadows,FSRenderPointLightShadowCount,FSRenderPointLightShadowLength,FSRenderPointLightShadowStrength" />
                     </button>
                     <check_box
                      control_name="FSRenderClusteredLights"
@@ -5417,6 +5417,96 @@
                      tool_tip="EXPERIMENTAL. Tints lit surfaces by how many lights their tile and depth slice lists: blue for one, through green to red for 32 or more. For checking where lights pile up; turn it off for normal viewing."
                      top="1676"
                      width="475" />
+                    <check_box
+                     control_name="FSRenderPointLightShadows"
+                     enabled_control="FSRenderClusteredLights"
+                     follows="left|top"
+                     height="20"
+                     label="Short shadows from the brightest point lights"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderpointlightshadows"
+                     tool_tip="EXPERIMENTAL. Short shadows from the brightest local point lights: a lamp on a table now shades the table behind the objects on it, and avatars and furniture block some of a club's lights. Each lit pixel looks along the way to the light, in the depth of the image on screen, so only what is on screen casts and only over a short distance. Lights inside a lamp or bulb mesh still work: the last 20 cm before the light are not searched. Needs clustered local lights; reflections are left out. Rebuilds shaders."
+                     top="1702"
+                     width="455" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderpointlightshadowcount_label"
+                     tool_tip="EXPERIMENTAL. How many point lights cast these shadows: the brightest and largest on screen first. Each one costs GPU time where it lights the scene."
+                     top="1730"
+                     width="285">
+                        Lights with shadows
+                    </text>
+                    <spinner
+                     control_name="FSRenderPointLightShadowCount"
+                     decimal_digits="0"
+                     enabled_control="FSRenderPointLightShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="1"
+                     layout="topleft"
+                     left="330"
+                     max_val="8"
+                     min_val="1"
+                     name="fs_fsrenderpointlightshadowcount"
+                     tool_tip="EXPERIMENTAL. How many point lights cast these shadows: the brightest and largest on screen first. Each one costs GPU time where it lights the scene."
+                     top="1728"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderpointlightshadowlength_label"
+                     tool_tip="EXPERIMENTAL. How far from each surface towards the light to look for something in the way, in meters. Longer finds bigger shadows but costs more and misses thin objects."
+                     top="1758"
+                     width="285">
+                        Shadow reach (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderPointLightShadowLength"
+                     decimal_digits="1"
+                     enabled_control="FSRenderPointLightShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="0.1"
+                     layout="topleft"
+                     left="330"
+                     max_val="4"
+                     min_val="0.1"
+                     name="fs_fsrenderpointlightshadowlength"
+                     tool_tip="EXPERIMENTAL. How far from each surface towards the light to look for something in the way, in meters. Longer finds bigger shadows but costs more and misses thin objects."
+                     top="1756"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderpointlightshadowstrength_label"
+                     tool_tip="EXPERIMENTAL. How much of the light a shadow takes away: 1 is fully dark."
+                     top="1786"
+                     width="285">
+                        Shadow strength
+                    </text>
+                    <spinner
+                     control_name="FSRenderPointLightShadowStrength"
+                     decimal_digits="2"
+                     enabled_control="FSRenderPointLightShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0"
+                     name="fs_fsrenderpointlightshadowstrength"
+                     tool_tip="EXPERIMENTAL. How much of the light a shadow takes away: 1 is fully dark."
+                     top="1784"
+                     width="100" />
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -5424,7 +5514,7 @@
                      layout="topleft"
                      left="15"
                      name="rendering_heading"
-                     top="1718"
+                     top="1828"
                      width="340">
                         Rendering workarounds
                     </text>
@@ -5436,7 +5526,7 @@
                      left="370"
                      name="reset_rendering_heading"
                      tool_tip="Set every option in &quot;Rendering and diagnostics&quot; back to its default value."
-                     top="1717"
+                     top="1827"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5451,7 +5541,7 @@
                      left="15"
                      name="render_alpha_blend_shadows"
                      tool_tip="Render alpha-blended objects into shadow maps; animated transparent effects may be expensive shadow casters"
-                     top="1741"
+                     top="1851"
                      width="475" />
                     <check_box
                      control_name="RLVaDebugSphereUseOpaqueDepth"
@@ -5462,7 +5552,7 @@
                      left="15"
                      name="rlva_debug_sphere_opaque_depth"
                      tool_tip="Use a pre-alpha depth snapshot so alpha wearables do not punch through the RLVa sphere effect"
-                     top="1769"
+                     top="1879"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableShaderCache"
@@ -5473,7 +5563,7 @@
                      left="15"
                      name="render_amd_disable_shader_cache"
                      tool_tip="Bypass viewer shader binary caching on Windows AMD; restart required"
-                     top="1815"
+                     top="1925"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableTextureThreading"
@@ -5484,7 +5574,7 @@
                      left="15"
                      name="render_amd_disable_texture_threading"
                      tool_tip="Force main-thread texture and media uploads on Windows AMD; restart required"
-                     top="1838"
+                     top="1948"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedDirectNormals"
@@ -5495,7 +5585,7 @@
                      left="15"
                      name="render_rigged_direct_normals"
                      tool_tip="Transform rigged mesh normals and tangents as directions; restart required"
-                     top="1861"
+                     top="1971"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedLocalOrigin"
@@ -5506,7 +5596,7 @@
                      left="15"
                      name="render_rigged_local_origin"
                      tool_tip="Test avatar-root-relative rigged mesh skinning; restart required"
-                     top="1884"
+                     top="1994"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedPreciseMath"
@@ -5517,7 +5607,7 @@
                      left="15"
                      name="render_rigged_precise_math"
                      tool_tip="Test precise arithmetic and invariant positions in skinning shaders; restart required and may reduce performance"
-                     top="1907"
+                     top="2017"
                      width="475" />
                     <check_box
                      control_name="RenderGLMultiThreadedTexturesNVIDIA"
@@ -5528,7 +5618,7 @@
                      left="15"
                      name="render_nvidia_threaded_textures"
                      tool_tip="Create textures on a background OpenGL context on NVIDIA GPUs, whatever threaded textures is set to; restart required"
-                     top="1930"
+                     top="2040"
                      width="475" />
                 </panel>
             </scroll_container>

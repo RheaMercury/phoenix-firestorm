@@ -105,6 +105,7 @@ public:
     void release();
 
 private:
+    U32 sortShadowedLights(U32 wanted);
     void binLights(bool tile_lists);
     void upload();
     // Binds the two buffer textures to texture units past the shader's own samplers and sets

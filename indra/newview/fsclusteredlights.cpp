@@ -42,6 +42,8 @@
 #include "llworld.h"
 #include "pipeline.h"
 
+#include "glm/gtc/type_ptr.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -79,6 +81,60 @@ namespace
     LLStaticHashedString s_anisotropy("vol_anisotropy");
     LLStaticHashedString s_air_fog("fs_air_fog");
     LLStaticHashedString s_air_plane("fs_air_plane");
+    LLStaticHashedString s_pl_shadow("fs_pl_shadow");
+    LLStaticHashedString s_pl_shadow_proj("fs_pl_shadow_proj");
+
+    // Point light shadows (FSRenderPointLightShadows): the shader marches towards the first
+    // FSRenderPointLightShadowCount lights of the buffer only
+    constexpr U32 MAX_SHADOWED = 8;
+}
+
+// Moves the lights that weigh most on screen to the front of the list: brightness times the share
+// of the view the light's sphere takes (its size over its distance from the camera, squared,
+// capped where the camera is inside it). Only called before binning, so the lists and the glow
+// follow the new order. Returns how many lights lead the list.
+U32 FSClusteredLights::sortShadowedLights(U32 wanted)
+{
+    const U32 count = (U32)(mLights.size() / 2);
+    wanted = llmin(wanted, count);
+    if (wanted == 0)
+    {
+        return 0;
+    }
+
+    std::vector<std::pair<F32, U32>> score(count);
+    for (U32 i = 0; i < count; ++i)
+    {
+        const LLVector4& c = mLights[i * 2];
+        const LLVector4& col = mLights[i * 2 + 1];
+        const F32 size2 = c.mV[VW] * c.mV[VW];
+        const F32 d2 = c.mV[VX] * c.mV[VX] + c.mV[VY] * c.mV[VY] + c.mV[VZ] * c.mV[VZ];
+        const F32 lum = 0.2126f * col.mV[VX] + 0.7152f * col.mV[VY] + 0.0722f * col.mV[VZ];
+        score[i] = { -lum * size2 / llmax(d2, size2, 0.01f), i }; // negated: the strongest first
+    }
+    std::partial_sort(score.begin(), score.begin() + wanted, score.end());
+
+    // stable for the rest: the others keep their nearest-first order
+    std::vector<U8> taken(count, 0);
+    std::vector<LLVector4> sorted;
+    sorted.reserve(mLights.size());
+    for (U32 i = 0; i < wanted; ++i)
+    {
+        const U32 idx = score[i].second;
+        taken[idx] = 1;
+        sorted.push_back(mLights[idx * 2]);
+        sorted.push_back(mLights[idx * 2 + 1]);
+    }
+    for (U32 i = 0; i < count; ++i)
+    {
+        if (!taken[i])
+        {
+            sorted.push_back(mLights[i * 2]);
+            sorted.push_back(mLights[i * 2 + 1]);
+        }
+    }
+    mLights.swap(sorted);
+    return wanted;
 }
 
 bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height, bool probe)
@@ -440,6 +496,17 @@ void FSClusteredLights::flush(LLVertexBuffer* screen_tri)
     LL_PROFILE_ZONE_NAMED_CATEGORY_PIPELINE("renderDeferredLighting - clustered lights");
     LL_PROFILE_GPU_ZONE("clustered lights");
 
+    // Point light shadows: the main view only, never a probe face
+    static LLCachedControl<bool> pl_shadows(gSavedSettings, "FSRenderPointLightShadows", false);
+    static LLCachedControl<S32> pl_shadow_count(gSavedSettings, "FSRenderPointLightShadowCount", 4);
+    static LLCachedControl<F32> pl_shadow_length(gSavedSettings, "FSRenderPointLightShadowLength", 1.f);
+    static LLCachedControl<F32> pl_shadow_strength(gSavedSettings, "FSRenderPointLightShadowStrength", 0.8f);
+    U32 shadowed = 0;
+    if (pl_shadows && !mProbe && gFSClusteredLightProgram.mDefines.count("FS_POINT_SHADOWS"))
+    {
+        shadowed = sortShadowedLights((U32)llclamp((S32)pl_shadow_count, 1, (S32)MAX_SHADOWED));
+    }
+
     // The glow's tile lists are binned with the clusters, while the lights are at hand (not for
     // a probe face, which has no glow)
     mTileLists = !mProbe && scatterWanted();
@@ -456,6 +523,12 @@ void FSClusteredLights::flush(LLVertexBuffer* screen_tri)
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
     shader.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
     shader.uniform1i(s_debug, debug ? 1 : 0);
+    if (shader.mDefines.count("FS_POINT_SHADOWS"))
+    {
+        shader.uniform4f(s_pl_shadow, (F32)shadowed, llclamp((F32)pl_shadow_length, 0.1f, 4.f),
+                         llclamp((F32)pl_shadow_strength, 0.f, 1.f), 0.f);
+        shader.uniformMatrix4fv(s_pl_shadow_proj, 1, GL_FALSE, glm::value_ptr(mProjection));
+    }
     screen_tri->setBuffer();
     screen_tri->drawArrays(LLRender::TRIANGLES, 0, 3);
     unbindBuffers();
