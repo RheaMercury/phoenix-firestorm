@@ -36,6 +36,7 @@
 
 class LLFace;
 class LLTextureEntry;
+class LLViewerObject;
 class LLViewerFetchedTexture;
 
 // Two corrections both face loops (updateImageDecodePriority and FSParallelTexture's) make to a face's
@@ -60,6 +61,15 @@ struct FSTextureFaceBias
     bool inView(const LLFace* face) const;
     // the smaller of the face's texture repeats in S and T for a texture in channel (LLRender::eTexIndex)
     F32 repeats(const LLTextureEntry* te, U32 channel) const;
+    // The scale a face's virtual size is divided by: its repeats (above), or the frame size of a texture
+    // animation that shows one frame at a time, squared and clamped to [scale_min, scale_max]
+    // (TextureScaleMinAreaFactor, TextureScaleMaxAreaFactor). te may be null (scale 1).
+    F32 scale(const LLViewerObject* objp, const LLTextureEntry* te, S32 te_offset, U32 channel, F32 scale_min,
+              F32 scale_max) const;
+    // The texture bias as the divisor of an off screen face's virtual size, for a texture whose lowest level
+    // is max_discard. FSTextureMaxDiscardBias: each step of desired_bias above 4 lets a texture go one level
+    // deeper (a 2048 one 512 -> 256 -> 128), as below 4 the per texture limit already stops it at the same size.
+    static F32 vsizeBias(F32 max_discard, F32 desired_bias);
 };
 
 // What the face loop of LLViewerTextureList::updateImageDecodePriority produces for one texture:

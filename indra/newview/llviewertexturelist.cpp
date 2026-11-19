@@ -1078,14 +1078,14 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
         // get adjusted bias based on image resolution
         LLImageGL* img = imagep->getGLTexture();
         F32 max_discard = F32(img ? img->getMaxDiscardLevel() : MAX_DISCARD_LEVEL);
+        // <FS:Trish> FSTextureMaxDiscardBias: each step of bias above 4 lets a texture go one level deeper;
+        // one formula with FSParallelTexture::reduceFaces (FSTextureFaceBias::vsizeBias)
         //F32 bias = llclamp(max_discard - 2.f, 1.f, LLViewerTexture::sDesiredDiscardBias);
-        // <FS:Trish> FSTextureMaxDiscardBias: each step of bias above 4 lets a texture go one level deeper
-        // (a 2048 one 512 -> 256 -> 128), as below 4 the per texture limit already stops it at the same size
-        F32 bias = llclamp(max_discard - 2.f + llclamp(LLViewerTexture::sDesiredDiscardBias - 4.f, 0.f, 2.f), 1.f, LLViewerTexture::sDesiredDiscardBias);
+        //
+        //// convert bias into a vsize scaler
+        //bias = (F32) llroundf(powf(4, bias - 1.f));
+        const F32 bias = FSTextureFaceBias::vsizeBias(max_discard, LLViewerTexture::sDesiredDiscardBias);
         // </FS:Trish>
-
-        // convert bias into a vsize scaler
-        bias = (F32) llroundf(powf(4, bias - 1.f));
 
         // <FS:Trish> FSTexturePriorityHiddenFaces, FSTexturePriorityGLTFScale (the face loop of
         // FSParallelTexture::reduceFaces makes the same corrections)
@@ -1138,22 +1138,13 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                     S32 te_offset = face->getTEOffset();  // offset is -1 if not inited
                     LLViewerObject* objp = face->getViewerObject();
                     const LLTextureEntry* te = (te_offset < 0 || te_offset >= objp->getNumTEs()) ? nullptr : objp->getTE(te_offset);
-                    // <FS:Trish> FSTexturePriorityGLTFScale: the GLTF texture transform's repeats for PBR channels
+                    // <FS:Trish> FSTexturePriorityGLTFScale (the GLTF texture transform's repeats for PBR channels)
+                    // and texture animations (they screw up their own resolution): one formula with
+                    // FSParallelTexture::reduceFaces (FSTextureFaceBias::scale)
                     //F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
-                    F32 min_scale = te ? face_bias.repeats(te, i) : 1.f;
+                    //min_scale = llclamp(min_scale * min_scale, texture_scale_min(), texture_scale_max());
+                    F32 min_scale = face_bias.scale(objp, te, te_offset, i, texture_scale_min(), texture_scale_max());
                     // </FS:Trish>
-                    // <FS:Trish> texture animation screw up their own resolution
-                    if (te && objp->getPCode() == LL_PCODE_VOLUME)
-                    {
-                        const LLViewerTextureAnim* anim = static_cast<LLVOVolume*>(objp)->mTextureAnimp;
-                        if (anim && (anim->mMode & LLTextureAnim::ON) && !(anim->mMode & (LLTextureAnim::ROTATE | LLTextureAnim::SCALE))
-                            && anim->mSizeX && anim->mSizeY && (anim->mFace < 0 || anim->mFace == te_offset))
-                        {
-                            min_scale = llmin(1.f / anim->mSizeX, 1.f / anim->mSizeY);
-                        }
-                    }
-                    // </FS:Trish>
-                    min_scale = llclamp(min_scale * min_scale, texture_scale_min(), texture_scale_max());
                     vsize /= min_scale;
 
                     // apply bias to offscreen faces all the time, but only to onscreen faces when bias is large

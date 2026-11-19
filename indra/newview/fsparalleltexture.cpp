@@ -383,6 +383,32 @@ bool FSTextureFaceBias::inView(const LLFace* face) const
     return !(group && group->fsHiddenFor(mNow, mGrace));
 }
 
+// static
+F32 FSTextureFaceBias::vsizeBias(F32 max_discard, F32 desired_bias)
+{
+    //F32 bias = llclamp(max_discard - 2.f, 1.f, desired_bias);
+    const F32 bias = llclamp(max_discard - 2.f + llclamp(desired_bias - 4.f, 0.f, 2.f), 1.f, desired_bias);
+    return (F32)llroundf(powf(4, bias - 1.f));
+}
+
+F32 FSTextureFaceBias::scale(const LLViewerObject* objp, const LLTextureEntry* te, S32 te_offset, U32 channel,
+                             F32 scale_min, F32 scale_max) const
+{
+    //F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
+    F32 min_scale = te ? repeats(te, channel) : 1.f;
+    // texture animations that show one frame at a time screw up their own resolution
+    if (te && objp->getPCode() == LL_PCODE_VOLUME)
+    {
+        const LLViewerTextureAnim* anim = static_cast<const LLVOVolume*>(objp)->mTextureAnimp;
+        if (anim && (anim->mMode & LLTextureAnim::ON) && !(anim->mMode & (LLTextureAnim::ROTATE | LLTextureAnim::SCALE))
+            && anim->mSizeX && anim->mSizeY && (anim->mFace < 0 || anim->mFace == te_offset))
+        {
+            min_scale = llmin(1.f / anim->mSizeX, 1.f / anim->mSizeY);
+        }
+    }
+    return llclamp(min_scale * min_scale, scale_min, scale_max);
+}
+
 F32 FSTextureFaceBias::repeats(const LLTextureEntry* te, U32 channel) const
 {
     if (mGLTFScale && channel >= LLRender::BASECOLOR_MAP && channel <= LLRender::EMISSIVE_MAP)
@@ -423,15 +449,10 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
     bool on_screen = false;
     U32 face_count = 0;
 
-    // get adjusted bias based on image resolution
+    // get adjusted bias based on image resolution, as a vsize scaler
     LLImageGL* img = imagep->getGLTexture();
     F32 max_discard = F32(img ? img->getMaxDiscardLevel() : MAX_DISCARD_LEVEL);
-    // FSTextureMaxDiscardBias: deeper above 4, as in updateImageDecodePriority
-    //F32 bias = llclamp(max_discard - 2.f, 1.f, p.mDiscardBias);
-    F32 bias = llclamp(max_discard - 2.f + llclamp(p.mDiscardBias - 4.f, 0.f, 2.f), 1.f, p.mDiscardBias);
-
-    // convert bias into a vsize scaler
-    bias = (F32) llroundf(powf(4, bias - 1.f));
+    const F32 bias = FSTextureFaceBias::vsizeBias(max_discard, p.mDiscardBias);
 
     for (U32 i = 0; i < LLRender::NUM_TEXTURE_CHANNELS; ++i)
     {
@@ -453,20 +474,8 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 S32 te_offset = face->getTEOffset();  // offset is -1 if not inited
                 LLViewerObject* objp = face->getViewerObject();
                 const LLTextureEntry* te = (te_offset < 0 || te_offset >= objp->getNumTEs()) ? nullptr : objp->getTE(te_offset);
-                // FSTexturePriorityGLTFScale: as in updateImageDecodePriority
-                //F32 min_scale = te ? llmin(fabsf(te->getScaleS()), fabsf(te->getScaleT())) : 1.f;
-                F32 min_scale = te ? p.mFaceBias.repeats(te, i) : 1.f;
-                if (te && objp->getPCode() == LL_PCODE_VOLUME)
-                {
-                    const LLViewerTextureAnim* anim = static_cast<LLVOVolume*>(objp)->mTextureAnimp;
-                    if (anim && (anim->mMode & LLTextureAnim::ON) && !(anim->mMode & (LLTextureAnim::ROTATE | LLTextureAnim::SCALE))
-                        && anim->mSizeX && anim->mSizeY && (anim->mFace < 0 || anim->mFace == te_offset))
-                    {
-                        min_scale = llmin(1.f / anim->mSizeX, 1.f / anim->mSizeY);
-                    }
-                }
-                min_scale = llclamp(min_scale * min_scale, p.mScaleMin, p.mScaleMax);
-                vsize /= min_scale;
+                // FSTexturePriorityGLTFScale and texture animations: as in updateImageDecodePriority
+                vsize /= p.mFaceBias.scale(objp, te, te_offset, i, p.mScaleMin, p.mScaleMax);
 
                 if (!in_view || p.mDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
                 {
