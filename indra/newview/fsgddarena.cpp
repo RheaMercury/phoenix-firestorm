@@ -168,6 +168,8 @@ FSGDDArena::FSGDDArena(const char* name, const std::vector<U32>& types, const ch
 {
     static U32 s_next_slot = 0;
     mSlot = s_next_slot++; // past LLVertexBuffer::FS_ARENA_SLOTS: no cache, the map alone
+    // every arena should have a slot: raise FS_ARENA_SLOTS when adding one
+    llassert(mSlot < LLVertexBuffer::FS_ARENA_SLOTS);
     mVBs.resize(mTypes.size(), 0);
     mVBBytes.resize(mTypes.size(), 0); // <FS:Trish/>
     for (U32 type : mTypes)
