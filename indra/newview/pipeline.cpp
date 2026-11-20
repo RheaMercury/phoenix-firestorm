@@ -9833,6 +9833,13 @@ void LLPipeline::setExposureAdaptation(LLGLSLShader* shader, F32& exp_min, F32& 
 
 extern LLPointer<LLImageGL> gEXRImage;
 
+// <FS:Trish> FSRenderCASAfterAA: renderFinalize sharpens the anti-aliased, display encoded image
+// (applyCAS decodes it to linear and encodes it again), so the tone mapper writes the 8 bit post
+// buffer itself and dithers. FSRenderVignetteInTonemap: the tone mapper applies the vignette.
+static bool sFSCASLate = false;
+static bool sFSTonemapVignette = false;
+// </FS:Trish>
+
 // <FS:Trish> Debanding dither (fsDebandF.glsl). Only a pass that writes display encoded colour
 // to an 8 bit target dithers: by default the post chain is 8 bit and that is the tone map (or
 // CAS, or the non HDR gamma correction), with RenderHighPrecisionPostProcess it is 16 bit float
@@ -9977,6 +9984,14 @@ void LLPipeline::tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_co
         }
         // </FS:Trish>
         fs_set_deband(*shader, gamma_correct && dst == &mPostPingMap && fs_post_chain_8bit() && !isAvatarOnlyRender()); // <FS:Trish/> Debanding dither, not under the avatars only matte
+        // <FS:Trish> FSRenderVignetteInTonemap: the vignette before the dither, so the darkened corners
+        // are dithered too instead of quantised again by every 8 bit pass after this one
+        {
+            static LLStaticHashedString s_fs_vignette("fs_vignette");
+            const LLVector3 vignette = (gamma_correct && sFSTonemapVignette) ? RenderVignette : LLVector3::zero;
+            shader->uniform3fv(s_fs_vignette, 1, vignette.mV);
+        }
+        // </FS:Trish>
 
         mScreenTriangleVB->setBuffer();
         mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -10153,7 +10168,8 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
     static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
 
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
-    bool legacy_gamma = psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f;
+    //bool legacy_gamma = psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f;
+    bool legacy_gamma = !sFSCASLate && psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f; // <FS:Trish/> after AA the tone mapper applied it
     if(legacy_gamma)
     {
         sharpen_shader = &gCASLegacyGammaProgram;
@@ -10181,7 +10197,12 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 
         sharpen_shader->uniform2f(out_screen_res, (AF1)dst->getWidth(), (AF1)dst->getHeight());
     }
-    fs_set_deband(*sharpen_shader, dst == &mPostPingMap && fs_post_chain_8bit()); // <FS:Trish/> Debanding dither
+    // <FS:Trish> Debanding dither; after AA the tone mapper dithered already
+    //fs_set_deband(*sharpen_shader, dst == &mPostPingMap && fs_post_chain_8bit()); // <FS:Trish/> Debanding dither
+    fs_set_deband(*sharpen_shader, !sFSCASLate && dst == &mPostPingMap && fs_post_chain_8bit());
+    static LLStaticHashedString s_cas_srgb("fs_cas_srgb");
+    sharpen_shader->uniform1i(s_cas_srgb, sFSCASLate ? 1 : 0); // display encoded input, see CASF.glsl
+    // </FS:Trish>
 
     sharpen_shader->bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_POINT);
 
@@ -11025,6 +11046,8 @@ void LLPipeline::renderFinalize()
     }
     // </FS:Trish>
 
+    bool fs_cas_late = false; // <FS:Trish/> FSRenderCASAfterAA, decided with the tone mapping below
+    sFSTonemapVignette = false; // <FS:Trish/> FSRenderVignetteInTonemap, the same
     if (hdr)
     {
         // <FS:Trish> Avatars only snapshot
@@ -11092,6 +11115,23 @@ void LLPipeline::renderFinalize()
         //tonemap(&mRT->screen, apply_cas ? &mRT->deferredLight : &mPostPingMap, !apply_cas);
         bool apply_cas = !avatars_only && cas_sharpness != 0.0f && gCASProgram.isComplete() && gCASLegacyGammaProgram.isComplete();
         apply_cas = apply_cas && !FSDynamicResolution::upscalerReplacesCAS(&mRT->screen); // <FS:Trish/> NIS present sharpens instead
+        // <FS:Trish> FSRenderCASAfterAA: sharpen after anti-aliasing (below), so CAS doesn't harden the
+        // stair steps the anti-aliasing then has to fight; the tone mapper writes the post buffer itself
+        static LLCachedControl<bool> cas_after_aa(gSavedSettings, "FSRenderCASAfterAA", false);
+        // FSRenderVignetteInTonemap: only where the tone mapper writes the display encoded image and
+        // nothing that should come before the vignette runs between (RLVa's sphere runs after lens effects).
+        // CAS sharpening before anti-aliasing would take the tone mapper's output: with the vignette there, it
+        // sharpens after anti-aliasing instead (the vignette did nothing with CAS on, its default).
+        static LLCachedControl<bool> vignette_in_tonemap(gSavedSettings, "FSRenderVignetteInTonemap", false);
+        const bool fs_vignette_wanted = vignette_in_tonemap && !avatars_only && RenderVignette.mV[0] > 0.f &&
+                                        !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE);
+        //fs_cas_late = apply_cas && cas_after_aa;
+        fs_cas_late = apply_cas && (cas_after_aa || fs_vignette_wanted);
+        apply_cas = apply_cas && !fs_cas_late;
+        //sFSTonemapVignette = vignette_in_tonemap && !apply_cas && !avatars_only && RenderVignette.mV[0] > 0.f &&
+        //                     !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE);
+        sFSTonemapVignette = fs_vignette_wanted && !apply_cas;
+        // </FS:Trish>
         tonemap(tonemap_src, apply_cas ? &mRT->deferredLight : &mPostPingMap, !apply_cas);
         // </FS:Trish>
 
@@ -11164,6 +11204,16 @@ void LLPipeline::renderFinalize()
         std::swap(sourceBuffer, targetBuffer);
     }
 
+    // <FS:Trish> FSRenderCASAfterAA: sharpen the anti-aliased image
+    if (fs_cas_late)
+    {
+        sFSCASLate = true;
+        applyCAS(sourceBuffer, targetBuffer);
+        sFSCASLate = false;
+        std::swap(sourceBuffer, targetBuffer);
+    }
+    // </FS:Trish>
+
     // <FS:Beq> Restore shader post proc for Vignette
     LLRenderTarget* auxActiveBuffer = sourceBuffer;
     // <FS:Trish> Use whichever ping/pong buffer isn't the source, it depends on glow and DoF
@@ -11172,7 +11222,8 @@ void LLPipeline::renderFinalize()
     // </FS:Trish>
     // <FS:Trish> FSRenderMergePostPasses: the vignette in the lens effects pass, when nothing runs between them
     sFSFoldVignette = !avatars_only && fs_merge_post_passes() && RenderVignette.mV[0] > 0.f &&
-                      !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE);
+                      !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE) &&
+                      !sFSTonemapVignette; // <FS:Trish/> FSRenderVignetteInTonemap: done already
     if (sFSFoldVignette)
     {
         // The lens effects pass stores its image in its target, the vignette pass reads it back and stores its own
@@ -11185,13 +11236,13 @@ void LLPipeline::renderFinalize()
         sFSVignetteQuantize[0] = levels(auxTargetBuffer);
         sFSVignetteQuantize[1] = sFSVignetteQuantize[0] > 0.f ? 0.f : levels(auxActiveBuffer); // it writes to the target itself
     }
-    bool fs_vignette_done = false;
+    bool fs_vignette_done = sFSTonemapVignette; // <FS:Trish/> FSRenderVignetteInTonemap
     // </FS:Trish>
     // <FS:Trish> Lens effects, on the anti-aliased image so the aberration and grain stay crisp
     if (!avatars_only && renderLensEffects(auxActiveBuffer, auxTargetBuffer))
     {
         std::swap(auxActiveBuffer, auxTargetBuffer);
-        fs_vignette_done = sFSFoldVignette; // FSRenderMergePostPasses
+        fs_vignette_done = fs_vignette_done || sFSFoldVignette; // FSRenderMergePostPasses (or FSRenderVignetteInTonemap)
     }
     sFSFoldVignette = false; // FSRenderMergePostPasses
     // </FS:Trish>

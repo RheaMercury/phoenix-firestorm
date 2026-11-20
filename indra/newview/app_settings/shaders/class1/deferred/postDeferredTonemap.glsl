@@ -33,6 +33,7 @@ in vec2 vary_fragcoord;
 
 #ifdef GAMMA_CORRECT
 uniform float gamma;
+uniform vec3 fs_vignette; // <FS:Trish/> FSRenderVignetteInTonemap: exoVignetteF's vignette, x 0 = off
 #endif
 
 vec3 linear_to_srgb(vec3 cl);
@@ -254,6 +255,16 @@ void main()
 #ifdef LEGACY_GAMMA
     diff.rgb = legacyGamma(diff.rgb);
 #endif
+
+    // <FS:Trish> FSRenderVignetteInTonemap: exoVignetteF.glsl's vignette, on the same display
+    // encoded values it would get, but before the dither below
+    if (fs_vignette.x > 0.0)
+    {
+        vec2 vt = vary_fragcoord - 0.5;
+        float vignette_val = 1.0 - dot(vt, vt);
+        diff.rgb *= clamp(pow(mix(1.0, vignette_val * vignette_val * vignette_val * vignette_val * fs_vignette.z, fs_vignette.x), fs_vignette.y), 0.0, 1.0);
+    }
+    // </FS:Trish>
 
 #endif
 

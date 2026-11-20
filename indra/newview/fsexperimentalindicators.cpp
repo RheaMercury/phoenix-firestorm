@@ -231,6 +231,8 @@ namespace
         { "FSRenderExposureLogMetering", CL, VM },
         { "FSRenderDeband", CL, VM },
         { "FSRenderDebandStrength", CL, VM },
+        { "FSRenderCASAfterAA", CL, VN },
+        { "FSRenderVignetteInTonemap", CS, VN },
 
         // Effects: height fog
         { "FSRenderHeightFog", CL, VL },

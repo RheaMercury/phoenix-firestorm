@@ -38,6 +38,11 @@ uniform sampler2D diffuseRect;
 uniform vec2 out_screen_res;
 uniform uvec4 cas_param_0;
 uniform uvec4 cas_param_1;
+// <FS:Trish> FSRenderCASAfterAA: 1 when diffuseRect holds the display encoded (sRGB) image after
+// anti-aliasing instead of the linear tone mapped one. CAS is made for linear input, so the taps
+// are decoded in CasInput and the result encoded again as before.
+uniform int fs_cas_srgb;
+// </FS:Trish>
 
 vec3 srgb_to_linear(vec3 cs);
 vec3 linear_to_srgb(vec3 cl);
@@ -2068,6 +2073,13 @@ A_STATIC void CasSetup(
  AF3 CasLoad(ASU2 p) { return texelFetch(diffuseRect, clamp(p, ASU2(0), textureSize(diffuseRect, 0) - ASU2(1)), 0).rgb; }
  void CasInput(inout AF1 r,inout AF1 g,inout AF1 b)
  {
+  // <FS:Trish> FSRenderCASAfterAA: back to linear, the space CAS is made for
+  if (fs_cas_srgb != 0)
+  {
+   vec3 c = srgb_to_linear(vec3(r, g, b));
+   r = c.r; g = c.g; b = c.b;
+  }
+  // </FS:Trish>
  }
 
 //------------------------------------------------------------------------------------------------------------------------------
@@ -2571,7 +2583,7 @@ void main()
     diff.rgb = legacyGamma(diff.rgb);
 #endif
 
-    diff.rgb = fsDeband(diff.rgb);
+    diff.rgb = fsDeband(diff.rgb); // <FS:Trish/> 0 amplitude after AA: the tone mapper dithered (LLPipeline::applyCAS)
     frag_color = diff;
 }
 #endif
