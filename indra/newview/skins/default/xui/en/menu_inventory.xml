@@ -741,6 +741,37 @@
          function="Inventory.DoToSelected"
          parameter="copy_uuid" />
     </menu_item_call>
+    <!-- <FS:Trish> FIRE-32653 -->
+    <menu
+     label="Copy Asset UUIDs"
+     layout="topleft"
+     name="Copy Asset UUIDs">
+        <menu_item_call
+         label="One Per Line"
+         layout="topleft"
+         name="Copy Asset UUIDs Lines">
+            <menu_item_call.on_click
+             function="Inventory.DoToSelected"
+             parameter="copy_asset_uuids_lines" />
+        </menu_item_call>
+        <menu_item_call
+         label="Comma Separated"
+         layout="topleft"
+         name="Copy Asset UUIDs CSV">
+            <menu_item_call.on_click
+             function="Inventory.DoToSelected"
+             parameter="copy_asset_uuids_csv" />
+        </menu_item_call>
+        <menu_item_call
+         label="As LSL List"
+         layout="topleft"
+         name="Copy Asset UUIDs LSL">
+            <menu_item_call.on_click
+             function="Inventory.DoToSelected"
+             parameter="copy_asset_uuids_lsl" />
+        </menu_item_call>
+    </menu>
+    <!-- </FS:Trish> -->
     <menu_item_call
      label="Copy UUID"
      layout="topleft"

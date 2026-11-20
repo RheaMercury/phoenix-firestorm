@@ -3852,6 +3852,50 @@ void LLInventoryAction::doToSelected(LLInventoryModel* model, LLFolderView* root
     }
     // </FS:Ansariel>
 
+    // <FS:Trish> FIRE-32653 Copy the asset UUIDs of all selected items
+    static const std::string copy_asset_uuids_string = "copy_asset_uuids_";
+    if (action.compare(0, copy_asset_uuids_string.length(), copy_asset_uuids_string) == 0)
+    {
+        const std::string format = action.substr(copy_asset_uuids_string.length());
+        const std::string separator = (format == "lines") ? "\n" : ", ";
+        const std::string quote = (format == "lsl") ? "\"" : "";
+
+        std::string text;
+        for (LLFolderViewItem* folder_item : root->getSelectedItems())
+        {
+            LLFolderViewModelItemInventory* view_model = folder_item ? dynamic_cast<LLFolderViewModelItemInventory*>(folder_item->getViewModelItem()) : nullptr;
+            LLViewerInventoryItem* item = view_model ? model->getItem(view_model->getUUID()) : nullptr;
+            if (!item || !LLAssetType::lookupIsAssetIDKnowable(item->getType()))
+            {
+                continue;
+            }
+
+            // Only returns the asset UUID if the agent is allowed to see it
+            const LLUUID& asset_id = item->getProtectedAssetUUID();
+            if (asset_id.isNull())
+            {
+                continue;
+            }
+
+            if (!text.empty())
+            {
+                text += separator;
+            }
+            text += quote + asset_id.asString() + quote;
+        }
+
+        if (!text.empty())
+        {
+            if (format == "lsl")
+            {
+                text = "[" + text + "]";
+            }
+            gViewerWindow->getWindow()->copyTextToClipboard(utf8str_to_wstring(text));
+        }
+        return;
+    }
+    // </FS:Trish>
+
     static const std::string change_folder_string = "change_folder_type_";
     if (action.length() > change_folder_string.length() &&
         (action.compare(0,change_folder_string.length(),"change_folder_type_") == 0))

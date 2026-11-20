@@ -1068,7 +1068,15 @@ void LLInvFVBridge::getClipboardEntries(bool show_asset_id,
             }
 
             LLViewerInventoryItem *inv_item = gInventory.getItem(mUUID);
-            if (show_asset_id)
+            // <FS:Trish> FIRE-32653 Copy the asset UUIDs of all selected items
+            //if (show_asset_id)
+            if (show_asset_id && (flags & ITEM_IN_MULTI_SELECTION))
+            {
+                // Items whose asset UUID may not be revealed are skipped when copying
+                items.push_back(std::string("Copy Asset UUIDs"));
+            }
+            else if (show_asset_id)
+            // </FS:Trish>
             {
                 items.push_back(std::string("Copy Asset UUID"));
 
