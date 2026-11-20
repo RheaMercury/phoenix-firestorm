@@ -36,6 +36,7 @@ uniform sampler2D diffuseRect;
 uniform sampler2D emissiveRect;
 uniform sampler2D normalMap;
 uniform float diffuse_luminance_scale;
+uniform float fs_log_luminance; // <FS:Trish/> FSRenderExposureLogMetering: write log2 luminance
 
 float lum(vec3 col)
 {
@@ -63,6 +64,15 @@ void main()
     c += texture(emissiveRect, tc).rgb;
 
     float L = lum(c);
-    frag_color = vec4(max(L, 0.0));
+    // <FS:Trish> max() lets a NaN through and the mips spread it over the whole map, and one
+    // infinite pixel makes the mean infinite: scrub both before the mips are built
+    //frag_color = vec4(max(L, 0.0));
+    L = isnan(L) ? 0.0 : clamp(L, 0.0, 65000.0);
+    if (fs_log_luminance > 0.0)
+    {   // the mips then average log2 luminance (the exposure pass takes exp2 of it)
+        L = log2(max(L, 1e-4));
+    }
+    frag_color = vec4(L);
+    // </FS:Trish>
 }
 

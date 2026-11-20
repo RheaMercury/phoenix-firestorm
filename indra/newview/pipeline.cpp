@@ -9629,7 +9629,11 @@ void LLPipeline::generateLuminance(LLRenderTarget* src, LLRenderTarget* dst)
         channel = gLuminanceProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE);
         if (channel > -1)
         {
-            src->bindTexture(0, channel, LLTexUnit::TFO_POINT);
+            // <FS:Trish> Bilinear: the 256 square map takes one texel per 4 to 8 screen pixels, and
+            // point sampling let a small bright highlight make the exposure flicker as it moved
+            //src->bindTexture(0, channel, LLTexUnit::TFO_POINT);
+            src->bindTexture(0, channel, LLTexUnit::TFO_BILINEAR);
+            // </FS:Trish>
         }
 
         channel = gLuminanceProgram.enableTexture(LLShaderMgr::DEFERRED_EMISSIVE);
@@ -9647,6 +9651,11 @@ void LLPipeline::generateLuminance(LLRenderTarget* src, LLRenderTarget* dst)
 
         static LLStaticHashedString diffuse_luminance_scale_s("diffuse_luminance_scale");
         gLuminanceProgram.uniform1f(diffuse_luminance_scale_s, diffuse_luminance_scale);
+        // <FS:Trish> FSRenderExposureLogMetering: the map holds log2 luminance (see setExposureAdaptation)
+        static LLCachedControl<bool> log_metering(gSavedSettings, "FSRenderExposureLogMetering", false);
+        static LLStaticHashedString s_log_luminance("fs_log_luminance");
+        gLuminanceProgram.uniform1f(s_log_luminance, log_metering ? 1.f : 0.f);
+        // </FS:Trish>
 
         mScreenTriangleVB->setBuffer();
         mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -9725,8 +9734,15 @@ void LLPipeline::generateExposure(LLRenderTarget* src, LLRenderTarget* dst, bool
 
         shader->uniform1f(dt, gFrameIntervalSeconds);
         shader->uniform2f(noiseVec, ll_frand() * 2.0f - 1.0f, ll_frand() * 2.0f - 1.0f);
-        shader->uniform4f(dynamic_exposure_params, dynamic_exposure_coefficient, exp_min, exp_max, dynamic_exposure_speed_error);
-        shader->uniform4f(dynamic_exposure_params2, sky->getHDROffset(should_auto_adjust()), exp_min, exp_max, dynamic_exposure_speed_target);
+        // <FS:Trish> The shader's speed is -log(error) / target: an error of 0 or 1, or a target of 0,
+        // gave an infinite speed, a speed of zero (never adapts) or a division by zero
+        //shader->uniform4f(dynamic_exposure_params, dynamic_exposure_coefficient, exp_min, exp_max, dynamic_exposure_speed_error);
+        //shader->uniform4f(dynamic_exposure_params2, sky->getHDROffset(should_auto_adjust()), exp_min, exp_max, dynamic_exposure_speed_target);
+        shader->uniform4f(dynamic_exposure_params, llmax((F32)dynamic_exposure_coefficient, 1.e-4f), exp_min, exp_max,
+                          llclamp((F32)dynamic_exposure_speed_error, 0.001f, 0.999f));
+        shader->uniform4f(dynamic_exposure_params2, sky->getHDROffset(should_auto_adjust()), exp_min, exp_max,
+                          llmax((F32)dynamic_exposure_speed_target, 0.01f));
+        // </FS:Trish>
 
         mScreenTriangleVB->setBuffer();
         mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -9806,11 +9822,12 @@ void LLPipeline::setExposureAdaptation(LLGLSLShader* shader, F32& exp_min, F32& 
         exp_max = llmin(exp_max, middle * span);
     }
 
+    static LLCachedControl<bool> log_metering(gSavedSettings, "FSRenderExposureLogMetering", false);
     shader->uniform4f(s_fs_exposure_params,
                       llclamp((F32)speed_to_bright, 0.01f, 100.f),
                       llclamp((F32)speed_to_dark, 0.01f, 100.f),
                       llclamp((F32)centre_weight, 0.f, 1.f),
-                      0.f);
+                      log_metering ? 1.f : 0.f); // the luminance map holds log2 luminance (generateLuminance)
 }
 // </FS:Trish>
 
@@ -17723,6 +17740,11 @@ void LLPipeline::renderBloom()
 
         // Down the chain
         gFSBloomDownProgram.bind();
+        // <FS:Trish> FSRenderBloomHQFilter: the 13 tap down and 9 tap tent up kernels
+        static LLCachedControl<bool> bloom_hq(gSavedSettings, "FSRenderBloomHQFilter", true);
+        static LLStaticHashedString s_bloom_hq("fs_bloom_hq");
+        gFSBloomDownProgram.uniform1i(s_bloom_hq, bloom_hq ? 1 : 0);
+        // </FS:Trish>
         for (U32 i = 1; i < count; ++i)
         {
             LLRenderTarget& src = mBloomLevels[i - 1];
@@ -17780,6 +17802,11 @@ void LLPipeline::renderBloom()
         LLGLEnable blend(GL_BLEND);
         gGL.setSceneBlendType(LLRender::BT_ADD);
         gFSBloomUpProgram.bind();
+        // <FS:Trish> FSRenderBloomHQFilter
+        static LLCachedControl<bool> bloom_hq_up(gSavedSettings, "FSRenderBloomHQFilter", true);
+        static LLStaticHashedString s_bloom_hq_up("fs_bloom_hq");
+        gFSBloomUpProgram.uniform1i(s_bloom_hq_up, bloom_hq_up ? 1 : 0);
+        // </FS:Trish>
         for (S32 i = (S32)count - 1; i > 0; --i)
         {
             LLRenderTarget& src = mBloomLevels[i];

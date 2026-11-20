@@ -154,6 +154,7 @@ namespace
         { "FSRenderBloomThreshold", CL, VM },
         { "FSRenderBloomKnee", CL, VM },
         { "FSRenderBloomLevels", CL, VM },
+        { "FSRenderBloomHQFilter", CL, VN },
         { "FSColorGrade", CL, VL },
         { "FSColorGradeTemperature", CL, VM },
         { "FSColorGradeTint", CL, VM },
@@ -227,6 +228,7 @@ namespace
         { "FSRenderExposureSpeedToDark", CL, VM },
         { "FSRenderExposureCenterWeight", CL, VM },
         { "FSRenderExposureRangeLimit", CL, VM },
+        { "FSRenderExposureLogMetering", CL, VM },
         { "FSRenderDeband", CL, VM },
         { "FSRenderDebandStrength", CL, VM },
 

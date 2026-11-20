@@ -28428,6 +28428,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.0</real>
     </map>
+    <key>FSRenderExposureLogMetering</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Auto exposure: meter the geometric (log2) average of the scene brightness instead of the plain average, so a small very bright area (sun, lamp, emissive sign) no longer darkens the whole picture. Brightens scenes with strong highlights. Applies live.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfTextureUploadPBO</key>
     <map>
       <key>Comment</key>
@@ -30570,6 +30581,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <string>S32</string>
       <key>Value</key>
       <integer>6</integer>
+    </map>
+    <key>FSRenderBloomHQFilter</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Bloom: blur with the 13 tap downsample and 9 tap tent upsample kernels (Jimenez 2014) instead of the 5 tap and ring ones. Stops thin bright edges from pulsing as the camera moves; about the same bloom size. Applies live.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
     </map>
     <key>FSColorGrade</key>
     <map>
