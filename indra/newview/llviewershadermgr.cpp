@@ -3064,25 +3064,28 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
     }
 
-    if (success)
-    {
-        gDeferredAvatarEyesProgram.mName = "Deferred Avatar Eyes Shader";
-        gDeferredAvatarEyesProgram.mFeatures.calculatesAtmospherics = true;
-        gDeferredAvatarEyesProgram.mFeatures.hasGamma = true;
-        gDeferredAvatarEyesProgram.mFeatures.hasAtmospherics = true;
-        gDeferredAvatarEyesProgram.mFeatures.hasSrgb = true;
-        gDeferredAvatarEyesProgram.mFeatures.hasShadows = true;
-
-        gDeferredAvatarEyesProgram.mShaderFiles.clear();
-        gDeferredAvatarEyesProgram.mShaderFiles.push_back(make_pair("deferred/avatarEyesV.glsl", GL_VERTEX_SHADER));
-        gDeferredAvatarEyesProgram.mShaderFiles.push_back(make_pair("deferred/diffuseF.glsl", GL_FRAGMENT_SHADER));
-        gDeferredAvatarEyesProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
-
-        add_common_permutations(&gDeferredAvatarEyesProgram);
-
-        success = gDeferredAvatarEyesProgram.createShader();
-        llassert(success);
-    }
+    // <FS:Trish> Never bound: nothing outside this file uses gDeferredAvatarEyesProgram (avatar eyes
+    // draw with the avatar programs). Not compiled, which shortens every shader reload.
+    //if (success)
+    //{
+    //    gDeferredAvatarEyesProgram.mName = "Deferred Avatar Eyes Shader";
+    //    gDeferredAvatarEyesProgram.mFeatures.calculatesAtmospherics = true;
+    //    gDeferredAvatarEyesProgram.mFeatures.hasGamma = true;
+    //    gDeferredAvatarEyesProgram.mFeatures.hasAtmospherics = true;
+    //    gDeferredAvatarEyesProgram.mFeatures.hasSrgb = true;
+    //    gDeferredAvatarEyesProgram.mFeatures.hasShadows = true;
+    //
+    //    gDeferredAvatarEyesProgram.mShaderFiles.clear();
+    //    gDeferredAvatarEyesProgram.mShaderFiles.push_back(make_pair("deferred/avatarEyesV.glsl", GL_VERTEX_SHADER));
+    //    gDeferredAvatarEyesProgram.mShaderFiles.push_back(make_pair("deferred/diffuseF.glsl", GL_FRAGMENT_SHADER));
+    //    gDeferredAvatarEyesProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+    //
+    //    add_common_permutations(&gDeferredAvatarEyesProgram);
+    //
+    //    success = gDeferredAvatarEyesProgram.createShader();
+    //    llassert(success);
+    //}
+    // </FS:Trish>
 
     if (success)
     {
@@ -4521,16 +4524,19 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         success = gDeferredGenBrdfLutProgram.createShader();
     }
 
-    if (success) {
-        gPostScreenSpaceReflectionProgram.mName = "Screen Space Reflection Post";
-        gPostScreenSpaceReflectionProgram.mShaderFiles.clear();
-        gPostScreenSpaceReflectionProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflPostV.glsl", GL_VERTEX_SHADER));
-        gPostScreenSpaceReflectionProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflPostF.glsl", GL_FRAGMENT_SHADER));
-        gPostScreenSpaceReflectionProgram.mFeatures.hasScreenSpaceReflections = true;
-        gPostScreenSpaceReflectionProgram.mFeatures.isDeferred                = true;
-        gPostScreenSpaceReflectionProgram.mShaderLevel = 3;
-        success = gPostScreenSpaceReflectionProgram.createShader();
-    }
+    // <FS:Trish> Never bound anywhere (screen-space reflections are traced in the lighting passes),
+    // and its maths is stale. Not compiled, which shortens every shader reload.
+    //if (success) {
+    //    gPostScreenSpaceReflectionProgram.mName = "Screen Space Reflection Post";
+    //    gPostScreenSpaceReflectionProgram.mShaderFiles.clear();
+    //    gPostScreenSpaceReflectionProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflPostV.glsl", GL_VERTEX_SHADER));
+    //    gPostScreenSpaceReflectionProgram.mShaderFiles.push_back(make_pair("deferred/screenSpaceReflPostF.glsl", GL_FRAGMENT_SHADER));
+    //    gPostScreenSpaceReflectionProgram.mFeatures.hasScreenSpaceReflections = true;
+    //    gPostScreenSpaceReflectionProgram.mFeatures.isDeferred                = true;
+    //    gPostScreenSpaceReflectionProgram.mShaderLevel = 3;
+    //    success = gPostScreenSpaceReflectionProgram.createShader();
+    //}
+    // </FS:Trish>
 
     // <FS:Trish> SSR hi-Z pyramid programs; optional, failure keeps the classic march
     if (success)

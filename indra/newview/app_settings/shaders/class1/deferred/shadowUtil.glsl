@@ -131,14 +131,34 @@ float pcfShadow(sampler2DShadow shadowMap, vec3 norm, vec4 stc, float bias_mul, 
 #endif
 }
 
+// <FS:Trish> A projector lights nothing outside its frustum, and its map holds nothing there: the
+// clamped edge texels the taps read were meaningless. Both projector slots are looked up for
+// every pixel in the shadow range, so most pixels leave here before any tap.
+bool fsOutsideSpotMap(vec4 stc)
+{
+    if (stc.w <= 0.0)
+    {
+        return true; // behind the projector
+    }
+    vec2 uv = stc.xy / stc.w;
+    return any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)));
+}
+// </FS:Trish>
+
 // pos_screen: window position in pixels (gl_FragCoord.xy), it picks the per-row jitter // <FS:Trish/>
 float pcfSpotShadow(sampler2DShadow shadowMap, vec4 stc, float bias_scale, vec2 pos_screen)
 {
 #if defined(SPOT_SHADOW)
-    if (stc.w <= 0.0)
+    // <FS:Trish> Outside the projector's map, see fsOutsideSpotMap
+    //if (stc.w <= 0.0)
+    //{
+    //    return 1.0; // behind the projector: the divide would mirror the map
+    //}
+    if (fsOutsideSpotMap(stc))
     {
-        return 1.0; // behind the projector: the divide would mirror the map
+        return 1.0;
     }
+    // </FS:Trish>
     stc.xyz /= stc.w;
     stc.z += spot_shadow_bias * bias_scale;
     if (cube_snapshot != 0)
@@ -296,6 +316,7 @@ uniform sampler2D shadowDepth1;
 #if defined(SPOT_SHADOW)
 uniform sampler2D shadowDepth4;
 uniform sampler2D shadowDepth5;
+uniform vec3 fs_spot_shadow_eye[2]; // <FS:Trish/> the two projectors' positions, view space (LLPipeline::bindDeferredShader)
 #endif
 
 #define PCSS_BLOCKER_DIST0     4.0   // metres: farthest blocker that softens cascade 0
@@ -462,12 +483,22 @@ vec3 pcssProjectorEye(mat4 m)
 // Spot shadow with contact hardening, the textbook perspective form: an emitter of width
 // PCSS_SPOT_LIGHT_SIZE at the projector, blockers at linear distance d_b, receiver at d_r:
 // penumbra (full width, metres on the receiver) = PCSS_SPOT_LIGHT_SIZE * (d_r - d_b) / d_b.
-float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float bias_scale)
+// <FS:Trish> eye: the projector's position in view space (pcssProjectorEye of m), from the CPU,
+// which knows it: a 3 x 3 inverse per pixel per projector before
+//float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float bias_scale)
+float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float bias_scale, vec3 eye)
+// </FS:Trish>
 {
-    if (stc.w <= 0.0)
+    // <FS:Trish> Outside the projector's map, see fsOutsideSpotMap
+    //if (stc.w <= 0.0)
+    //{
+    //    return 1.0; // behind the projector: the divide would mirror the map, clamp(d_b) inverts
+    //}
+    if (fsOutsideSpotMap(stc))
     {
-        return 1.0; // behind the projector: the divide would mirror the map, clamp(d_b) inverts
+        return 1.0;
     }
+    // </FS:Trish>
     vec3 c = stc.xyz / stc.w;
     float d_r = stc.w;                       // linear distance along the projector's axis
     vec2 grad = abs(pcssDepthGradient(m, pos, norm, c));
@@ -476,7 +507,7 @@ float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 
     float r_max = PCSS_PCF_RADIUS_MAX * pcssResScale(proj_shadow_res);
     vec2 rot = pcssRotation();
 
-    vec3 eye = pcssProjectorEye(m);
+    //vec3 eye = pcssProjectorEye(m); // <FS:Trish/> a parameter now
     vec2 s_uv = pcssUVScale(m, pos, c, normalize(eye - pos));
     // texture z (before the divide) at the projector itself: linearises a raw depth below
     float z_eye = m[0][2] * eye.x + m[1][2] * eye.y + m[2][2] * eye.z + m[3][2];
@@ -514,6 +545,12 @@ float pcssShadow(sampler2DShadow shadowMap, int index, vec4 stc, vec3 pos, vec3 
 // spot shadow index (4-5): the constant bias as pcfSpotShadow applies it
 float pcssSpotShadow(sampler2DShadow shadowMap, int index, vec4 stc, vec3 pos, vec3 norm, float bias_scale)
 {
+    // <FS:Trish> Outside the projector's map, see fsOutsideSpotMap
+    if (fsOutsideSpotMap(stc))
+    {
+        return 1.0;
+    }
+    // </FS:Trish>
     return pcssPoissonPCF(shadowMap, shadow_matrix[index], stc, pos, norm, spot_shadow_bias * bias_scale, proj_shadow_res);
 }
 // </Vulkanstorm>
@@ -570,16 +607,22 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             float w = 1.0;
             w -= FS_CASCADE_FADE_IN(max(spos.z-far_split.z, 0.0)/transition_domain.z);
             //w = clamp(w, 0.0, 1.0);
-#if defined(PCSS_SHADOW)
-            float contrib = pcssShadow(shadowMap3, 3, lpos, spos.xyz, norm)*w;
-#else
-            float contrib = pcfShadow(shadowMap3, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[3], spos.xyz)*w;
-#endif
-            //if (contrib > 0)
+            // <FS:Trish> Under the cascade dither one of the two overlapping cascades weighs exactly 0:
+            // skip its lookup (up to 25 taps) instead of multiplying it by 0. The same sum.
+            if (w != 0.0)
             {
-                shadow += contrib;
-                weight += w;
+#if defined(PCSS_SHADOW)
+                float contrib = pcssShadow(shadowMap3, 3, lpos, spos.xyz, norm)*w;
+#else
+                float contrib = pcfShadow(shadowMap3, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[3], spos.xyz)*w;
+#endif
+                //if (contrib > 0)
+                {
+                    shadow += contrib;
+                    weight += w;
+                }
             }
+            // </FS:Trish>
 #if !defined(FS_SHADOW_EDGE_FADE)
             // <FS:Trish> FSRenderShadowFitDepth
             //shadow += max((pos.z+shadow_clip.z)/(shadow_clip.z-shadow_clip.w)*2.0-1.0, 0.0);
@@ -599,16 +642,22 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             w -= FS_CASCADE_FADE_IN(max(spos.z-far_split.y, 0.0)/transition_domain.y);
             w -= FS_CASCADE_FADE_OUT(max(near_split.z-spos.z, 0.0)/transition_domain.z);
             //w = clamp(w, 0.0, 1.0);
-#if defined(PCSS_SHADOW)
-            float contrib = pcssShadow(shadowMap2, 2, lpos, spos.xyz, norm)*w;
-#else
-            float contrib = pcfShadow(shadowMap2, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[2], spos.xyz)*w;
-#endif
-            //if (contrib > 0)
+            // <FS:Trish> Under the cascade dither one of the two overlapping cascades weighs exactly 0:
+            // skip its lookup (up to 25 taps) instead of multiplying it by 0. The same sum.
+            if (w != 0.0)
             {
-                shadow += contrib;
-                weight += w;
+#if defined(PCSS_SHADOW)
+                float contrib = pcssShadow(shadowMap2, 2, lpos, spos.xyz, norm)*w;
+#else
+                float contrib = pcfShadow(shadowMap2, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[2], spos.xyz)*w;
+#endif
+                //if (contrib > 0)
+                {
+                    shadow += contrib;
+                    weight += w;
+                }
             }
+            // </FS:Trish>
         }
 
         if (spos.z < near_split.x && spos.z > far_split.y)
@@ -619,21 +668,27 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             w -= FS_CASCADE_FADE_IN(max(spos.z-far_split.x, 0.0)/transition_domain.x);
             w -= FS_CASCADE_FADE_OUT(max(near_split.y-spos.z, 0.0)/transition_domain.y);
             //w = clamp(w, 0.0, 1.0);
+            // <FS:Trish> Under the cascade dither one of the two overlapping cascades weighs exactly 0:
+            // skip its lookup (up to 25 taps) instead of multiplying it by 0. The same sum.
+            if (w != 0.0)
+            {
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-            float contrib = pcssSunContactShadow(shadowMap1, shadowDepth1, shadow_matrix[1], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST1)*w;
+                float contrib = pcssSunContactShadow(shadowMap1, shadowDepth1, shadow_matrix[1], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST1)*w;
 #if defined(FS_SHADOW_SCREEN_FILTER)
-            fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
+                fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
 #endif
 #elif defined(PCSS_SHADOW)
-            float contrib = pcssShadow(shadowMap1, 1, lpos, spos.xyz, norm)*w;
+                float contrib = pcssShadow(shadowMap1, 1, lpos, spos.xyz, norm)*w;
 #else
-            float contrib = pcfShadow(shadowMap1, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[1], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap1, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[1], spos.xyz)*w;
 #endif
-            //if (contrib > 0)
-            {
-                shadow += contrib;
-                weight += w;
+                //if (contrib > 0)
+                {
+                    shadow += contrib;
+                    weight += w;
+                }
             }
+            // </FS:Trish>
         }
 
         if (spos.z > far_split.x)
@@ -643,21 +698,27 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             float w = 1.0;
             w -= FS_CASCADE_FADE_OUT(max(near_split.x-spos.z, 0.0)/transition_domain.x);
             //w = clamp(w, 0.0, 1.0);
+            // <FS:Trish> Under the cascade dither one of the two overlapping cascades weighs exactly 0:
+            // skip its lookup (up to 25 taps) instead of multiplying it by 0. The same sum.
+            if (w != 0.0)
+            {
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-            float contrib = pcssSunContactShadow(shadowMap0, shadowDepth0, shadow_matrix[0], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST0)*w;
+                float contrib = pcssSunContactShadow(shadowMap0, shadowDepth0, shadow_matrix[0], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST0)*w;
 #if defined(FS_SHADOW_SCREEN_FILTER)
-            fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
+                fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
 #endif
 #elif defined(PCSS_SHADOW)
-            float contrib = pcssShadow(shadowMap0, 0, lpos, spos.xyz, norm)*w;
+                float contrib = pcssShadow(shadowMap0, 0, lpos, spos.xyz, norm)*w;
 #else
-            float contrib = pcfShadow(shadowMap0, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[0], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap0, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[0], spos.xyz)*w;
 #endif
-            //if (contrib > 0)
-            {
-                shadow += contrib;
-                weight += w;
+                //if (contrib > 0)
+                {
+                    shadow += contrib;
+                    weight += w;
+                }
             }
+            // </FS:Trish>
         }
 
         shadow /= weight;
@@ -770,7 +831,10 @@ float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen)
     {
         lpos = shadow_matrix[4]*spos;
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-        shadow = pcssSpotContactShadow(shadowMap4, shadowDepth4, shadow_matrix[4], lpos, spos.xyz, norm, 0.8);
+        // <FS:Trish> The projector's position from a uniform
+        //shadow = pcssSpotContactShadow(shadowMap4, shadowDepth4, shadow_matrix[4], lpos, spos.xyz, norm, 0.8);
+        shadow = pcssSpotContactShadow(shadowMap4, shadowDepth4, shadow_matrix[4], lpos, spos.xyz, norm, 0.8, fs_spot_shadow_eye[0]);
+        // </FS:Trish>
 #elif defined(PCSS_SHADOW)
         shadow = pcssSpotShadow(shadowMap4, 4, lpos, spos.xyz, norm, 0.8);
 #else
@@ -785,7 +849,10 @@ float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen)
     {
         lpos = shadow_matrix[5]*spos;
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-        shadow = pcssSpotContactShadow(shadowMap5, shadowDepth5, shadow_matrix[5], lpos, spos.xyz, norm, 0.8);
+        // <FS:Trish> The projector's position from a uniform
+        //shadow = pcssSpotContactShadow(shadowMap5, shadowDepth5, shadow_matrix[5], lpos, spos.xyz, norm, 0.8);
+        shadow = pcssSpotContactShadow(shadowMap5, shadowDepth5, shadow_matrix[5], lpos, spos.xyz, norm, 0.8, fs_spot_shadow_eye[1]);
+        // </FS:Trish>
 #elif defined(PCSS_SHADOW)
         shadow = pcssSpotShadow(shadowMap5, 5, lpos, spos.xyz, norm, 0.8);
 #else

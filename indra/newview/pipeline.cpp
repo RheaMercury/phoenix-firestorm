@@ -11460,6 +11460,20 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
 }
 // </FS:Trish>
 
+// <FS:Trish> A projective shadow matrix's centre of projection, in the space it maps from (view
+// space): the point it sends to x = y = w = 0, inverse(m) * (0, 0, 1, 0) divided by its w. What
+// shadowUtil.glsl's pcssProjectorEye computed per pixel.
+static LLVector3 fs_shadow_matrix_eye(const glm::mat4& m)
+{
+    const glm::vec4 p = glm::inverse(m) * glm::vec4(0.f, 0.f, 1.f, 0.f);
+    if (fabsf(p.w) < 1.e-12f)
+    {
+        return LLVector3::zero; // not a perspective matrix (an unused slot)
+    }
+    return LLVector3(p.x / p.w, p.y / p.w, p.z / p.w);
+}
+// </FS:Trish>
+
 void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_target, LLRenderTarget* depth_target)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
@@ -11575,6 +11589,15 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
     }
 
     shader.uniformMatrix4fv(LLShaderMgr::DEFERRED_SHADOW_MATRIX, 6, false, mat);
+
+    // <FS:Trish> The two shadowed projectors' positions in view space, for the PCSS spot filter
+    // (shadowUtil.glsl), which used to invert a 3 x 3 matrix per pixel to find them
+    {
+        static LLStaticHashedString s_spot_eye("fs_spot_shadow_eye");
+        const LLVector3 eye[2] = { fs_shadow_matrix_eye(mSunShadowMatrix[4]), fs_shadow_matrix_eye(mSunShadowMatrix[5]) };
+        shader.uniform3fv(s_spot_eye, 2, eye[0].mV);
+    }
+    // </FS:Trish>
 
     stop_glerror();
 
@@ -16358,6 +16381,9 @@ bool LLPipeline::fsBindExtraSpotShadow(LLGLSLShader& shader, U32 slot)
         gGL.getTexUnit(mFSSpotDepthUnit)->bind(&mSpotShadow[slot], true);
     }
     shader.uniformMatrix4fv(s_spot_shadow_matrix, 1, GL_FALSE, glm::value_ptr(mFSSpotShadowMatrix[slot]));
+    static LLStaticHashedString s_spot_eye("fs_spot_shadow_eye_extra");
+    const LLVector3 eye = fs_shadow_matrix_eye(mFSSpotShadowMatrix[slot]);
+    shader.uniform3fv(s_spot_eye, 1, eye.mV);
     return true;
 }
 

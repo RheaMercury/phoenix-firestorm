@@ -186,6 +186,7 @@ void main()
 {
     //this is the one of the rare spots where diffuseRect contains linear color values (not sRGB)
     vec4 diff = texture(diffuseRect, vary_fragcoord);
+    bool fs_display_encoded = false; // <FS:Trish/> diff.rgb already sRGB encoded (the grading below)
 
 #ifndef NO_POST
     if (bloom_strength > 0.0)
@@ -226,14 +227,29 @@ void main()
 
     if (grade_enabled != 0)
     {
+        // <FS:Trish> The gamma corrected programs encode to sRGB just below: stay encoded instead of
+        // decoding and encoding again (six pow per pixel)
+        //diff.rgb = srgb_to_linear(gradeDisplay(linear_to_srgb(diff.rgb)));
+#ifdef GAMMA_CORRECT
+        diff.rgb = gradeDisplay(linear_to_srgb(diff.rgb));
+        fs_display_encoded = true;
+#else
         diff.rgb = srgb_to_linear(gradeDisplay(linear_to_srgb(diff.rgb)));
+#endif
+        // </FS:Trish>
     }
 #else
     diff.rgb = clamp(diff.rgb, vec3(0.0), vec3(1.0));
 #endif
 
 #ifdef GAMMA_CORRECT
-    diff.rgb = linear_to_srgb(diff.rgb);
+    // <FS:Trish> Unless the grading left it encoded
+    //diff.rgb = linear_to_srgb(diff.rgb);
+    if (!fs_display_encoded)
+    {
+        diff.rgb = linear_to_srgb(diff.rgb);
+    }
+    // </FS:Trish>
 
 #ifdef LEGACY_GAMMA
     diff.rgb = legacyGamma(diff.rgb);

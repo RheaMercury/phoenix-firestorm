@@ -35,6 +35,7 @@ uniform float spot_shadow_offset;
 uniform float spot_shadow_reach;        // metres: projector shadows fade out towards this camera distance
 
 float pcfSpotShadow(sampler2DShadow shadowMap, vec4 stc, float bias_scale, vec2 pos_screen);
+bool fsOutsideSpotMap(vec4 stc); // shadowUtil.glsl: behind the projector or outside its map
 
 // PCSS (RenderShadowPCSS): the program also gets PCSS_SHADOW, which links the PCSS build of
 // shadowUtil.glsl, and on GL 3.3 FS_SPOT_PCSS_FETCH, which matches that build's
@@ -47,7 +48,8 @@ uniform vec2 proj_shadow_res;
 float pcssPoissonPCF(sampler2DShadow shadowMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float z_bias, vec2 res);
 #if defined(FS_SPOT_PCSS_FETCH)
 uniform sampler2D fs_spot_shadow_depth;
-float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float bias_scale);
+uniform vec3 fs_spot_shadow_eye_extra; // this light's position, view space (LLPipeline::fsBindExtraSpotShadow)
+float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, float bias_scale, vec3 eye);
 #endif
 #endif
 
@@ -66,12 +68,12 @@ float fsSampleSpotShadowExtra(vec3 pos, vec3 norm)
     }
 
     vec4 lpos = fs_spot_shadow_matrix * vec4(pos, 1.0);
-    if (lpos.w <= 0.0)
+    if (fsOutsideSpotMap(lpos))
     {
-        return 1.0; // behind the projector: the divide would mirror the map
+        return 1.0; // behind the projector (the divide would mirror the map) or outside its map
     }
 #if defined(PCSS_SHADOW) && defined(FS_SPOT_PCSS_FETCH)
-    float shadow = pcssSpotContactShadow(fs_spot_shadow_map, fs_spot_shadow_depth, fs_spot_shadow_matrix, lpos, pos, norm, 0.8);
+    float shadow = pcssSpotContactShadow(fs_spot_shadow_map, fs_spot_shadow_depth, fs_spot_shadow_matrix, lpos, pos, norm, 0.8, fs_spot_shadow_eye_extra);
 #elif defined(PCSS_SHADOW)
     float shadow = pcssPoissonPCF(fs_spot_shadow_map, fs_spot_shadow_matrix, lpos, pos, norm, spot_shadow_bias * 0.8, proj_shadow_res);
 #else

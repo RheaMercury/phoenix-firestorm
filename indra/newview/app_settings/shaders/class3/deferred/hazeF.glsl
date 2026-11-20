@@ -40,6 +40,7 @@ void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, ou
 // </FS:Trish>
 
 float getDepth(vec2 pos_screen);
+void calcAtmosphericVars(vec3 inPositionEye, vec3 light_dir, float ambFactor, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten); // <FS:Trish/>
 
 vec3 linear_to_srgb(vec3 c);
 vec3 srgb_to_linear(vec3 c);
@@ -59,7 +60,7 @@ void main()
     vec2  tc           = vary_fragcoord.xy;
     float depth        = getDepth(tc.xy);
     vec4  pos          = getPositionWithDepth(tc, depth);
-    vec4  norm         = getNorm(tc);
+    //vec4  norm         = getNorm(tc); // <FS:Trish/> only the dead ambient term used it, see below
     vec3  light_dir   = (sun_up_factor == 1) ? sun_dir : moon_dir;
 
     vec3  color = vec3(0);
@@ -70,7 +71,12 @@ void main()
     vec3 additive;
     vec3 atten;
 
-    calcAtmosphericVarsLinear(pos.xyz, norm.xyz, light_dir, sunlit, amblit, additive, atten);
+    // <FS:Trish> This pass needs additive and atten alone, which the linear variant passes through
+    // unchanged; its normal (a G-buffer fetch and decode) and the linear ambient and sunlight were
+    // thrown away. The same values without them. (Compilers may drop the dead part already.)
+    //calcAtmosphericVarsLinear(pos.xyz, norm.xyz, light_dir, sunlit, amblit, additive, atten);
+    calcAtmosphericVars(pos.xyz, light_dir, 1.0, sunlit, amblit, additive, atten);
+    // </FS:Trish>
 
     // mask off atmospherics below water (when camera is under water)
     bool do_atmospherics = false;
