@@ -3197,10 +3197,7 @@ bool LLTextureFetch::isTransientFetchFailure(S32 worker_state, const LLCore::Htt
 
 std::string LLTextureFetch::getStateString(S32 state)
 {
-    // <FS:Trish> Off by one, state == array size read past the end
-    //if (state < 0 || state > sizeof(e_state_name) / sizeof(char*))
     if (state < 0 || (size_t)state >= sizeof(e_state_name) / sizeof(char*))
-    // </FS:Trish>
     {
         return llformat("%d", state);
     }

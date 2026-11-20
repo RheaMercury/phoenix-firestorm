@@ -1763,8 +1763,7 @@ void FSChatHistory::appendMessage(const LLChat& chat, const LLSD &args, const LL
     }
     //</FS:HG> FS-1734 seperate name and text styles for moderator
 
-    //bool prependNewLineState = getText().size() != 0;
-    bool prependNewLineState = getLength() != 0; // getText() converted the whole history to UTF-8 for every message (LL's 722cae5)
+    bool prependNewLineState = !isEmpty();
 
     // compact mode: show a timestamp and name
     if (use_plain_text_chat_history)

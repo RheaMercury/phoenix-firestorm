@@ -8178,12 +8178,11 @@ void LLPipeline::setupHWLights()
         return;
     }
 
-    // <FS:Trish> setupHWLights runs several times a frame (deferred, post deferred, lighting, probe passes);
-    // the light fades must only move forward on the first call of each frame
+    // This runs several times a frame (deferred, post deferred, lighting and probe passes),
+    // so only the first call of a frame moves the light fades forward
     static U32 last_fade_frame = 0;
-    const bool advance_fade = (last_fade_frame != LLFrameTimer::getFrameCount());
-    last_fade_frame = LLFrameTimer::getFrameCount();
-    // </FS:Trish>
+    const F32 fade_step = last_fade_frame != gFrameCount ? gFrameIntervalSeconds.value() : 0.f;
+    last_fade_frame = gFrameCount;
 
     F32 light_scale = 1.f;
 
@@ -8304,24 +8303,12 @@ void LLPipeline::setupHWLights()
                 if (fade >= 0.f)
                 {
                     fade = fade / LIGHT_FADE_TIME;
-                    // <FS:Trish> Advance the fade once per frame, not once per call
-                    //((Light*) (&(*iter)))->fade += gFrameIntervalSeconds.value();
-                    if (advance_fade)
-                    {
-                        ((Light*) (&(*iter)))->fade += gFrameIntervalSeconds.value();
-                    }
-                    // </FS:Trish>
+                    ((Light*) (&(*iter)))->fade += fade_step;
                 }
                 else
                 {
                     fade = 1.f + fade / LIGHT_FADE_TIME;
-                    // <FS:Trish> Advance the fade once per frame, not once per call
-                    //((Light*) (&(*iter)))->fade -= gFrameIntervalSeconds.value();
-                    if (advance_fade)
-                    {
-                        ((Light*) (&(*iter)))->fade -= gFrameIntervalSeconds.value();
-                    }
-                    // </FS:Trish>
+                    ((Light*) (&(*iter)))->fade -= fade_step;
                 }
                 fade = llclamp(fade,0.f,1.f);
                 light_color *= fade;
