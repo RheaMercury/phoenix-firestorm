@@ -124,7 +124,10 @@ void main()
     light_atten = (blue_density + vec3(haze_density * 0.25)) * (density_multiplier * max_y);
 
     // Calculate relative weights
-    vec3 combined_haze = abs(blue_density) + vec3(abs(haze_density));
+    // <FS:Trish> Floored as skyF.glsl does: a sky with both densities at 0 made 0/0, a NaN cloud colour
+    //vec3 combined_haze = abs(blue_density) + vec3(abs(haze_density));
+    vec3 combined_haze = max(abs(blue_density) + vec3(abs(haze_density)), vec3(1e-6));
+    // </FS:Trish>
     vec3 blue_weight   = blue_density / combined_haze;
     vec3 haze_weight   = haze_density / combined_haze;
 

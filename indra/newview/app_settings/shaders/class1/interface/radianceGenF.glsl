@@ -134,7 +134,14 @@ vec4 prefilterEnvMap(vec3 R)
     float totalWeight = 0.0;
     float envMapDim = float(textureSize(reflectionProbes, 0).s);
     float roughness = mipLevel/max_probe_lod;
-    uint numSamples = uint(max(PROBE_FILTER_SAMPLES*roughness*exp2(sample_scale_log2), 1));
+    // <FS:Trish> At least 16 samples (or the full budget, if smaller) for every blurred mip: at 128 px
+    // mip 1 (roughness 0.17) got 5, and the PDF mip choice below then read a 16 x 16 source for
+    // it, so glossy materials (roughness 0.1 to 0.3) reflected far blurrier than their roughness
+    //uint numSamples = uint(max(PROBE_FILTER_SAMPLES*roughness*exp2(sample_scale_log2), 1));
+    float fs_budget = PROBE_FILTER_SAMPLES * exp2(sample_scale_log2);
+    float fs_floor = roughness > 0.0 ? min(16.0, fs_budget) : 1.0;
+    uint numSamples = uint(max(max(fs_budget * roughness, 1.0), fs_floor));
+    // </FS:Trish>
 
     float numMips = max_probe_lod+1;
 

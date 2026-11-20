@@ -37,5 +37,9 @@ void main()
 {
     vec3 col = texture(diffuseRect, vary_tc).rgb;
 
-    frag_color = vec4(col.rgb, dot(col.rgb, vec3(0.299, 0.587, 0.144)));
+    // <FS:Trish> Rec. 601 blue is 0.114: 0.144 made the weights sum to 1.03 and overstated blue
+    // in the luma FXAA finds its edges in
+    //frag_color = vec4(col.rgb, dot(col.rgb, vec3(0.299, 0.587, 0.144)));
+    frag_color = vec4(col.rgb, dot(col.rgb, vec3(0.299, 0.587, 0.114)));
+    // </FS:Trish>
 }

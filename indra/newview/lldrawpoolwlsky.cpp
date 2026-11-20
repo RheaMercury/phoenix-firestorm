@@ -296,24 +296,44 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
 
     F32 blend_factor = (F32)LLEnvironment::instance().getCurrentSky()->getBlendFactor();
 
+    // <FS:Trish> Bind the current and next star textures through the program's channels (starsF now reads
+    // altDiffuseMap, and its channel isn't guaranteed to be unit 1); with one texture both get it
+    //if (tex_a && (!tex_b || (tex_a == tex_b)))
+    //{
+    //    // Bind current and next sun textures
+    //    gGL.getTexUnit(0)->bind(tex_a);
+    //    gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    //    blend_factor = 0;
+    //}
+    //else if (tex_b && !tex_a)
+    //{
+    //    gGL.getTexUnit(0)->bind(tex_b);
+    //    gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    //    blend_factor = 0;
+    //}
+    //else if (tex_b != tex_a)
+    //{
+    //    gGL.getTexUnit(0)->bind(tex_a);
+    //    gGL.getTexUnit(1)->bind(tex_b);
+    //}
     if (tex_a && (!tex_b || (tex_a == tex_b)))
     {
-        // Bind current and next sun textures
-        gGL.getTexUnit(0)->bind(tex_a);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::DIFFUSE_MAP, tex_a);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::ALTERNATE_DIFFUSE_MAP, tex_a);
         blend_factor = 0;
     }
     else if (tex_b && !tex_a)
     {
-        gGL.getTexUnit(0)->bind(tex_b);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::DIFFUSE_MAP, tex_b);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::ALTERNATE_DIFFUSE_MAP, tex_b);
         blend_factor = 0;
     }
     else if (tex_b != tex_a)
     {
-        gGL.getTexUnit(0)->bind(tex_a);
-        gGL.getTexUnit(1)->bind(tex_b);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::DIFFUSE_MAP, tex_a);
+        gDeferredStarProgram.bindTexture(LLShaderMgr::ALTERNATE_DIFFUSE_MAP, tex_b);
     }
+    // </FS:Trish>
 
     gGL.pushMatrix();
     gGL.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
@@ -340,8 +360,12 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
 
     gSky.mVOWLSkyp->drawStars();
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    // <FS:Trish> unbound through the channels they were bound to
+    //gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    //gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    gDeferredStarProgram.unbindTexture(LLShaderMgr::DIFFUSE_MAP);
+    gDeferredStarProgram.unbindTexture(LLShaderMgr::ALTERNATE_DIFFUSE_MAP);
+    // </FS:Trish>
 
     gDeferredStarProgram.unbind();
 

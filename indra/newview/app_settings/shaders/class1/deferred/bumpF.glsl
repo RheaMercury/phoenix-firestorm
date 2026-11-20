@@ -92,7 +92,10 @@ void main()
     frag_data[0] = vec4(col.rgb, 0.0);
     frag_data[1] = vec4(vertex_color.aaa, glossiness); // spec
     //frag_data[1] = vec4(vec3(vertex_color.a), vertex_color.a+(1.0-vertex_color.a)*vertex_color.a); // spec - from former class3 - maybe better, but not so well tested
-    frag_data[2] = encodeNormal(nvn, vertex_color.a, GBUFFER_FLAG_HAS_ATMOS);
+    // <FS:Trish> Marked like the other alpha masked writers, so masked shiny-bump leaves are backlit too (FSRenderFoliage)
+    //frag_data[2] = encodeNormal(nvn, vertex_color.a, GBUFFER_FLAG_HAS_ATMOS);
+    frag_data[2] = encodeNormal(nvn, vertex_color.a, FS_MASK_FLAG(GBUFFER_FLAG_HAS_ATMOS, minimum_alpha > 0.0));
+    // </FS:Trish>
 
 #if defined(HAS_EMISSIVE)
     frag_data[3] = vec4(0, 0, 0, 0);

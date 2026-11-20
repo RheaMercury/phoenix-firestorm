@@ -34,7 +34,11 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen);
 #endif
 
 vec3 scaleSoftClipFragLinear(vec3 l);
-void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+// <FS:Trish> The out parameters named in the definition's order (atmosphericsFuncs.glsl): the calls
+// pass them by position, and the swapped names would mislead the next caller
+//void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten);
+// </FS:Trish>
 vec4 applyWaterFogViewLinear(vec3 pos, vec4 color);
 
 void mirrorClip(vec3 pos);
@@ -190,7 +194,7 @@ void main()
     vec3 vB = cross(vN, vT);
 
     vec3 pos = vary_position.xyz;
-    float linear_depth = 1 / -pos.z;
+    //float linear_depth = 1 / -pos.z; // <FS:Trish/> never used
 
     float dist = length(pos.xyz);
 
@@ -284,7 +288,10 @@ void main()
     vec3 amblit;
     vec3 additive;
     vec3 atten;
-    calcAtmosphericVarsLinear(pos.xyz, wavef, vary_light_dir, sunlit, amblit, additive, atten);
+    // <FS:Trish> Called below with the view space normal: wavef is tangent space here, and the
+    // ambient term compared it with the view space light direction
+    //calcAtmosphericVarsLinear(pos.xyz, wavef, vary_light_dir, sunlit, amblit, additive, atten);
+    // </FS:Trish>
 
     calculateFresnelFactors(df3, df2, normalize(view.xyz), wave1, wave2, wave3, wavef);
 
@@ -296,6 +303,7 @@ void main()
     wave_ibl = transform_normal(vN, vT, vB, normalize(wave_ibl));
 
     vec3 norm = transform_normal(vN, vT, vB, normalize(wavef));
+    calcAtmosphericVarsLinear(pos.xyz, norm, vary_light_dir, sunlit, amblit, additive, atten); // <FS:Trish/> see above
 
     vdu = clamp(vdu, 0, 1);
     //wavef.z *= max(vdu*vdu*vdu, 0.1);
@@ -397,8 +405,12 @@ void main()
     }
 #endif
 
-    float spec = min(max(max(punctual.r, punctual.g), punctual.b), 0);
+    // <FS:Trish> min(x, 0) of a non-negative maximum is always 0: the alpha was 0 all along, and is
+    // written as that. (max() may have been meant, for glow, but that would change the look.)
+    //float spec = min(max(max(punctual.r, punctual.g), punctual.b), 0);
 
     // Keep HDR highlights for the exposure/tone-map pass and bound half-float output.
-    frag_color = vec4(clamp(color.rgb, vec3(0), vec3(65504)), clamp(spec * water_mask, 0.0, 1.0));
+    //frag_color = vec4(clamp(color.rgb, vec3(0), vec3(65504)), clamp(spec * water_mask, 0.0, 1.0));
+    frag_color = vec4(clamp(color.rgb, vec3(0), vec3(65504)), 0.0);
+    // </FS:Trish>
 }

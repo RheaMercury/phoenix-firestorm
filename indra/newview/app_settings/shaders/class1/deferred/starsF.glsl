@@ -33,6 +33,7 @@ in vec2 screenpos;
 in float star_elevation;
 
 uniform sampler2D diffuseMap;
+uniform sampler2D altDiffuseMap; // <FS:Trish/> the next sky's stars
 uniform float blend_factor;
 uniform float custom_alpha;
 uniform float time;
@@ -50,9 +51,16 @@ void main()
 {
     // camera above water: class1\deferred\starsF.glsl
     // camera below water: class1\environment\starsF.glsl
+    // <FS:Trish> The second fetch was meant to read the next sky's star texture (a90e61b7987 declared
+    // altDiffuseMap but read diffuseMap twice), so the stars never faded between skies. Current to next,
+    // as sunDiscF does.
+    //vec4 col_a = texture(diffuseMap, vary_texcoord0.xy);
+    //vec4 col_b = texture(diffuseMap, vary_texcoord0.xy);
+    //vec4 col = mix(col_b, col_a, blend_factor);
     vec4 col_a = texture(diffuseMap, vary_texcoord0.xy);
-    vec4 col_b = texture(diffuseMap, vary_texcoord0.xy);
-    vec4 col = mix(col_b, col_a, blend_factor);
+    vec4 col_b = texture(altDiffuseMap, vary_texcoord0.xy);
+    vec4 col = mix(col_a, col_b, blend_factor);
+    // </FS:Trish>
     col.rgb *= vertex_color.rgb;
 
     float factor = smoothstep(0.0f, 0.9f, custom_alpha);

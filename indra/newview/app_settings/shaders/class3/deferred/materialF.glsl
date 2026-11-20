@@ -61,7 +61,11 @@ uniform int classic_mode;
 
 vec4 applySkyAndWaterFog(vec3 pos, vec3 additive, vec3 atten, vec4 color);
 vec3 scaleSoftClipFragLinear(vec3 l);
-void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+// <FS:Trish> The out parameters named in the definition's order (atmosphericsFuncs.glsl): the calls
+// pass them by position, and the swapped names would mislead the next caller
+//void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten);
+// </FS:Trish>
 void calcHalfVectors(vec3 lv, vec3 n, vec3 v, out vec3 h, out vec3 l, out float nh, out float nl, out float nv, out float vh, out float lightDist);
 float blinnPhongLobe(float nh, float glossiness);
 
@@ -144,99 +148,113 @@ uniform vec3 light_diffuse[8];
 float getAmbientClamp();
 void waterClip(vec3 pos);
 
-vec3 calcPointLightOrSpotLight(vec3 light_col, vec3 npos, vec3 diffuse, vec4 spec, vec3 v, vec3 n, vec4 lp, vec3 ln, float la, float fa, float is_pointlight, inout float glare, float ambiance)
-{
-    // SL-14895 inverted attenuation work-around
-    // This routine is tweaked to match deferred lighting, but previously used an inverted la value. To reconstruct
-    // that previous value now that the inversion is corrected, we reverse the calculations in LLPipeline::setupHWLights()
-    // to recover the `adjusted_radius` value previously being sent as la.
-    float falloff_factor = (12.0 * fa) - 9.0;
-    float inverted_la = falloff_factor / la;
-    // Yes, it makes me want to cry as well. DJH
-
-    vec3 col = vec3(0);
-
-    //get light vector
-    vec3 lv = lp.xyz - v;
-
-    //get distance
-    float dist = length(lv);
-    float da = 1.0;
-
-    dist /= inverted_la;
-
-    if (dist > 0.0 && inverted_la > 0.0)
-    {
-        //normalize light vector
-        lv = normalize(lv);
-
-        //distance attenuation
-        float dist_atten = clamp(1.0 - (dist - 1.0*(1.0 - fa)) / fa, 0.0, 1.0);
-        dist_atten *= dist_atten;
-        dist_atten *= 2.0f;
-
-        if (dist_atten <= 0.0)
-        {
-            return col;
-        }
-
-        // spotlight coefficient.
-        float spot = max(dot(-ln, lv), is_pointlight);
-        da *= spot*spot; // GL_SPOT_EXPONENT=2
-
-        //angular attenuation
-        da *= dot(n, lv);
-
-        float lit = 0.0f;
-
-        float amb_da = ambiance;
-        if (da >= 0)
-        {
-            lit = clamp(da * dist_atten, 0.0, 1.0);
-            col = lit * light_col * diffuse;
-            amb_da += (da*0.5 + 0.5) * ambiance;
-        }
-        amb_da += (da*da*0.5 + 0.5) * ambiance;
-        amb_da *= dist_atten;
-        amb_da = min(amb_da, 1.0f - lit);
-
-        // SL-10969 need to see why these are blown out
-        //col.rgb += amb_da * light_col * diffuse;
-
-        if (spec.a > 0.0)
-        {
-            //vec3 ref = dot(pos+lv, norm);
-            vec3 h = normalize(lv + npos);
-            float nh = dot(n, h);
-            float nv = dot(n, npos);
-            float vh = dot(npos, h);
-            float sa = nh;
-            float f = 1 - dot(h, npos);
-            float f2 = f * f;
-            float fres = (f2 * f2 * f) * 0.4 + 0.5;
-
-            float gtdenom = 2 * nh;
-            float gt = max(0, min(gtdenom * nv / vh, gtdenom * da / vh));
-
-            if (nh > 0.0)
-            {
-                float scol = fres*blinnPhongLobe(nh, spec.a)*gt / (nh*max(da, 1e-6));
-                vec3 speccol = lit*scol*light_col.rgb*spec.rgb;
-                speccol = clamp(speccol, vec3(0), vec3(1));
-                col += speccol;
-
-                float cur_glare = max(speccol.r, speccol.g);
-                cur_glare = max(cur_glare, speccol.b);
-                glare = max(glare, speccol.r);
-                glare += max(cur_glare, 0.0);
-            }
-        }
-    }
-    float final_scale = 1.0;
-    if (classic_mode > 0)
-        final_scale = 0.9;
-    return max(col * final_scale, vec3(0.0, 0.0, 0.0));
-}
+// <FS:Trish> The shared legacy punctual model (deferredUtil.glsl), as alphaF already uses: this copy
+// had drifted from the deferred one (radius recovered from the linear attenuation, doubled
+// distance falloff, lit capped at 1, a dead ambiance block) and divided by vh and by a spot
+// weighted N.L that can be 0 inside the nh > 0 branch. One NaN fragment there blackens the pixel
+// on AMD, for good under WBOIT's sums. Alpha blended legacy materials now take the light the
+// opaque surface behind them takes.
+vec3 calcLegacyPointLightOrSpotLight(vec3 diffuse, vec4 spec,
+                    vec3 n, vec3 p, vec3 v,
+                    vec3 lp, vec3 ld, vec3 lightColor,
+                    float lightSize, float falloff, float is_pointlight,
+                    inout float glare);
+vec3 fsScrubNaN(vec3 c);
+uniform vec2 light_deferred_attenuation[8];
+//vec3 calcPointLightOrSpotLight(vec3 light_col, vec3 npos, vec3 diffuse, vec4 spec, vec3 v, vec3 n, vec4 lp, vec3 ln, float la, float fa, float is_pointlight, inout float glare, float ambiance)
+//{
+//    // SL-14895 inverted attenuation work-around
+//    // This routine is tweaked to match deferred lighting, but previously used an inverted la value. To reconstruct
+//    // that previous value now that the inversion is corrected, we reverse the calculations in LLPipeline::setupHWLights()
+//    // to recover the `adjusted_radius` value previously being sent as la.
+//    float falloff_factor = (12.0 * fa) - 9.0;
+//    float inverted_la = falloff_factor / la;
+//    // Yes, it makes me want to cry as well. DJH
+//
+//    vec3 col = vec3(0);
+//
+//    //get light vector
+//    vec3 lv = lp.xyz - v;
+//
+//    //get distance
+//    float dist = length(lv);
+//    float da = 1.0;
+//
+//    dist /= inverted_la;
+//
+//    if (dist > 0.0 && inverted_la > 0.0)
+//    {
+//        //normalize light vector
+//        lv = normalize(lv);
+//
+//        //distance attenuation
+//        float dist_atten = clamp(1.0 - (dist - 1.0*(1.0 - fa)) / fa, 0.0, 1.0);
+//        dist_atten *= dist_atten;
+//        dist_atten *= 2.0f;
+//
+//        if (dist_atten <= 0.0)
+//        {
+//            return col;
+//        }
+//
+//        // spotlight coefficient.
+//        float spot = max(dot(-ln, lv), is_pointlight);
+//        da *= spot*spot; // GL_SPOT_EXPONENT=2
+//
+//        //angular attenuation
+//        da *= dot(n, lv);
+//
+//        float lit = 0.0f;
+//
+//        float amb_da = ambiance;
+//        if (da >= 0)
+//        {
+//            lit = clamp(da * dist_atten, 0.0, 1.0);
+//            col = lit * light_col * diffuse;
+//            amb_da += (da*0.5 + 0.5) * ambiance;
+//        }
+//        amb_da += (da*da*0.5 + 0.5) * ambiance;
+//        amb_da *= dist_atten;
+//        amb_da = min(amb_da, 1.0f - lit);
+//
+//        // SL-10969 need to see why these are blown out
+//        //col.rgb += amb_da * light_col * diffuse;
+//
+//        if (spec.a > 0.0)
+//        {
+//            //vec3 ref = dot(pos+lv, norm);
+//            vec3 h = normalize(lv + npos);
+//            float nh = dot(n, h);
+//            float nv = dot(n, npos);
+//            float vh = dot(npos, h);
+//            float sa = nh;
+//            float f = 1 - dot(h, npos);
+//            float f2 = f * f;
+//            float fres = (f2 * f2 * f) * 0.4 + 0.5;
+//
+//            float gtdenom = 2 * nh;
+//            float gt = max(0, min(gtdenom * nv / vh, gtdenom * da / vh));
+//
+//            if (nh > 0.0)
+//            {
+//                float scol = fres*blinnPhongLobe(nh, spec.a)*gt / (nh*max(da, 1e-6));
+//                vec3 speccol = lit*scol*light_col.rgb*spec.rgb;
+//                speccol = clamp(speccol, vec3(0), vec3(1));
+//                col += speccol;
+//
+//                float cur_glare = max(speccol.r, speccol.g);
+//                cur_glare = max(cur_glare, speccol.b);
+//                glare = max(glare, speccol.r);
+//                glare += max(cur_glare, 0.0);
+//            }
+//        }
+//    }
+//    float final_scale = 1.0;
+//    if (classic_mode > 0)
+//        final_scale = 0.9;
+//    return max(col * final_scale, vec3(0.0, 0.0, 0.0));
+//}
+// </FS:Trish>
 
 #else
 out vec4 frag_data[4];
@@ -522,7 +540,11 @@ void main()
     vec3 npos = normalize(-pos.xyz);
     vec3 light = vec3(0, 0, 0);
 
-#define LIGHT_LOOP(i) light.rgb += calcPointLightOrSpotLight(light_diffuse[i].rgb, npos, diffuse.rgb, spec, pos.xyz, norm.xyz, light_position[i], light_direction[i].xyz, light_attenuation[i].x, light_attenuation[i].y, light_attenuation[i].z, glare, light_attenuation[i].w );
+// <FS:Trish> The shared model (see above), and a slot without a light (black, see
+// LLPipeline::setupHWLights) is skipped: it adds exactly nothing. The test is on a uniform.
+//#define LIGHT_LOOP(i) light.rgb += calcPointLightOrSpotLight(light_diffuse[i].rgb, npos, diffuse.rgb, spec, pos.xyz, norm.xyz, light_position[i], light_direction[i].xyz, light_attenuation[i].x, light_attenuation[i].y, light_attenuation[i].z, glare, light_attenuation[i].w );
+#define LIGHT_LOOP(i) if (any(notEqual(light_diffuse[i], vec3(0.0)))) { light.rgb += calcLegacyPointLightOrSpotLight(diffuse.rgb, spec, norm.xyz, pos.xyz, npos, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z, glare); }
+// </FS:Trish>
 
     LIGHT_LOOP(1)
         LIGHT_LOOP(2)
@@ -547,7 +569,10 @@ void main()
     float final_scale = 1;
     if (classic_mode > 0)
         final_scale = 1.1;
-    frag_color = max(vec4(color * final_scale, al), vec4(0));
+    // <FS:Trish> NaN and infinity scrubbed: max() lets a NaN through on AMD
+    //frag_color = max(vec4(color * final_scale, al), vec4(0));
+    frag_color = max(vec4(fsScrubNaN(color * final_scale), al), vec4(0));
+    // </FS:Trish>
 #ifdef FS_WBOIT
     fs_wboit_weight = vec4(0.0);
     if (fs_wboit != 0)

@@ -75,7 +75,7 @@ float fsSampleSpotShadowExtra(vec3 pos, vec3 norm)
 #elif defined(PCSS_SHADOW)
     float shadow = pcssPoissonPCF(fs_spot_shadow_map, fs_spot_shadow_matrix, lpos, pos, norm, spot_shadow_bias * 0.8, proj_shadow_res);
 #else
-    float shadow = pcfSpotShadow(fs_spot_shadow_map, lpos, 0.8, pos.xy);
+    float shadow = pcfSpotShadow(fs_spot_shadow_map, lpos, 0.8, gl_FragCoord.xy); // the jitter is per screen row
 #endif
     return mix(1.0, shadow, fade);
 }

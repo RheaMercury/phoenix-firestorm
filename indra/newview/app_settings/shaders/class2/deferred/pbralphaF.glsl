@@ -74,9 +74,11 @@ uniform float fs_hair_cut;
 
 in vec3 vary_fragcoord;
 
-#ifdef HAS_SUN_SHADOW
+// <FS:Trish> Also for the screen position below, with or without sun shadows
+//#ifdef HAS_SUN_SHADOW
   uniform vec2 screen_res;
-#endif
+//#endif
+// </FS:Trish>
 
 in vec3 vary_position;
 
@@ -107,7 +109,11 @@ uniform vec2 light_deferred_attenuation[8];
 vec3 srgb_to_linear(vec3 c);
 vec3 linear_to_srgb(vec3 c);
 
-void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+// <FS:Trish> The out parameters named in the definition's order (atmosphericsFuncs.glsl): the calls
+// pass them by position, and the swapped names would mislead the next caller
+//void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten);
+// </FS:Trish>
 vec4 applySkyAndWaterFog(vec3 pos, vec3 additive, vec3 atten, vec4 color);
 
 void calcHalfVectors(vec3 lv, vec3 n, vec3 v, out vec3 h, out vec3 l, out float nh, out float nl, out float nv, out float vh, out float lightDist);
@@ -127,6 +133,7 @@ float fsSpecularAARoughness(float perceptualRoughness, vec3 n, vec3 mapNormal);
 vec3 pbrEnergyCompensation(vec3 specularColor, float perceptualRoughness, float nv);
 vec3 clampRadiance(vec3 c);
 vec3 clampHDRRange(vec3 color);
+vec3 fsScrubNaN(vec3 c); // <FS:Trish/> deferredUtil.glsl
 float horizonOcclusion(vec3 r, vec3 geometricNormal);
 
 vec3 pbrBaseLight(vec3 diffuseColor,
@@ -283,7 +290,12 @@ void main()
         sunlit *= 1.35;
     vec3 sunlit_linear = sunlit;
 
-    vec2 frag = vary_fragcoord.xy/vary_fragcoord.z*0.5+0.5;
+    // <FS:Trish> The screen position from the window position: vary_fragcoord is clip space with z
+    // in place of w, about twice too far out at 1 m. It feeds the sun shadow's jitter and the
+    // screen-space reflection's edge fade and start. materialF already does this.
+    //vec2 frag = vary_fragcoord.xy/vary_fragcoord.z*0.5+0.5;
+    vec2 frag = gl_FragCoord.xy / screen_res;
+    // </FS:Trish>
 
 #ifdef HAS_SUN_SHADOW
     // <FS:Trish> pbrBaseLight multiplies scol by N.L (clamped to 0), so it doesn't matter facing away from the light
@@ -335,7 +347,11 @@ void main()
     vec3 light = vec3(0);
 
     // Punctual lights
-#define LIGHT_LOOP(i) light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm.xyz, pos.xyz, v, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z, light_attenuation[i].w);
+// <FS:Trish> A slot without a light (black, see LLPipeline::setupHWLights) adds exactly nothing:
+// skip it. The test is on a uniform, so every fragment takes the same branch.
+//#define LIGHT_LOOP(i) light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm.xyz, pos.xyz, v, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z, light_attenuation[i].w);
+#define LIGHT_LOOP(i) if (any(notEqual(light_diffuse[i], vec3(0.0)))) { light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm.xyz, pos.xyz, v, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z, light_attenuation[i].w); }
+// </FS:Trish>
 
     LIGHT_LOOP(1)
     LIGHT_LOOP(2)
@@ -362,7 +378,11 @@ void main()
     // it passes an infinity through unchanged, and its answer for a NaN is undefined. This path
     // runs the same unbounded punctual lobe the opaque one does, so it can produce the same
     // values -- and whatever it writes goes on to the bloom pyramid.
-    frag_color = max(vec4(clampHDRRange(color.rgb * final_scale), a), vec4(0));
+    // <FS:Trish> clamp() of a NaN is as undefined as max(): scrubbed first (finite values unchanged),
+    // and a NaN alpha counts as clear, so neither reaches the sorted blend or the WBOIT sums
+    //frag_color = max(vec4(clampHDRRange(color.rgb * final_scale), a), vec4(0));
+    frag_color = max(vec4(clampHDRRange(fsScrubNaN(color.rgb * final_scale)), isnan(a) ? 0.0 : a), vec4(0));
+    // </FS:Trish>
 #endif // FOR_IMPOSTOR
 #ifdef FS_WBOIT
     fs_wboit_weight = vec4(0.0);

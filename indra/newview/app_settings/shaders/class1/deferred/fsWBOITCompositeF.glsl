@@ -20,6 +20,11 @@ void main()
     ivec2 tc = ivec2(gl_FragCoord.xy);
     vec4 accum = texelFetch(diffuseRect, tc, 0);
     float revealage = accum.a;
+    // A NaN alpha from any layer would make the composite's alpha NaN: nothing reliable covers it
+    if (isnan(revealage))
+    {
+        revealage = 1.0;
+    }
 
     if (revealage >= 0.9999)
     { // nothing transparent covers this pixel
@@ -27,8 +32,12 @@ void main()
     }
 
     float weight = texelFetch(specularRect, tc, 0).r;
-    // A half float sum can overflow to infinity with many bright layers close to the camera
-    vec3 color = min(accum.rgb, vec3(65000.0)) / max(weight, 1e-8);
+    // A half float sum can overflow to infinity with many bright layers close to the camera. A
+    // NaN (min() of one is undefined) counts as nothing; an infinite weight is held at the half
+    // float maximum, so the pixel stays lit instead of dividing to black.
+    vec3 sum = mix(accum.rgb, vec3(0.0), isnan(accum.rgb));
+    weight = isnan(weight) ? 0.0 : min(weight, 65504.0);
+    vec3 color = min(sum, vec3(65000.0)) / max(weight, 1e-8);
 
     frag_color = vec4(clamp(color, vec3(0.0), vec3(65000.0)), clamp(1.0 - revealage, 0.0, 1.0));
 }

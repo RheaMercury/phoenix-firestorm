@@ -55,6 +55,8 @@ out vec4 frag_data[2];
 uniform vec2 fs_ind_full_res;   // full resolution in pixels
 uniform mat4 inv_proj;
 uniform sampler2D sceneMap;     // the last frame, lit
+uniform mat4 inv_modelview_delta; // this frame's view space to the last frame's (bindDeferredShader)
+uniform mat4 fs_ind_proj;       // the projection, to find a point in the last frame's image
 uniform vec4 fs_ind_params;     // x: radius (m), y: max radius in full-resolution pixels, z: frame offset 0-1, w: unused
 
 float getDepth(vec2 pos_screen);
@@ -200,11 +202,21 @@ void main()
                 float facing = clamp(dot(getNorm(stc).xyz, ldir), 0.0, 1.0);
                 // fades out toward the edge of the radius, so the bounce has no hard edge there
                 float falloff = 1.0 - smoothstep(0.6 * radius, radius, dist);
-                vec3 light = textureLod(sceneMap, stc, 0.0).rgb;
-                // a single very bright sample (a lamp, the sun's glint) would speckle the result
-                float lum = dot(light, vec3(0.2126, 0.7152, 0.0722));
-                light *= min(1.0, 8.0 / max(lum, 1e-4));
-                gi += light * (share * facing * falloff * proj_n_len);
+                // the sample is fetched where it was in the last frame's image: at its own place in
+                // this frame's, the colour bleed smeared behind the camera as it moved
+                vec4 prev = fs_ind_proj * (inv_modelview_delta * vec4(pos + delta, 1.0));
+                vec2 ptc = prev.w > 0.0 ? prev.xy / prev.w * 0.5 + 0.5 : vec2(-1.0);
+                // Off the last frame's image (behind its camera, or past its edge, as camera turns
+                // bring in every frame): no light from it. Reading this frame's position in last
+                // frame's image took whatever was there. It still hides the arc (h below).
+                if (all(greaterThanEqual(ptc, vec2(0.0))) && all(lessThanEqual(ptc, vec2(1.0))))
+                {
+                    vec3 light = textureLod(sceneMap, ptc, 0.0).rgb;
+                    // a single very bright sample (a lamp, the sun's glint) would speckle the result
+                    float lum = dot(light, vec3(0.2126, 0.7152, 0.0722));
+                    light *= min(1.0, 8.0 / max(lum, 1e-4));
+                    gi += light * (share * facing * falloff * proj_n_len);
+                }
 #endif
                 h = sample_h;
             }

@@ -131,6 +131,7 @@ float pcfShadow(sampler2DShadow shadowMap, vec3 norm, vec4 stc, float bias_mul, 
 #endif
 }
 
+// pos_screen: window position in pixels (gl_FragCoord.xy), it picks the per-row jitter // <FS:Trish/>
 float pcfSpotShadow(sampler2DShadow shadowMap, vec4 stc, float bias_scale, vec2 pos_screen)
 {
 #if defined(SPOT_SHADOW)
@@ -773,7 +774,11 @@ float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen)
 #elif defined(PCSS_SHADOW)
         shadow = pcssSpotShadow(shadowMap4, 4, lpos, spos.xyz, norm, 0.8);
 #else
-        shadow = pcfSpotShadow(shadowMap4, lpos, 0.8, spos.xy);
+        // <FS:Trish> The jitter is per screen row (pos_screen is in pixels there): spos.xy is view
+        // space metres, so the dither slid with the camera and was constant along each row
+        //shadow = pcfSpotShadow(shadowMap4, lpos, 0.8, spos.xy);
+        shadow = pcfSpotShadow(shadowMap4, lpos, 0.8, gl_FragCoord.xy);
+        // </FS:Trish>
 #endif
     }
     else
@@ -784,7 +789,11 @@ float sampleSpotShadow(vec3 pos, vec3 norm, int index, vec2 pos_screen)
 #elif defined(PCSS_SHADOW)
         shadow = pcssSpotShadow(shadowMap5, 5, lpos, spos.xyz, norm, 0.8);
 #else
-        shadow = pcfSpotShadow(shadowMap5, lpos, 0.8, spos.xy);
+        // <FS:Trish> The jitter is per screen row (pos_screen is in pixels there): spos.xy is view
+        // space metres, so the dither slid with the camera and was constant along each row
+        //shadow = pcfSpotShadow(shadowMap5, lpos, 0.8, spos.xy);
+        shadow = pcfSpotShadow(shadowMap5, lpos, 0.8, gl_FragCoord.xy);
+        // </FS:Trish>
 #endif
     }
     return mix(1.0, shadow, fade);

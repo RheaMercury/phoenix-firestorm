@@ -171,7 +171,14 @@ void main()
 
 #endif
 
+    // <FS:Trish> NaN to 0 and infinity to the half float maximum (max() alone lets a NaN through on AMD),
+    // and a NaN alpha counts as clear: neither reaches the sorted blend or the WBOIT sums. Inline, as not
+    // every fullbright program links deferredUtil.glsl's fsScrubNaN.
+    //frag_color = max(color, vec4(0));
+    color.rgb = min(mix(color.rgb, vec3(0.0), isnan(color.rgb)), vec3(65504.0));
+    color.a = isnan(color.a) ? 0.0 : color.a;
     frag_color = max(color, vec4(0));
+    // </FS:Trish>
     // <FS:Trish> Soft particles: fade where the particle meets the scene, before WBOIT weighs the alpha
 #ifdef FS_SOFT_PARTICLES
     frag_color = fsSoftParticleApply(frag_color, fsSoftParticleFade(vary_position));

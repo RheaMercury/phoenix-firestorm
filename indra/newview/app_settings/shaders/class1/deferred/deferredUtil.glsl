@@ -120,6 +120,17 @@ vec3 clampHDRRange(vec3 color)
     return clamp(color, vec3(0.0), vec3(11.2));
 }
 
+// <FS:Trish> NaN to 0 and infinity to the half float maximum, every finite value unchanged: for
+// the forward passes, where max(c, 0) alone lets a NaN through on AMD and the sorted or WBOIT
+// blend then spreads it over the pixel. clampHDRRange also caps the range, which would change
+// what bright alpha looked like.
+vec3 fsScrubNaN(vec3 c)
+{
+    c = mix(c, vec3(0.0), isnan(c));
+    return min(c, vec3(65504.0));
+}
+// </FS:Trish>
+
 float calcLegacyDistanceAttenuation(float distance, float falloff)
 {
     float dist_atten = 1.0 - clamp((distance + falloff)/(1.0 + falloff), 0.0, 1.0);
@@ -542,7 +553,12 @@ vec3 getSpecularDominantDir(vec3 n, vec3 r, float perceptualRoughness)
 {
     float smoothness = 1.0 - perceptualRoughness;
     float lerpFactor = smoothness * (sqrt(smoothness) + perceptualRoughness);
-    return normalize(mix(n, r, lerpFactor));
+    // <FS:Trish> r = -n (a flipped two-sided normal) at lerpFactor 0.5 cancels to zero, and
+    // normalize(0) is NaN in the probe lookup
+    //return normalize(mix(n, r, lerpFactor));
+    vec3 d = mix(n, r, lerpFactor);
+    return dot(d, d) > 1e-8 ? normalize(d) : n;
+    // </FS:Trish>
 }
 
 // Attenuate a reflection that a normal map has aimed into the surface it sits on.

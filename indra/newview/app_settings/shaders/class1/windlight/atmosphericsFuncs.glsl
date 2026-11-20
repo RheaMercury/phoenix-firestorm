@@ -54,7 +54,11 @@ void calcAtmosphericVars(vec3 inPositionEye, vec3 light_dir, float ambFactor, ou
     vec3 rel_pos = inPositionEye;
 
     //(TERRAIN) limit altitude
-    if (abs(rel_pos.y) > max_y) rel_pos *= (max_y / rel_pos.y);
+    // <FS:Trish> abs(): looking steeply down from high up (rel_pos.y < -max_y) the negative factor
+    // turned the vector around, and the haze glow showed on the side away from the sun
+    //if (abs(rel_pos.y) > max_y) rel_pos *= (max_y / rel_pos.y);
+    if (abs(rel_pos.y) > max_y) rel_pos *= (max_y / abs(rel_pos.y));
+    // </FS:Trish>
 
     vec3  rel_pos_norm = normalize(rel_pos);
     float rel_pos_len  = length(rel_pos);

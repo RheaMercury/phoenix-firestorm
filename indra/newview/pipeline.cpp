@@ -12319,6 +12319,10 @@ static LLRenderTarget* fs_render_indirect(LLRenderTarget* screen)
         shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)full_x, (GLfloat)full_y);
         shader.uniform4f(s_params, llclamp((F32)radius, 0.25f, 8.f), llmin((F32)full_y * 0.2f, 256.f),
                          fmodf((F32)(frame % 4096) * 0.618034f, 1.f), 0.f);
+        // <FS:Trish> The scene map is last frame's: the bounce samples are looked up where they were then
+        static LLStaticHashedString s_ind_proj("fs_ind_proj");
+        shader.uniformMatrix4fv(s_ind_proj, 1, GL_FALSE, glm::value_ptr(get_current_projection()));
+        // </FS:Trish>
         gPipeline.mScreenTriangleVB->setBuffer();
         gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
         gPipeline.unbindDeferredShader(shader);

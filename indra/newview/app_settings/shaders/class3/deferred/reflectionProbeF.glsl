@@ -996,7 +996,16 @@ void tapHeroProbe(inout vec3 glossenv, vec3 pos, vec3 norm, float glossiness)
     clipDist = clamp(clipDist * falloffMult, 0, 1);
     w = clamp(w * falloffMult * clipDist, 0, 1);
     w = mix(0, w, clamp(glossiness - 0.75, 0, 1) * 4); // We only generate a quarter of the mips for the hero probes.  Linearly interpolate between normal probes and hero probes based upon glossiness.
-    glossenv = mix(glossenv, textureLod(heroProbes, vec4(env_mat * refnormpersp, 0), (1.0-glossiness)*heroMipCount).xyz, w);
+    // <FS:Trish> heroMipCount is the mip chain's length, log2(res); mip i was filtered for roughness
+    // i / (heroMipCount - 1) (LLHeroProbeManager::generateRadiance), so that is the scale. Every mip
+    // down to heroMipCount - 1 is written (the first quarter GGX filtered, the rest box filtered) and
+    // GL_TEXTURE_MAX_LEVEL stops the sampler there, before the never written 1x1 (uninitialised
+    // memory, NaN on some AMD drivers). (A clamp to the first quarter read mip 0 only at a
+    // resolution of 128, and made glossy surfaces in mirrors sharper than before.)
+    //glossenv = mix(glossenv, textureLod(heroProbes, vec4(env_mat * refnormpersp, 0), (1.0-glossiness)*heroMipCount).xyz, w);
+    float fs_hero_lod = clamp(1.0 - glossiness, 0.0, 1.0) * float(max(heroMipCount - 1, 0));
+    glossenv = mix(glossenv, textureLod(heroProbes, vec4(env_mat * refnormpersp, 0), fs_hero_lod).xyz, w);
+    // </FS:Trish>
 }
 
 #else

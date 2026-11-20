@@ -199,6 +199,14 @@ void LLCubeMapArray::allocate(U32 resolution, U32 components, U32 count, bool us
         ++mip;
     }
 
+    // <FS:Trish> The probe managers write mips down to 2 x 2 (log2(res) of them) and never the
+    // 1 x 1 one; keep sampling off it, uninitialised memory can hold NaN on AMD
+    if (use_mips && mip > 2)
+    {
+        glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY, GL_TEXTURE_MAX_LEVEL, mip - 2);
+    }
+    // </FS:Trish>
+
     alloc_tex_image(resolution, resolution, format, count * 6);
 
     mImage->setAddressMode(LLTexUnit::TAM_CLAMP);

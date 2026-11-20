@@ -98,13 +98,18 @@ vec3 srgb_to_linear(vec3 c);
 vec3 linear_to_srgb(vec3 c);
 
 vec4 applySkyAndWaterFog(vec3 pos, vec3 additive, vec3 atten, vec4 color);
-void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+// <FS:Trish> The out parameters named in the definition's order (atmosphericsFuncs.glsl): the calls
+// pass them by position, and the swapped names would mislead the next caller
+//void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 atten, out vec3 additive);
+void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten);
+// </FS:Trish>
 
 #ifdef HAS_SUN_SHADOW
 float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen);
 #endif
 
 float getAmbientClamp();
+vec3 fsScrubNaN(vec3 c); // <FS:Trish/> deferredUtil.glsl
 
 void mirrorClip(vec3 pos);
 
@@ -146,7 +151,12 @@ void main()
 #endif
     mirrorClip(vary_position);
 
-    vec2 frag = vary_fragcoord.xy/vary_fragcoord.z*0.5+0.5;
+    // <FS:Trish> The screen position from the window position: vary_fragcoord is clip space with
+    // z (plus the near clip) in place of w, about 33 % off at 1 m. It feeds the sun shadow's jitter
+    // and the screen-space reflection's edge fade and start. materialF already does this.
+    //vec2 frag = vary_fragcoord.xy/vary_fragcoord.z*0.5+0.5;
+    vec2 frag = gl_FragCoord.xy / screen_res;
+    // </FS:Trish>
 
     vec4 pos = vec4(vary_position, 1.0);
 #ifndef IS_AVATAR_SKIN
@@ -191,7 +201,14 @@ void main()
 
 #else // FOR_IMPOSTOR
 
+    // <FS:Trish> With a vertex colour the colour is decoded once below, after the tint
+    //vec4 diffuse_linear = vec4(srgb_to_linear(diffuse_srgb.rgb), diffuse_srgb.a);
+#ifdef USE_VERTEX_COLOR
+    vec4 diffuse_linear = vec4(vec3(0.0), diffuse_srgb.a);
+#else
     vec4 diffuse_linear = vec4(srgb_to_linear(diffuse_srgb.rgb), diffuse_srgb.a);
+#endif
+    // </FS:Trish>
 
     vec3 light_dir = (sun_up_factor == 1) ? sun_dir: moon_dir; // TODO -- factor out "sun_up_factor" and just send in the appropriate light vector
 
@@ -314,7 +331,11 @@ void main()
 
 // light_deferred_attenuation carries the size/falloff pair the deferred pass reads, as the PBR
 // alpha path already takes them. light_attenuation.z stays: it is the is-omni flag.
-   #define LIGHT_LOOP(i) light.rgb += calcLegacyPointLightDiffuse(diffuse_linear.rgb, norm, pos.xyz, npos, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z);
+   // <FS:Trish> A slot without a light (black, see LLPipeline::setupHWLights) adds exactly nothing:
+   // skip it. The test is on a uniform, so every fragment takes the same branch.
+   //#define LIGHT_LOOP(i) light.rgb += calcLegacyPointLightDiffuse(diffuse_linear.rgb, norm, pos.xyz, npos, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z);
+   #define LIGHT_LOOP(i) if (any(notEqual(light_diffuse[i], vec3(0.0)))) { light.rgb += calcLegacyPointLightDiffuse(diffuse_linear.rgb, norm, pos.xyz, npos, light_position[i].xyz, light_direction[i].xyz, light_diffuse[i].rgb, light_deferred_attenuation[i].x, light_deferred_attenuation[i].y, light_attenuation[i].z); }
+   // </FS:Trish>
 
     LIGHT_LOOP(1)
     LIGHT_LOOP(2)
@@ -344,7 +365,11 @@ void main()
 #endif
 
     color.rgb *= final_scale;
-    frag_color = max(color, vec4(0));
+    // <FS:Trish> max() lets a NaN through on AMD (and keeps an infinity), and under WBOIT one such
+    // fragment poisons the pixel's sums. Every finite value is kept as it was.
+    //frag_color = max(color, vec4(0));
+    frag_color = max(vec4(fsScrubNaN(color.rgb), color.a), vec4(0));
+    // </FS:Trish>
     // <FS:Trish> Soft particles: fade where the particle meets the scene, before WBOIT weighs the alpha
 #ifdef FS_SOFT_PARTICLES
 #ifdef FOR_IMPOSTOR
