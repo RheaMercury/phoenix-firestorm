@@ -116,6 +116,28 @@ public:
 };
 LLObjectIMHandler gObjectIMHandler;
 
+// A message header and separator are built from a layout file for every chat message. Reading
+// and parsing the file (and its language overrides) each time made chat spam drop frames, so each
+// file is parsed once and later builds take a copy (they may modify the nodes they're given).
+// The skin and language only change with a restart. Main thread only. (After LL's viewer PR #6743.)
+static LLXMLNodePtr fs_cached_chat_layout(const std::string& filename)
+{
+    static std::map<std::string, LLXMLNodePtr> sCache;
+    auto found = sCache.find(filename);
+    if (found != sCache.end())
+    {
+        return found->second->deepCopy();
+    }
+
+    LLXMLNodePtr root;
+    if (!LLUICtrlFactory::getLayeredXMLNode(filename, root) || root.isNull())
+    {
+        return LLXMLNodePtr(); // not cached: tried again next time, with the warning each time
+    }
+    sCache[filename] = root->deepCopy();
+    return root;
+}
+
 class FSChatHistoryHeader: public LLPanel
 {
 public:
@@ -150,8 +172,46 @@ public:
     static FSChatHistoryHeader* createInstance(const std::string& file_name)
     {
         FSChatHistoryHeader* pInstance = new FSChatHistoryHeader;
-        pInstance->buildFromFile(file_name);
+        //pInstance->buildFromFile(file_name);
+        pInstance->buildFromCachedFile(file_name);
         return pInstance;
+    }
+
+    // LLPanel::buildFromFile with the layout parsed once per session instead of read from disk
+    // and parsed for every message header (fs_cached_chat_layout)
+    bool buildFromCachedFile(const std::string& filename)
+    {
+        LLXMLNodePtr root = fs_cached_chat_layout(filename);
+        if (root.isNull() || !root->hasName("panel"))
+        {
+            LL_WARNS() << "Couldn't parse chat header panel from: " << filename << LL_ENDL;
+            return false;
+        }
+
+        bool did_post = false;
+        LLUICtrlFactory::instance().pushFileName(filename);
+        {
+            if (!getFactoryMap().empty())
+            {
+                sFactoryStack.push_back(&getFactoryMap());
+            }
+            getCommitCallbackRegistrar().pushScope();
+            getEnableCallbackRegistrar().pushScope();
+
+            did_post = initPanelXML(root, NULL, NULL, getDefaultParams());
+
+            getCommitCallbackRegistrar().popScope();
+            getEnableCallbackRegistrar().popScope();
+
+            setXMLFilename(filename);
+
+            if (!getFactoryMap().empty())
+            {
+                sFactoryStack.pop_back();
+            }
+        }
+        LLUICtrlFactory::instance().popFileName();
+        return did_post;
     }
 
     ~FSChatHistoryHeader()
@@ -1448,7 +1508,24 @@ void FSChatHistory::insertMentionAtCursor(const std::string& str)
 
 LLView* FSChatHistory::getSeparator()
 {
-    LLPanel* separator = LLUICtrlFactory::getInstance()->createFromFile<LLPanel>(mMessageSeparatorFilename, NULL, LLPanel::child_registry_t::instance());
+    //LLPanel* separator = LLUICtrlFactory::getInstance()->createFromFile<LLPanel>(mMessageSeparatorFilename, NULL, LLPanel::child_registry_t::instance());
+    //return separator;
+    // As LLUICtrlFactory::createFromFile, from the layout parsed once per session (fs_cached_chat_layout)
+    LLXMLNodePtr root = fs_cached_chat_layout(mMessageSeparatorFilename);
+    if (root.isNull())
+    {
+        LL_WARNS() << "Couldn't parse chat separator from: " << mMessageSeparatorFilename << LL_ENDL;
+        return NULL;
+    }
+    LLUICtrlFactory::instance().pushFileName(mMessageSeparatorFilename);
+    LLView* view = LLUICtrlFactory::getInstance()->createFromXML(root, NULL, mMessageSeparatorFilename, LLPanel::child_registry_t::instance(), NULL);
+    LLUICtrlFactory::instance().popFileName();
+    LLPanel* separator = dynamic_cast<LLPanel*>(view);
+    if (view && !separator)
+    {
+        LL_WARNS() << "Chat separator in " << mMessageSeparatorFilename << " is not a panel" << LL_ENDL;
+        deleteView(view);
+    }
     return separator;
 }
 
@@ -1686,7 +1763,8 @@ void FSChatHistory::appendMessage(const LLChat& chat, const LLSD &args, const LL
     }
     //</FS:HG> FS-1734 seperate name and text styles for moderator
 
-    bool prependNewLineState = getText().size() != 0;
+    //bool prependNewLineState = getText().size() != 0;
+    bool prependNewLineState = getLength() != 0; // getText() converted the whole history to UTF-8 for every message (LL's 722cae5)
 
     // compact mode: show a timestamp and name
     if (use_plain_text_chat_history)

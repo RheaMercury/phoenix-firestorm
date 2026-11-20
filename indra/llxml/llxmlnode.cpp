@@ -144,12 +144,21 @@ LLXMLNodePtr LLXMLNode::deepCopy()
     LLXMLNodePtr newnode = LLXMLNodePtr(new LLXMLNode(*this));
     if (mChildren.notNull())
     {
-        for (LLXMLChildList::iterator iter = mChildren->map.begin();
-             iter != mChildren->map.end(); ++iter)
+        // <FS:Trish> Copy the children in document order (the linked list), not in the order of the
+        // map, which is keyed by name pointer: a copied layout had its widgets in a different order.
+        // From LL's viewer PR #6743.
+        //for (LLXMLChildList::iterator iter = mChildren->map.begin();
+        //     iter != mChildren->map.end(); ++iter)
+        //{
+        //    LLXMLNodePtr temp_ptr_for_gcc(iter->second->deepCopy());
+        //    newnode->addChild(temp_ptr_for_gcc);
+        //}
+        for (LLXMLNodePtr child = mChildren->head; child.notNull(); child = child->mNext)
         {
-            LLXMLNodePtr temp_ptr_for_gcc(iter->second->deepCopy());
+            LLXMLNodePtr temp_ptr_for_gcc(child->deepCopy());
             newnode->addChild(temp_ptr_for_gcc);
         }
+        // </FS:Trish>
     }
     for (LLXMLAttribList::iterator iter = mAttributes.begin();
          iter != mAttributes.end(); ++iter)
