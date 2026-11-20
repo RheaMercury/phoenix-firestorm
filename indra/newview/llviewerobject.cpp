@@ -114,6 +114,7 @@
 #include "rlvlocks.h"
 // [/RLVa:KB]
 #include "fsassetblacklist.h"
+#include "fslinknumbers.h" // <FS:Trish/>
 
 // <FS:Ansariel> [Legacy Bake]
 #ifdef OPENSIM
@@ -1005,6 +1006,12 @@ void LLViewerObject::addChild(LLViewerObject *childp)
     {
         mChildList.push_back(childp);
         childp->afterReparent();
+        // <FS:Trish> Link numbers confirmed for this linkset are stale now (FIRE-4292)
+        if (!childp->isAvatar())
+        {
+            FSLinkNumbers::onLinksetChanged(getID(), childp->getID());
+        }
+        // </FS:Trish>
 
         if (childp->isAvatar())
         {
@@ -1063,6 +1070,12 @@ void LLViewerObject::removeChild(LLViewerObject *childp)
             {
                 mSeatCount--;
             }
+            // <FS:Trish> Link numbers confirmed for this linkset are stale now (FIRE-4292)
+            else
+            {
+                FSLinkNumbers::onLinksetChanged(getID(), childp->getID());
+            }
+            // </FS:Trish>
             break;
         }
     }

@@ -25,6 +25,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fspanelbuildinfo.h"
+#include "fslinknumbers.h"
 
 #include "llclipboard.h"
 #include "lldate.h"
@@ -85,37 +86,8 @@ void FSPanelBuildInfo::draw()
 //static
 bool FSPanelBuildInfo::getLinkNumber(LLViewerObject* objectp, S32& link_num, S32& link_count)
 {
-    link_num = 0;
-    link_count = 0;
-    LLViewerObject* root = objectp ? objectp->getRootEdit() : nullptr;
-    if (!root)
-    {
-        return false;
-    }
-    const LLViewerObject::child_list_t& children = root->getChildren();
-    link_count = (S32)children.size() + 1;
-    if (children.empty())
-    {
-        link_num = 0; // a childless prim is always link zero
-        link_count = 1;
-        return true;
-    }
-    if (objectp == root)
-    {
-        link_num = 1;
-        return true;
-    }
-    S32 index = 1;
-    for (const LLPointer<LLViewerObject>& child : children)
-    {
-        ++index;
-        if (child == objectp)
-        {
-            link_num = index;
-            return true;
-        }
-    }
-    return false;
+    // The region's own numbers when the LSL bridge could confirm them (FIRE-4292), else the arrival order
+    return FSLinkNumbers::getLinkNumber(objectp, link_num, link_count);
 }
 
 void FSPanelBuildInfo::refreshInfo()

@@ -7,7 +7,7 @@
 //
 
 // Bridge platform
-string BRIDGE_VERSION = "2.31"; // This should match fslslbridge.cpp
+string BRIDGE_VERSION = "2.32"; // This should match fslslbridge.cpp
 string gLatestURL;
 integer gViewerIsFirestorm;
 integer gTryHandshakeOnce = TRUE;
@@ -467,6 +467,40 @@ default
                 string body = "<llsd><string>" + llList2CSV(responses) + "</string></llsd>";
                 responses = []; // Free memory
                 llHTTPResponse(httpReqID, 200, body);
+                return;
+
+            }
+
+            else if (cmd == "getLinkNumbers")
+            {
+
+                // Build floater: the true link numbers of the prims of one linkset (FIRE-4292).
+                // Input: the root key, then a CSV of prim keys. Output: a CSV of link numbers in the
+                // same order, -1 for a prim not found in this region or not linked to that root.
+
+                key tRoot = llList2Key(commandList, 1);
+                list tUUIDs = llCSV2List(llList2String(commandList, 2));
+                commandList = []; // Free memory
+                integer tLength = llGetListLength(tUUIDs);
+                integer i;
+                list details;
+                list responses;
+
+                for (i = 0; i < tLength; ++i)
+                {
+                    details = llGetObjectDetails(llList2Key(tUUIDs, i), [OBJECT_ROOT, OBJECT_LINK_NUMBER]);
+                    if (llGetListLength(details) == 2 && llList2Key(details, 0) == tRoot)
+                    {
+                        responses += llList2Integer(details, 1);
+                    }
+                    else
+                    {
+                        responses += -1;
+                    }
+                }
+                tUUIDs = []; // Free memory
+                details = [];
+                llHTTPResponse(httpReqID, 200, "<llsd><string>" + llList2CSV(responses) + "</string></llsd>");
                 return;
 
             }

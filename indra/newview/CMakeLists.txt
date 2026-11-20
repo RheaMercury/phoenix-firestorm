@@ -180,6 +180,7 @@ set(viewer_SOURCE_FILES
     fsjointpose.cpp
     fskeywords.cpp
     fslighterwhilemoving.cpp
+    fslinknumbers.cpp
     fslinksetinventoryloader.cpp
     fslslbridge.cpp
     fslslbridgerequest.cpp
@@ -1118,6 +1119,7 @@ set(viewer_HEADER_FILES
     fsgridhandler.h
     fskeywords.h
     fslighterwhilemoving.h
+    fslinknumbers.h
     fslinksetinventoryloader.h
     fslslbridge.h
     fslslbridgerequest.h

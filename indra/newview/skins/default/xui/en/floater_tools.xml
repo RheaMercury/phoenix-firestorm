@@ -78,6 +78,16 @@
 	  name="link_number">
 		Link number:
 	</floater.string>
+	<!-- <FS:Trish> Link numbers confirmed by the region through the LSL bridge (FIRE-4292) -->
+	<floater.string
+	  name="link_verified">
+		(verified)
+	</floater.string>
+	<floater.string
+	  name="link_checking">
+		(checking)
+	</floater.string>
+	<!-- </FS:Trish> -->
 	<floater.string
 	  name="selected_faces">
 		Faces:
@@ -420,6 +430,26 @@
        <combo_box.commit_callback
       function="BuildTool.gridMode"/>
     </combo_box>
+    <!-- <FS:Trish> Type or pick a link number to select that link (FIRE-4292) -->
+    <spinner
+     follows="left|top"
+     height="18"
+     layout="topleft"
+     left="88"
+     top="125"
+     name="link_number_spin"
+     label=""
+     label_width="0"
+     decimal_digits="0"
+     increment="1"
+     initial_value="0"
+     min_val="0"
+     max_val="0"
+     width="50"
+     tool_tip="Link number of the selected part. Type or pick a number to select that link of the linkset (turns on Edit linked). Shown greyed while the numbers are being checked with the region through the LSL bridge; without the bridge it is the viewer's guess and can be wrong."
+     font="DejaVu"
+     font.size="LSmall" />
+    <!-- </FS:Trish> -->
     <check_box
      control_name="ScaleUniform"
      height="17"
@@ -914,6 +944,7 @@
 	  <button.commit_callback
 	     function="BuildTool.applyToSelection"/>
     </button>
+    <!-- <FS:Trish> Room for "(verified)", tool tip says what it means; was tool_tip="Link number may not be accurate." width="143" -->
     <text
      type="string"
      length="1"
@@ -925,10 +956,11 @@
      top_pad="28"
      left="10"
      name="link_num_obj_count"
-	 tool_tip="Link number may not be accurate."
-     width="143">
+	 tool_tip="Link number may not be accurate unless marked (verified): the region confirmed it through the LSL bridge."
+     width="280">
         [DESC] [NUM]
     </text>
+    <!-- </FS:Trish> -->
 	<text
 	  type="string"
 	  length="1"

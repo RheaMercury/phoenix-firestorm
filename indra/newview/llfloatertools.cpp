@@ -29,6 +29,8 @@
 #include "llfloatertools.h"
 #include "fspanelbuildinfo.h" // <FS:Trish/> link number helper
 #include "fsmakeroot.h" // <FS:Trish/>
+#include "fslinknumbers.h" // <FS:Trish/>
+#include "llspinctrl.h" // <FS:Trish/>
 
 #include "llfontgl.h"
 #include "llcoord.h"
@@ -392,6 +394,13 @@ bool    LLFloaterTools::postBuild()
     }
     // </FS:KC>
 
+    // <FS:Trish> Type or pick a link number to select that link (FIRE-4292)
+    if (LLSpinCtrl* link_spin = findChild<LLSpinCtrl>("link_number_spin"))
+    {
+        link_spin->setCommitCallback([link_spin](LLUICtrl*, const LLSD&) { FSLinkNumbers::onSpinnerCommit(link_spin); });
+    }
+    // </FS:Trish>
+
     // <FS:Ansariel> Performance improvements
     mTextLinkNumObjCount = getChild<LLTextBox>("link_num_obj_count");
     mBtnCopyKeys         = getChild<LLButton>("btnCopyKeys");
@@ -643,15 +652,25 @@ void LLFloaterTools::refresh()
     {
         desc_string = getString("link_number");
         LLViewerObject* objectp = LLSelectMgr::getInstance()->getSelection()->getFirstObject();
-        // <FS:Trish> Shared with the face display above, and shows the link count
+        // <FS:Trish> Shared with the face display above, and shows the link count.
+        // Says whether the region confirmed the number through the LSL bridge (FIRE-4292).
         S32 link_num = 0;
         S32 link_count = 0;
-        if (FSPanelBuildInfo::getLinkNumber(objectp, link_num, link_count))
+        FSLinkNumbers::EState link_state = FSLinkNumbers::GUESSED;
+        if (FSLinkNumbers::getLinkNumber(objectp, link_num, link_count, &link_state))
         {
             LLResMgr::getInstance()->getIntegerString(num_string, link_num);
             if (link_count > 1)
             {
                 num_string += llformat("/%d", link_count);
+                if (link_state == FSLinkNumbers::VERIFIED && hasString("link_verified"))
+                {
+                    num_string += " " + getString("link_verified");
+                }
+                else if (link_state == FSLinkNumbers::CHECKING && hasString("link_checking"))
+                {
+                    num_string += " " + getString("link_checking");
+                }
             }
         }
         // </FS:Trish>
@@ -792,6 +811,7 @@ void LLFloaterTools::refresh()
     bool have_selection = ! LLSelectMgr::getInstance()->getSelection()->isEmpty();
     mTextLinkNumObjCount->setEnabled(have_selection && enable_link_count);
     // </FS>
+    FSLinkNumbers::refreshSpinner(findChild<LLSpinCtrl>("link_number_spin")); // <FS:Trish/>
 
     // Refresh child tabs
     mPanelPermissions->refresh();
@@ -982,6 +1002,16 @@ void LLFloaterTools::updatePopup(LLCoordGL center, MASK mask)
     mBtnPrevPart->setEnabled(select_btn_enabled);
     mBtnNextPart->setEnabled(select_btn_enabled);
     // </FS:PP>
+    // <FS:Trish> Link number spinner, beside Edit linked
+    if (LLSpinCtrl* link_spin = findChild<LLSpinCtrl>("link_number_spin"))
+    {
+        if (link_spin->getVisible() != edit_visible)
+        {
+            link_spin->setVisible(edit_visible);
+            FSLinkNumbers::refreshSpinner(link_spin);
+        }
+    }
+    // </FS:Trish>
 
     if (mCheckSelectIndividual)
     {
