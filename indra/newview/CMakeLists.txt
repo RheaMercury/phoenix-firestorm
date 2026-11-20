@@ -196,6 +196,7 @@ set(viewer_SOURCE_FILES
     fsnearbychatcontrol.cpp
     fsnearbychathub.cpp
     fsnearbychatvoicemonitor.cpp
+    fsobjectnames.cpp
     fsobjectupdatedecoder.cpp
     fspanelblocklist.cpp
     fspanelcontactsets.cpp
@@ -1133,6 +1134,7 @@ set(viewer_HEADER_FILES
     fsnearbychatcontrol.h
     fsnearbychathub.h
     fsnearbychatvoicemonitor.h
+    fsobjectnames.h
     fsobjectupdatedecoder.h
     fspanelblocklist.h
     fspanelcontactsets.h

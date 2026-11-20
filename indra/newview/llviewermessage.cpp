@@ -77,6 +77,7 @@
 //#include "llfloaterimnearbychat.h"
 #include "fsfloaternearbychat.h"
 #include "fsmassobjectedit.h"
+#include "fsobjectnames.h" // <FS:Trish/>
 #include "fsregionluascripts.h"
 // </FS:Ansariel> [FS communication UI]
 #include "llmarketplacefunctions.h"
@@ -4901,6 +4902,8 @@ void process_object_properties_family(LLMessageSystem *msg, void**user_data)
     {
         NACLAntiSpamRegistry::instance().processObjectPropertiesFamily(msg);
     }
+
+    FSObjectNames::processPropertiesFamily(msg); // <FS:Trish/> Names of links the Content tab asked for
 }
 // </FS:Ansariel>
 

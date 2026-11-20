@@ -71,6 +71,7 @@
 // [RLVa:KB] - Checked: 2010-08-25 (RLVa-1.2.2a)
 #include "llslurl.h"
 #include "rlvactions.h"
+#include "fsobjectnames.h" // <FS:Trish/>
 #include "rlvcommon.h"
 // [/RLVa:KB]
 // <FS:CR> For OpenSim export permisson
@@ -655,6 +656,14 @@ void LLPanelPermissions::refresh()
         }
 // /FIRE-777
     }
+
+    // <FS:Trish> Remember which objects the name and description fields stand for, while neither is being edited.
+    // A field commits when it loses focus, which can be after the selection changed.
+    if (keyboard_focus_view != LineEditorObjectName && keyboard_focus_view != LineEditorObjectDesc)
+    {
+        FSObjectNames::collectTargets(LLSelectMgr::getInstance()->getSelection(), root_selected, mNameDescTargets);
+    }
+    // </FS:Trish>
 
     // figure out the contents of the name, description, & category
     bool edit_name_desc = false;
@@ -1377,6 +1386,22 @@ void LLPanelPermissions::onCommitExport(LLUICtrl* ctrl, void* data)
 }
 // </FS:CR>
 
+// <FS:Trish> The text shown for a multiple selection is not a name to give the objects. Only while the field
+// still holds what refresh() put there: typed in by the user, it is a name like any other.
+static bool is_placeholder(LLPanelPermissions* panel, const LLLineEditor* editor)
+{
+    if (editor->isDirty())
+    {
+        return false;
+    }
+    std::string placeholder = panel->getString("multiple selection");
+    std::string value = editor->getText();
+    LLStringUtil::trim(placeholder);
+    LLStringUtil::trim(value);
+    return !placeholder.empty() && value == placeholder;
+}
+// </FS:Trish>
+
 // static
 void LLPanelPermissions::onCommitName(LLUICtrl*, void* data)
 {
@@ -1386,7 +1411,19 @@ void LLPanelPermissions::onCommitName(LLUICtrl*, void* data)
     {
         return;
     }
-    LLSelectMgr::getInstance()->selectionSetObjectName(tb->getText());
+    // <FS:Trish> Only to the objects the field was showing, and never the "Multiple selection" placeholder
+    //LLSelectMgr::getInstance()->selectionSetObjectName(tb->getText());
+    if (is_placeholder(self, tb))
+    {
+        return;
+    }
+    if (tb->getText().empty())
+    {   // an object keeps its name: show it again instead of leaving the field empty
+        self->refresh();
+        return;
+    }
+    FSObjectNames::send(self->mNameDescTargets, tb->getText(), false);
+    // </FS:Trish>
     LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
     if (selection->isAttachment() && (selection->getNumNodes() == 1) && !tb->getText().empty())
     {
@@ -1414,7 +1451,14 @@ void LLPanelPermissions::onCommitDesc(LLUICtrl*, void* data)
     {
         return;
     }
-    LLSelectMgr::getInstance()->selectionSetObjectDescription(le->getText());
+    // <FS:Trish> Only to the objects the field was showing, and never the "Multiple selection" placeholder
+    //LLSelectMgr::getInstance()->selectionSetObjectDescription(le->getText());
+    if (is_placeholder(self, le))
+    {
+        return;
+    }
+    FSObjectNames::send(self->mNameDescTargets, le->getText(), true);
+    // </FS:Trish>
     LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
     if (selection->isAttachment() && (selection->getNumNodes() == 1))
     {

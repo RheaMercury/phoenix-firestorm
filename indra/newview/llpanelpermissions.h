@@ -106,6 +106,10 @@ private:
     //boost::signals2::connection mCreatorCacheConnection;
 
     LLPointer<LLViewerObject> mLastSelectedObject;
+
+    // <FS:Trish> The objects the name and description fields were filled from; a commit goes to these only
+    uuid_vec_t mNameDescTargets;
+    // </FS:Trish>
 };
 
 

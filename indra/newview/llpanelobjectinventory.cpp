@@ -75,6 +75,7 @@
 #include "llfloaterproperties.h" // <FS:Ansariel> Keep legacy properties floater
 // <FS:Trish> Whole linkset view
 #include "fslinksetinventoryloader.h"
+#include "fsobjectnames.h"
 #include "llframetimer.h"
 #include <unordered_set>
 // </FS:Trish>
@@ -3182,6 +3183,9 @@ void LLPanelObjectInventory::refreshLinkset(LLViewerObject* root)
         }
     }
 
+    // A few name requests per refresh; requestName() won't ask for the same prim again for 30 s
+    const S32 MAX_NAME_REQUESTS_PER_REFRESH = 16;
+    S32 name_requests = 0;
     for (LLViewerObject* link : links)
     {
         const LLUUID& link_id = link->getID();
@@ -3198,6 +3202,33 @@ void LLPanelObjectInventory::refreshLinkset(LLViewerObject* root)
         {
             folder.mName = node->mName;
             relabel_link_folder(mFolders, folder.mFolder, getLinkLabel(link_id));
+        }
+        else if (!node)
+        {
+            // A link that isn't selected (Edit linked with one part selected): its name
+            // isn't known yet, so ask the region rather than label it "(unnamed)".
+            // The answer refreshes the floater, which comes back here.
+            std::string name;
+            if (FSObjectNames::getName(link_id, name))
+            {
+                if (!name.empty() && name != folder.mName)
+                {
+                    folder.mName = name;
+                    relabel_link_folder(mFolders, folder.mFolder, getLinkLabel(link_id));
+                }
+                // <FS:Trish> A link renamed since (a script, another viewer): asked again once the answer is old
+                if (FSObjectNames::nameIsOld(link_id) && name_requests < MAX_NAME_REQUESTS_PER_REFRESH)
+                {
+                    ++name_requests;
+                    FSObjectNames::requestName(link);
+                }
+                // </FS:Trish>
+            }
+            else if (folder.mName.empty() && name_requests < MAX_NAME_REQUESTS_PER_REFRESH)
+            {
+                ++name_requests;
+                FSObjectNames::requestName(link);
+            }
         }
 
         if (mLinksetLoader->isLoaded(link_id))
