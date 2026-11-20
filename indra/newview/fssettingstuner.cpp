@@ -37,6 +37,7 @@
 #include "lldir.h"
 #include "llfile.h"
 #include "llgl.h"
+#include "llperfstats.h"
 #include "llscrolllistcell.h"
 #include "llscrolllistctrl.h"
 #include "llscrolllistitem.h"
@@ -58,6 +59,12 @@
 
 bool FSSettingsTuner::sMeasuring = false;
 
+// llviewercontrol.cpp: settings set between these two reload the reflection probes, their GL buffers
+// and the shaders once, at the end, instead of once each. Declared here rather than in
+// llviewercontrol.h, which most of the viewer includes.
+void fs_begin_settings_batch();
+void fs_end_settings_batch();
+
 namespace
 {
     // A second to let the GPU timers (turned on for the measurement) and the scene settle, then the
@@ -76,6 +83,12 @@ namespace
     // A frame time change smaller than this (and than 2% of the frame) is within what two measurements
     // of the same scene differ by
     constexpr F64 COMPARE_NOISE_MS = 0.3;
+    // A frame longer than this is a hitch (a shader build, a burst of texture or mesh loading, the
+    // window losing focus), not the scene's steady cost: it is left out of the averages and counted
+    constexpr F64 HITCH_SECONDS = 0.25;
+    // A shader reload or a Render*/FS* setting change during the measurement starts it over; after
+    // this many it gives up instead
+    constexpr U32 MAX_RESTARTS = 5;
 
     const char* RULES_FILE = "fs_settings_tuner_rules.xml";
     const char* UNDO_FILE = "fs_settings_tuner_undo.xml";
@@ -100,6 +113,8 @@ namespace
     {
         F64 mSeconds = 0.0;
         U32 mFrames = 0;
+        U32 mHitches = 0;       // frames over HITCH_SECONDS, left out
+        F64 mHitchMaxMs = 0.0;
         F64 mFrameMs = 0.0;
         F64 mFps = 0.0;
         F64 mSleepMs = 0.0;     // the frame limiter's sleep
@@ -141,6 +156,12 @@ namespace
     Measurement sResult;
 
     U32 sFrames = 0;
+    F64 sFrameSeconds = 0.0;    // the frames kept
+    F64 sLastFrameT = 0.0;
+    U32 sHitches = 0;
+    F64 sHitchMaxMs = 0.0;
+    bool sSkipCPU = false;      // the frame the block timers are about to report was a hitch
+    S32 sPendingSleepMs = 0;    // the limiter's sleep at the end of the frame not yet judged
     F64 sSleepMs = 0.0;
     std::unordered_map<const void*, CPUEntry> sCPU;
     U32 sCPUFrames = 0;
@@ -158,9 +179,21 @@ namespace
     F64 sFullSum = 0.0;
     F64 sNextSceneSample = 0.0;
 
+    // Restarts: what changed, and the Render*/FS* settings watched while measuring
+    U32 sRestarts = 0;
+    bool sRestartWanted = false;
+    std::string sRestartReason;
+    std::vector<boost::signals2::connection> sWatched;
+
     void resetSums()
     {
         sFrames = 0;
+        sFrameSeconds = 0.0;
+        sLastFrameT = 0.0;
+        sHitches = 0;
+        sHitchMaxMs = 0.0;
+        sSkipCPU = false;
+        sPendingSleepMs = 0;
         sSleepMs = 0.0;
         sCPU.clear();
         sCPUFrames = 0;
@@ -174,8 +207,59 @@ namespace
         sNextSceneSample = 0.0;
     }
 
+    void settingChanged(LLControlVariable* control)
+    {
+        if (!sRestartWanted && control)
+        {
+            sRestartWanted = true;
+            sRestartReason = control->getName();
+        }
+    }
+
+    // A change to a Render* or FS* setting, from Preferences, a preset, a menu or a script command,
+    // changes what is measured. Connected for the measurement only, so outside it nothing is
+    // watched. FSInternal* (UI state) and LLSD settings (stored data, such as FSGDDArenaPeaks)
+    // are not settings of the scene's cost, nor are the ones the viewer writes for itself as it runs:
+    // the draw distance saved for the stepping after a teleport, the shader cache's version and
+    // the one-shot performance test. (Automatic FPS tuning and that stepping change real settings
+    // all the time: the measurement doesn't start while either runs.)
+    struct WatchSettings : public LLControlGroup::ApplyFunctor
+    {
+        void apply(const std::string& name, LLControlVariable* control) override
+        {
+            if (!control || control->type() == TYPE_LLSD || name.compare(0, 10, "FSInternal") == 0 ||
+                (name.compare(0, 6, "Render") != 0 && name.compare(0, 2, "FS") != 0) ||
+                name == "FSSavedRenderFarClip" || name == "RenderShaderCacheVersion" || name == "RenderPerformanceTest")
+            {
+                return;
+            }
+            sWatched.push_back(control->getSignal()->connect(
+                [](LLControlVariable* changed, const LLSD&, const LLSD&) { settingChanged(changed); }));
+        }
+    };
+
+    void watchSettings()
+    {
+        if (sWatched.empty())
+        {
+            WatchSettings watch;
+            gSavedSettings.applyToAll(&watch);
+        }
+    }
+
+    void unwatchSettings()
+    {
+        for (boost::signals2::connection& connection : sWatched)
+        {
+            connection.disconnect();
+        }
+        sWatched.clear();
+        sRestartWanted = false;
+    }
+
     void abortMeasure(const std::string& reason)
     {
+        unwatchSettings();
         FSGPUTimers::stopCapture();
         FSSettingsTuner::sMeasuring = false;
         sState = STATE_ABORTED;
@@ -183,8 +267,15 @@ namespace
         sCPU.clear();
     }
 
-    void beginMeasure()
+    void beginMeasure(bool restart = false)
     {
+        if (!restart)
+        {
+            sRestarts = 0;
+            sRestartReason.clear();
+            watchSettings();
+        }
+        sRestartWanted = false;
         resetSums();
         sAbortReason.clear();
         sResult = Measurement();
@@ -196,6 +287,7 @@ namespace
 
     void cancelMeasure()
     {
+        unwatchSettings();
         if (FSSettingsTuner::sMeasuring)
         {
             FSGPUTimers::stopCapture();
@@ -373,9 +465,12 @@ namespace
     {
         Measurement& m = sResult;
         m = Measurement();
+        unwatchSettings();
         m.mSeconds = sTimer.getElapsedTimeF64();
         m.mFrames = sFrames;
-        m.mFrameMs = sFrames ? m.mSeconds * 1000.0 / sFrames : 0.0;
+        m.mHitches = sHitches;
+        m.mHitchMaxMs = sHitchMaxMs;
+        m.mFrameMs = sFrames ? sFrameSeconds * 1000.0 / sFrames : 0.0;
         m.mFps = m.mFrameMs > 0.0 ? 1000.0 / m.mFrameMs : 0.0;
         m.mSleepMs = sFrames ? sSleepMs / sFrames : 0.0;
 
@@ -425,6 +520,12 @@ namespace
         m.mVSync = vsync;
 
         classify(m);
+        if (m.mHitches)
+        {
+            m.mSentence += llformat(" %u %s over %.0f ms (the longest %.0f ms) %s left out of the averages.", m.mHitches,
+                                    m.mHitches == 1 ? "frame" : "frames", HITCH_SECONDS * 1000.0, m.mHitchMaxMs,
+                                    m.mHitches == 1 ? "was" : "were");
+        }
         FSSettingsTuner::sMeasuring = false;
         sState = STATE_DONE;
     }
@@ -722,6 +823,26 @@ void FSSettingsTuner::frame()
         abortMeasure("The measurement stopped: a teleport or logout interrupted it. Press Measure again.");
         return;
     }
+    if (LLPerfStats::tunables.userAutoTuneEnabled)
+    {
+        abortMeasure("The measurement stopped: automatic FPS tuning was switched on, and it changes settings all the "
+                     "time. Switch it off and press Measure again.");
+        return;
+    }
+    if (sRestartWanted)
+    {
+        // Whatever changed costs its own frames (a shader build, buffers made again) and changes
+        // the scene's cost from then on: what was measured so far describes neither
+        if (++sRestarts > MAX_RESTARTS)
+        {
+            abortMeasure("The measurement stopped: settings kept changing during it (last " + sRestartReason +
+                         "). Press Measure again once they have settled.");
+            return;
+        }
+        LL_INFOS("SettingsTuner") << "Measuring again from the start: " << sRestartReason << " changed" << LL_ENDL;
+        beginMeasure(true);
+        return;
+    }
 
     const F64 t = sTimer.getElapsedTimeF64();
     if (sState == STATE_WARMUP)
@@ -745,7 +866,21 @@ void FSSettingsTuner::frame()
         return;
     }
 
+    // The frame that just ended: from the last call to this one, with the limiter's sleep at its end
+    const F64 dt = t - sLastFrameT;
+    sLastFrameT = t;
+    const S32 sleep_ms = sPendingSleepMs;
+    sPendingSleepMs = 0;
+    sSkipCPU = dt > HITCH_SECONDS;
+    if (sSkipCPU)
+    {
+        ++sHitches;
+        sHitchMaxMs = llmax(sHitchMaxMs, dt * 1000.0);
+        return;
+    }
     ++sFrames;
+    sFrameSeconds += dt;
+    sSleepMs += (F64)sleep_ms;
     const F64 bias = LLViewerTexture::sDesiredDiscardBias;
     sBiasSum += bias;
     sBiasMax = llmax(sBiasMax, bias);
@@ -764,7 +899,8 @@ void FSSettingsTuner::frame()
 
 bool FSSettingsTuner::wantCPUZones()
 {
-    if (!sMeasuring || sState != STATE_CAPTURE)
+    // fs_log_profile runs after frame() and reads the block timers of the frame frame() just judged
+    if (!sMeasuring || sState != STATE_CAPTURE || sSkipCPU)
     {
         return false;
     }
@@ -787,7 +923,16 @@ void FSSettingsTuner::addCapSleepMs(S32 ms)
 {
     if (sState == STATE_CAPTURE)
     {
-        sSleepMs += (F64)ms;
+        sPendingSleepMs += ms; // counted with its frame, unless that was a hitch
+    }
+}
+
+void FSSettingsTuner::restartForShaderReload()
+{
+    if (!sRestartWanted)
+    {
+        sRestartWanted = true;
+        sRestartReason = "a shader reload";
     }
 }
 
@@ -851,7 +996,21 @@ void FSFloaterSettingsTuner::startMeasure()
         mSummary->setText(getString("not_in_world"));
         return;
     }
+    // Both change the draw distance and avatar settings every few seconds: every change would start the
+    // measurement over, and five end it
+    if (LLPerfStats::tunables.userAutoTuneEnabled)
+    {
+        mSummary->setText(getString("autotune_on"));
+        return;
+    }
+    if (gSavedDrawDistance > 0.f)
+    {
+        mSummary->setText(getString("draw_distance_stepping"));
+        return;
+    }
     beginMeasure();
+    mShownSeconds = -1;
+    mShownRestarts = 0;
     mSuggestions.clear();
     mList->deleteAllItems();
     mDetails->setText(LLStringUtil::null);
@@ -864,9 +1023,23 @@ void FSFloaterSettingsTuner::draw()
     {
         const F64 left = sState == STATE_WARMUP ? CAPTURE_SECONDS + WARMUP_SECONDS - sTimer.getElapsedTimeF64()
                                                 : CAPTURE_SECONDS - sTimer.getElapsedTimeF64();
-        LLStringUtil::format_map_t args;
-        args["[SECONDS]"] = llformat("%d", (S32)llmax(0.0, std::ceil(left)));
-        mSummary->setText(getString("measuring", args));
+        // setText reflows the whole text box: only when the countdown or the restart changes
+        const S32 seconds = (S32)llmax(0.0, std::ceil(left));
+        if (seconds != mShownSeconds || sRestarts != mShownRestarts)
+        {
+            mShownSeconds = seconds;
+            mShownRestarts = sRestarts;
+            LLStringUtil::format_map_t args;
+            args["[SECONDS]"] = llformat("%d", seconds);
+            std::string text = getString("measuring", args);
+            if (sRestarts > 0)
+            {
+                LLStringUtil::format_map_t restart_args;
+                restart_args["[CHANGE]"] = sRestartReason;
+                text += " " + getString("measure_restarted", restart_args);
+            }
+            mSummary->setText(text);
+        }
     }
     else if (sState == STATE_DONE)
     {
@@ -1151,7 +1324,17 @@ void FSFloaterSettingsTuner::onApply()
     // The previous value of every setting about to change, written down first so a crash or restart
     // keeps the undo. Settings that rebuild the shaders are all set in this one go, and the viewer
     // rebuilds them once for all of them.
+    // Undo puts back everything changed since the last Undo: the record of earlier Applies is kept,
+    // and a setting already in it keeps the value it had before the first of them.
     LLSD previous = LLSD::emptyMap();
+    {
+        LLSD earlier;
+        llifstream file(undoPath().c_str());
+        if (file.is_open() && LLSDSerialize::fromXML(earlier, file) != LLSDParser::PARSE_FAILURE && earlier["Settings"].isMap())
+        {
+            previous = earlier["Settings"];
+        }
+    }
     std::vector<std::pair<std::string, LLSD>> changes;
     for (S32 i : picked)
     {
@@ -1198,15 +1381,20 @@ void FSFloaterSettingsTuner::onApply()
             LL_WARNS("SettingsTuner") << "Cannot write " << undoPath() << "; Undo will not survive a restart" << LL_ENDL;
         }
     }
+    // The reflection probe and SSR settings rebuild the GL buffers and the shaders at once on each
+    // change: in a batch that runs once, after all of them
+    fs_begin_settings_batch();
     for (const auto& [name, value] : changes)
     {
         LLControlVariablePtr control = gSavedSettings.getControl(name);
         if (control)
         {
-            LL_INFOS("SettingsTuner") << "Applying " << name << " = " << value << " (was " << previous[name] << ")" << LL_ENDL;
+            LL_INFOS("SettingsTuner") << "Applying " << name << " = " << value << " (was " << control->getValue() << ", Undo restores "
+                                      << previous[name] << ")" << LL_ENDL;
             control->setValue(value);
         }
     }
+    fs_end_settings_batch();
     evaluate(); // what was applied no longer changes anything and drops out of the list
     mDetails->setText(getString("applied"));
 }
@@ -1239,6 +1427,7 @@ void FSFloaterSettingsTuner::onUndo()
     }
     rememberBaseline();
     mBaseChanges += mBaseChanges.empty() ? "Undo" : "; Undo";
+    fs_begin_settings_batch();
     for (const auto& [name, value] : llsd::inMap(undo["Settings"]))
     {
         LLControlVariablePtr control = gSavedSettings.getControl(name);
@@ -1248,6 +1437,7 @@ void FSFloaterSettingsTuner::onUndo()
             control->setValue(value);
         }
     }
+    fs_end_settings_batch();
     LLFile::remove(path);
     evaluate();
     mDetails->setText(getString("undone"));
@@ -1266,8 +1456,8 @@ void FSFloaterSettingsTuner::onCopyReport()
         report += mCompareText + "\n";
     }
     report += m.mSentence + "\n";
-    report += llformat("Frames %u over %.0f s; frame limit %u fps, vsync %s; main thread busy %.2f, swap %.2f, waiting %.2f, limiter sleep %.2f ms a frame\n",
-                       m.mFrames, m.mSeconds, m.mFPSLimit, m.mVSync ? "on" : "off", m.mCPUBusyMs, m.mSwapMs, m.mWaitMs, m.mSleepMs);
+    report += llformat("Frames %u over %.0f s (%u over %.0f ms left out, the longest %.0f ms); frame limit %u fps, vsync %s; main thread busy %.2f, swap %.2f, waiting %.2f, limiter sleep %.2f ms a frame\n",
+                       m.mFrames, m.mSeconds, m.mHitches, HITCH_SECONDS * 1000.0, m.mHitchMaxMs, m.mFPSLimit, m.mVSync ? "on" : "off", m.mCPUBusyMs, m.mSwapMs, m.mWaitMs, m.mSleepMs);
     report += llformat("Textures: bias avg %.2f max %.2f, above %.1f %.0f%% of the time, memory short %.0f%% of the time, %.0f of %.0f MB used",
                        m.mBiasAvg, m.mBiasMax, BIAS_HIGH, m.mBiasHighFrac * 100.0, m.mTightFrac * 100.0, m.mVRAMUsedMB, m.mVRAMTargetMB);
     if (m.mLiveFreeMB >= 0)

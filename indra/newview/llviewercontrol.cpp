@@ -633,8 +633,72 @@ static bool handleRenderDynamicLODChanged(const LLSD& newvalue)
     return true;
 }
 
+// <FS:Trish> Settings batches (the settings tuner's Apply and Undo): the probe settings below rebuild
+// the GL buffers and the shaders at once, so three of them set together cost three full rebuilds.
+// Within a batch they only note that it is due, and the end of the batch runs it once.
+static S32 sFSSettingsBatch = 0;
+static bool sFSProbeChangePending = false;
+
+// The probes and the GL buffers made again for the new settings; the shaders are loaded by the caller
+static void fs_reset_probe_buffers()
+{
+    gPipeline.mReflectionMapManager.refreshSettings();
+    if (gPipeline.isInit())
+    {
+        LLPipeline::refreshCachedSettings();
+        gPipeline.mReflectionMapManager.reset();
+        gPipeline.mHeroProbeManager.reset();
+        gPipeline.releaseGLBuffers();
+        gPipeline.createGLBuffers();
+    }
+}
+
+void fs_begin_settings_batch()
+{
+    ++sFSSettingsBatch;
+}
+
+void fs_end_settings_batch()
+{
+    if (sFSSettingsBatch <= 0 || --sFSSettingsBatch > 0)
+    {
+        return;
+    }
+    if (!sFSProbeChangePending)
+    {
+        return; // other shader settings coalesce on their own (handleSetShaderChanged)
+    }
+    sFSProbeChangePending = false;
+    fs_reset_probe_buffers();
+    if (!gPipeline.isInit())
+    {
+        return;
+    }
+    if (sShaderReloadPending)
+    {
+        // The batch also changed settings that reload the shaders: that reload, now, loads them for
+        // the probe settings as well, in one go
+        sShaderReloadPending = false;
+        sShaderReloadRunning = true;
+        handleSetShaderChanged(LLSD());
+        sShaderReloadRunning = false;
+    }
+    else
+    {
+        LLViewerShaderMgr::instance()->setShaders();
+    }
+}
+// </FS:Trish>
+
 static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
 {
+    // <FS:Trish> Settings batches: once, at the end
+    if (sFSSettingsBatch > 0)
+    {
+        sFSProbeChangePending = true;
+        return true;
+    }
+    // </FS:Trish>
     gPipeline.mReflectionMapManager.refreshSettings();
     if (gPipeline.isInit())
     {

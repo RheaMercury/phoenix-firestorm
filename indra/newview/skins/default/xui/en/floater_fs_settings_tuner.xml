@@ -13,12 +13,15 @@
  single_instance="true">
     <string name="measuring">Measuring... [SECONDS] s left. Stay in a typical place for you and keep the camera mostly still.</string>
     <string name="measure_cancelled">The measurement was cancelled.</string>
+    <string name="measure_restarted">Started over: [CHANGE] changed during the measurement.</string>
     <string name="not_in_world">Log in and arrive in-world to measure.</string>
+    <string name="autotune_on">Automatic FPS tuning is on: it changes settings while the measurement runs. Switch it off (Performance floater) and press Measure again.</string>
+    <string name="draw_distance_stepping">The draw distance is still stepping up after the teleport. Press Measure again in a few seconds.</string>
     <string name="no_suggestions">No setting changes to suggest for this scene.</string>
     <string name="pick_suggestions">Tick the suggestions you want and press Apply selected. Select a row for its description.</string>
     <string name="nothing_ticked">Tick a suggestion first (or select one row).</string>
     <string name="applied">Applied. Undo puts the previous values back. Press Measure again in the same place to see whether it helped: the summary then compares the frame time before and after.</string>
-    <string name="undone">The last applied changes are undone.</string>
+    <string name="undone">Every change applied since the last Undo is undone: those settings have their earlier values again.</string>
     <string name="one_side_only">The main thread and the graphics card are both near their limit. This saves time on one side only, and the other side then holds the frame back, so on its own it gains little. Tick it together with a suggestion for the other side.</string>
     <string name="copied">The report is on the clipboard.</string>
     <text
@@ -80,7 +83,7 @@
     <button
      name="undo"
      label="Undo"
-     tool_tip="Put back the settings the last Apply changed"
+     tool_tip="Put back every setting Apply changed since the last Undo, to the value it had before the first of those changes (also across a restart)"
      layout="topleft"
      follows="left|bottom"
      left_pad="4"

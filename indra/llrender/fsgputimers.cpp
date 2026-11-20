@@ -87,7 +87,10 @@ namespace
     U32 sDroppedZones = 0;                  // zones past MAX_ZONES_PER_FRAME, not timed
     LLTimer sLogTimer;
 
-    // The settings tuner's capture: the same sums over the whole measurement
+    // The settings tuner's capture: the same sums over the whole measurement. A frame whose GPU time alone is
+    // over the tuner's hitch limit (a driver shader build, VRAM paging) is left out, as the tuner leaves out the
+    // hitch frames of the main thread: in, it outweighed the frames around it and the GPU looked the limit.
+    constexpr U64 CAPTURE_HITCH_NS = 250000000ULL;  // fssettingstuner.cpp HITCH_SECONDS
     bool sCapture = false;
     std::unordered_map<std::string, Total> sCapTotals;
     U64 sCapFrameNs = 0;
@@ -211,10 +214,12 @@ namespace
     {
         U64 t0 = 0;
         U64 t1 = 0;
+        bool capture = sCapture;
         if (timestamp(f.mFrameBegin, t0) && timestamp(f.mFrameEnd, t1) && t1 > t0)
         {
             sFrameNs += t1 - t0;
-            if (sCapture)
+            capture = capture && t1 - t0 <= CAPTURE_HITCH_NS;
+            if (capture)
             {
                 sCapFrameNs += t1 - t0;
             }
@@ -234,7 +239,7 @@ namespace
             Total& total = sTotals[nameOf(r.mName)];
             total.mNs += e > b ? e - b : 0;
             ++total.mCalls;
-            if (sCapture)
+            if (capture)
             {
                 Total& cap = sCapTotals[nameOf(r.mName)];
                 cap.mNs += e > b ? e - b : 0;
@@ -242,7 +247,7 @@ namespace
             }
         }
         ++sFrames;
-        if (sCapture)
+        if (capture)
         {
             ++sCapFrames;
         }

@@ -56,6 +56,17 @@ namespace FSSettingsTuner
     // The frame limiter slept this long (LLAppViewer::doFrame)
     inline void addCapSleep(S32 ms);
     void addCapSleepMs(S32 ms);
+    // The shaders are being loaded (LLViewerShaderMgr::setShaders): a measurement running starts over
+    inline void noteShaderReload();
+    void restartForShaderReload();
+}
+
+inline void FSSettingsTuner::noteShaderReload()
+{
+    if (sMeasuring)
+    {
+        restartForShaderReload();
+    }
 }
 
 inline void FSSettingsTuner::addCapSleep(S32 ms)
@@ -113,6 +124,9 @@ private:
 
     bool mHaveMeasurement = false;
     std::string mSummaryText;
+    // The countdown shown while measuring, so the text is set again only when it changes
+    S32 mShownSeconds = -1;
+    U32 mShownRestarts = 0;
 
     // The measurement before the first Apply or Undo since it, so the next measurement can say
     // whether the change helped

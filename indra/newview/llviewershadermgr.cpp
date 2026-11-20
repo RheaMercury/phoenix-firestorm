@@ -59,6 +59,7 @@
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 #include "fsshadowdepthfit.h" // <FS:Trish/>
+#include "fssettingstuner.h" // <FS:Trish/> a measurement starts over on a shader reload
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
 #include "fssoftparticles.h" // <FS:Trish/>
@@ -987,6 +988,7 @@ void LLViewerShaderMgr::setShaders()
         return;
     }
 
+    FSSettingsTuner::noteShaderReload(); // <FS:Trish/> its frames and what it changes are not the scene's cost
     mShaderList.clear();
 
     if (!gGLManager.mHasRequirements)
