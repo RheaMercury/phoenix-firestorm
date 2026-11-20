@@ -899,6 +899,14 @@ void LLVertexBuffer::fsReleaseVAOs()
 static std::atomic<U32> sFSNextContentSerial{ 0 };
 // </FS:Trish>
 U32 LLVertexBuffer::sFSInstanceCount = 0; // <FS:Trish/> FSPerfShadowSinglePass
+// <FS:Trish> FSRenderSkinOnce
+LLVertexBuffer::fs_skin_once_hook_t LLVertexBuffer::sFSSkinOnceHook = nullptr;
+LLVertexBuffer::fs_skin_once_serves_t LLVertexBuffer::sFSSkinOnceServes = nullptr;
+U64 LLVertexBuffer::sFSPreskinLayout = 0;
+U32 LLVertexBuffer::sFSPreskinBuffer = 0;
+U32 LLVertexBuffer::sFSPreskinFirst = 0;
+U32 LLVertexBuffer::sFSPreskinCapacity = 0;
+// </FS:Trish>
 U32 LLVertexBuffer::sVertexCount = 0;
 
 // <FS:Beq> Track configured attributes separately from upload bindings.
@@ -1170,6 +1178,13 @@ void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indi
     llassert(mGLIndices == sGLRenderIndices);
     gGL.syncMatrices();
     STOP_GLERROR;
+    // <FS:Trish> FSRenderSkinOnce: vertices skinned once this frame, or the shader skins them as before
+    if (sFSSkinOnceHook && LLGLSLShader::sCurBoundShaderPtr && LLGLSLShader::sCurBoundShaderPtr->mFeatures.hasObjectSkinning)
+    {
+        sFSSkinOnceHook(this, start, end);
+        STOP_GLERROR;
+    }
+    // </FS:Trish>
     // <FS:Trish> FSPerfShadowSinglePass: one instance per sun cascade
     if (sFSInstanceCount)
     {
@@ -1259,6 +1274,7 @@ void LLVertexBuffer::invalidateAttributeSetup()
     sConfiguredAttributeLayoutID = 0;
     sConfiguredAttributeBuffer = 0;
     sConfiguredAttributeMask = 0;
+    sFSPreskinLayout = 0; // <FS:Trish/> FSRenderSkinOnce: the next setBuffer() sets every pointer up again
 }
 // </FS:Beq>
 
@@ -2176,7 +2192,13 @@ void LLVertexBuffer::setBuffer()
             glDeleteVertexArrays(1, &vao);
         }
     }
-    if (sFSVAOEnabled && mGLBuffer)
+    // FSRenderSkinOnce: while the global object's pointers read this buffer's pre-skinned vertices, stay in it
+    // (the checks below find its layout set up), so the draws of a run don't each rebuild it; the skinning hook
+    // puts the buffer's own pointers back where a draw doesn't want them
+    // ...and a buffer whose draws are about to read its skinned copy is set up there in the first place: its own
+    // object would be left at the draw, after building or binding it for nothing
+    const bool fs_preskinned = sFSPreskinLayout != 0 && sFSPreskinLayout == mAttributeLayoutID && sFSBoundVAO == sFSDefaultVAO;
+    if (sFSVAOEnabled && mGLBuffer && !fs_preskinned && !(sFSSkinOnceServes && sFSSkinOnceServes(this)))
     {
         if (mFSVAOGeneration != sFSVAOGenerationNow)
         {   // made in an earlier context: the names are gone with it
@@ -2394,8 +2416,92 @@ void LLVertexBuffer::setupVertexBuffer()
     sConfiguredAttributeBuffer = mGLBuffer;
     sConfiguredAttributeMask = data_mask;
     // </FS:Beq>
+    sFSPreskinLayout = 0; // <FS:Trish/> FSRenderSkinOnce: every pointer is this buffer's own again
     STOP_GLERROR;
 }
+
+// <FS:Trish> FSRenderSkinOnce (see the header). Main thread, with a skinning program bound and this buffer set.
+bool LLVertexBuffer::fsBindPreskinned(U32 gl_buffer, U32 first, U32 capacity) const
+{
+    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    if (!shader || !gl_buffer || !mGLBuffer)
+    {
+        return false;
+    }
+    const U32 data_mask = shader->mAttributeMask;
+    if (sFSPreskinLayout == mAttributeLayoutID && sFSPreskinBuffer == gl_buffer && sFSPreskinFirst == first &&
+        sFSPreskinCapacity == capacity && sFSBoundVAO == sFSDefaultVAO && sConfiguredAttributeMask == data_mask &&
+        sGLRenderBuffer == mGLBuffer && sGLRenderIndices == mGLIndices)
+    {   // already so
+        return false;
+    }
+    // The global object with this program's arrays enabled: a buffer's own object must keep its own pointers.
+    // Every attribute from this buffer first, as setBuffer() would, then the three skinned ones moved over. When
+    // the global object is bound and its pointers are this buffer's for this program already (setBuffer() just
+    // set them up, or they read an earlier copy of it), only the three are moved.
+    const bool own_pointers = sFSBoundVAO == sFSDefaultVAO && sConfiguredAttributeLayoutID == mAttributeLayoutID &&
+                              sConfiguredAttributeBuffer == mGLBuffer && sConfiguredAttributeMask == data_mask;
+    setupClientArrays(data_mask);
+    if (sGLRenderBuffer != mGLBuffer)
+    {
+        glBindBuffer(GL_ARRAY_BUFFER, mGLBuffer);
+        sGLRenderBuffer = mGLBuffer;
+    }
+    if (!own_pointers)
+    {
+        const_cast<LLVertexBuffer*>(this)->setupVertexBuffer();
+    }
+    if (mGLIndices != sGLRenderIndices)
+    {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mGLIndices);
+        sGLRenderIndices = mGLIndices;
+    }
+
+    const size_t stride = sizeof(LLVector4);
+    const size_t base = (size_t)first * stride;
+    const size_t region = (size_t)capacity * stride;
+    glBindBuffer(GL_ARRAY_BUFFER, gl_buffer);
+    if (data_mask & MAP_VERTEX)
+    {
+        glVertexAttribPointer(TYPE_VERTEX, 3, GL_FLOAT, GL_FALSE, (GLsizei)stride, (void*)base);
+    }
+    if (data_mask & MAP_NORMAL)
+    {
+        glVertexAttribPointer(TYPE_NORMAL, 3, GL_FLOAT, GL_FALSE, (GLsizei)stride, (void*)(region + base));
+    }
+    if (data_mask & MAP_TANGENT)
+    {
+        glVertexAttribPointer(TYPE_TANGENT, 4, GL_FLOAT, GL_FALSE, (GLsizei)stride, (void*)(2 * region + base));
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, mGLBuffer);   // the texture index and the rest stay this buffer's
+
+    sFSPreskinLayout = mAttributeLayoutID;
+    sFSPreskinBuffer = gl_buffer;
+    sFSPreskinFirst = first;
+    sFSPreskinCapacity = capacity;
+    STOP_GLERROR;
+    return true;
+}
+
+void LLVertexBuffer::fsEndPreskinned() const
+{
+    if (sFSPreskinLayout == 0 || sFSPreskinLayout != mAttributeLayoutID || !mGLBuffer)
+    {
+        return;
+    }
+    if (sFSBoundVAO != sFSDefaultVAO)
+    {   // the pointers that read pre-skinned vertices are in the global object, not the one bound
+        return;
+    }
+    if (sGLRenderBuffer != mGLBuffer)
+    {
+        glBindBuffer(GL_ARRAY_BUFFER, mGLBuffer);
+        sGLRenderBuffer = mGLBuffer;
+    }
+    const_cast<LLVertexBuffer*>(this)->setupVertexBuffer();
+    STOP_GLERROR;
+}
+// </FS:Trish>
 
 void LLVertexBuffer::setPositionData(const LLVector4a* data)
 {

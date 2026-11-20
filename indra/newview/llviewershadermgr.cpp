@@ -54,6 +54,7 @@
 #include "fswindfield.h" // <FS:Trish/> FSRenderWindEffects
 #include "fsspotlightbatch.h" // <FS:Trish/>
 #include "fsskinpalettebuffer.h" // <FS:Trish/>
+#include "fsskinonce.h" // <FS:Trish/>
 #include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
@@ -1309,6 +1310,7 @@ void LLViewerShaderMgr::unloadShaders()
 {
     fsGDDReleaseGL(); // <FS:Trish/> FSPerfGPUDrivenDraws arenas
     FSSkinPaletteBuffer::release(); // <FS:Trish/> FSPerfRiggedPaletteBuffer
+    FSSkinOnce::release(); // <FS:Trish/> FSRenderSkinOnce
     while (!LLGLSLShader::sInstances.empty())
     {
         LLGLSLShader* shader = *(LLGLSLShader::sInstances.begin());
@@ -1384,6 +1386,9 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         }
         FSSkinPaletteBuffer::setShadersBuilt(palette_buffer);
     }
+    // </FS:Trish>
+    // <FS:Trish> FSRenderSkinOnce: the skinning code takes pre-skinned vertices where a draw has them (fsskinonce.cpp)
+    FSSkinOnce::configureShaders(attribs);
     // </FS:Trish>
 
     // Keep these choices in the global defines so shader binaries and all

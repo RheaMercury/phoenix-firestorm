@@ -1601,6 +1601,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSRenderSSRHiZ", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSPerfRiggedPaletteBuffer", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenRigged", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw rigged programs
+    setting_setup_signal_listener(gSavedSettings, "FSRenderSkinOnce", handleSetShaderChanged); // <FS:Trish/> FS_SKIN_ONCE in the skinning code
     setting_setup_signal_listener(gSavedSettings, "FSPerfGPUDrivenAlpha", handleSetShaderChanged); // <FS:Trish/> builds the multi-draw alpha programs
     setting_setup_signal_listener(gSavedSettings, "RenderMirrors", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderHeroProbeResolution", handleHeroProbeResolutionChanged);

@@ -100,6 +100,7 @@
 #include "fsvrs.h" // <FS:Trish/> Variable rate shading
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
+#include "fsskinonce.h" // <FS:Trish/>
 
 // <FS:PP> Render chat range spheres in 3D world
 #include "lfsimfeaturehandler.h"
@@ -961,6 +962,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
         }
         // </FS:Trish>
+        FSSkinOnce::beginFrame(); // <FS:Trish/> FSRenderSkinOnce: rigged meshes skinned once, before the first pass
         stop_glerror();
 
         LLGLState::checkStates();
@@ -1422,6 +1424,7 @@ void display_cube_face()
     LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
     LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
     gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+    FSSkinOnce::beginFrame(); // <FS:Trish/> FSRenderSkinOnce: once a frame, whichever view draws first
 
     gGL.setColorMask(true, true);
 

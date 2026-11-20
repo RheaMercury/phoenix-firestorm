@@ -239,6 +239,7 @@ set(viewer_SOURCE_FILES
     fsshadowdepthfit.cpp
     fsshadowscreenfilter.cpp
     fsshadowsinglepass.cpp
+    fsskinonce.cpp
     fsskinpalettebuffer.cpp
     fssoftparticles.cpp
     fsssrbuffer.cpp
@@ -1176,6 +1177,7 @@ set(viewer_HEADER_FILES
     fsshadowdepthfit.h
     fsshadowscreenfilter.h
     fsshadowsinglepass.h
+    fsskinonce.h
     fsskinpalettebuffer.h
     fssoftparticles.h
     fsssrbuffer.h

@@ -27064,6 +27064,50 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSRenderSkinOnce</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Rigged mesh vertex buffers that the draws of the last frame skinned at least FSRenderSkinOnceMinPasses times over are skinned once at the start of the frame by one compute pass (fsskinonce.cpp, avatar/fsSkinOnceC.glsl), and every later stock draw of them (G-buffer, sun and projector shadows, alpha, probes, impostors) reads the skinned positions, normals and tangents instead of blending joints in its vertex shader. Buffers that just came into view, changed, or are drawn by the GPU-driven rigged multi-draws are skinned in the shader as before. Needs OpenGL 4.3. Nothing should look different. Rebuilds shaders.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderSkinOnceMinPasses</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderSkinOnce: a rigged vertex buffer is skinned ahead only if last frame the draws that skinned it in their vertex shaders covered at least this many times its vertices (1 to 64). Lower skins more buffers ahead that are drawn only once or twice, where the extra pass may cost more than it saves.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>3.0</real>
+    </map>
+    <key>FSRenderSkinOnceBudgetMB</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderSkinOnce: most video memory one frame of skinned vertices may take, 16 to 4096 MB (48 bytes a vertex; two such buffers take turns by frame). Buffers that do not fit are skinned in the shader as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>192</integer>
+    </map>
+    <key>FSPerfSkinOnceStats</key>
+    <map>
+      <key>Comment</key>
+      <string>Every 10 seconds, log (FSSkinOnce) what FSRenderSkinOnce did per frame: buffers and vertices skinned once, the draws and vertices that reused them, the draws that skinned in the shader and why, and the memory used.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfGPUDrivenAlpha</key>
     <map>
       <key>Comment</key>

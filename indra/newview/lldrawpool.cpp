@@ -57,6 +57,7 @@
 #include "llappviewer.h" // gFrameTimeSeconds
 #include "llframetimer.h"
 #include "fsskinpalettebuffer.h" // <FS:Trish/>
+#include "fsskinonce.h" // <FS:Trish/>
 // </FS:Trish>
 
 S32 LLDrawPool::sNumDrawPools = 0;
@@ -791,8 +792,10 @@ static inline bool fs_palette_uploaded(U32 serial)
 
 // Uploads a palette to the bound program unless it has this build already, or with
 // FSPerfRiggedPaletteBuffer writes it into this frame's palette buffer (once) and binds its range
-static inline void fs_upload_palette(const LLVOAvatar::MatrixPaletteCache& mpc, U32 count)
+static inline void fs_upload_palette(const LLVOAvatar::MatrixPaletteCache& mpc, U32 count, const LLVOAvatar* avatar,
+                                     const LLMeshSkinInfo* skin)
 {
+    FSSkinOnce::noteSkin(avatar, skin, mpc.mFSBuildSerial); // FSRenderSkinOnce: the palette the next draws use
     if (FSSkinPaletteBuffer::active())
     {
         FSSkinPaletteBuffer::bind(mpc.mFSBuildSerial, mpc.mGLMp.data(), count, mpc.mSkinOrigin);
@@ -841,7 +844,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
         return false;
     }
 
-    fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+    fs_upload_palette(mpc, count, avatar, skinInfo); // <FS:Trish/> once per program, or into the palette buffer
 
     return true;
 }
@@ -881,7 +884,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+        fs_upload_palette(mpc, count, avatar, skinInfo); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;
@@ -923,7 +926,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo*
 
     if (!skipLastSkin)
     {
-        fs_upload_palette(mpc, count); // <FS:Trish/> once per program, or into the palette buffer
+        fs_upload_palette(mpc, count, avatar, skinInfo); // <FS:Trish/> once per program, or into the palette buffer
     }
 
     return !skipLastSkin;

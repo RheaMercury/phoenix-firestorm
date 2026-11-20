@@ -78,8 +78,25 @@ uniform vec3 skin_origin;
 #endif
 // </FS:Trish>
 
+// <FS:Trish> FSRenderSkinOnce (fsskinonce.cpp): 1 while the draw's position, normal and tangent attributes hold
+// vertices skinned earlier this frame (the blend below applied by fsSkinOnceC.glsl, skin_origin not added). The
+// blend is then the identity, so every caller below and in the programs adds skin_origin and transforms exactly
+// as it does a vertex it skinned itself. The multi-drawn rigged programs (FS_GDD_RIGGED) always skin.
+#if defined(FS_SKIN_ONCE) && !defined(FS_GDD_RIGGED)
+uniform int fs_skin_once;
+#endif
+// </FS:Trish>
+
 mat3x4 getSkinBlend()
 {
+// <FS:Trish> FSRenderSkinOnce
+#if defined(FS_SKIN_ONCE) && !defined(FS_GDD_RIGGED)
+    if (fs_skin_once != 0)
+    {
+        return mat3x4(vec4(1.0, 0.0, 0.0, 0.0), vec4(0.0, 1.0, 0.0, 0.0), vec4(0.0, 0.0, 1.0, 0.0));
+    }
+#endif
+// </FS:Trish>
     SKIN_PRECISE vec4 w = fract(weight4);
     vec4 index = floor(weight4);
 

@@ -347,6 +347,21 @@ public:
     // draws this many instances, one per cascade the batch goes to. Zero everywhere else.
     static U32 sFSInstanceCount;
     // </FS:Trish>
+    // <FS:Trish> FSRenderSkinOnce (newview/fsskinonce.cpp): drawRange() calls the hook before each draw made with
+    // an object skinning program. The hook may point the position, normal and tangent attributes at vertices
+    // skinned earlier in the frame (fsBindPreskinned: one region of capacity vertices of 16 bytes each per
+    // attribute in gl_buffer, the draw's vertex i at first + i) or put them back (fsEndPreskinned). Only ever
+    // done in the global vertex array object, never in a buffer's own one; any setupVertexBuffer(), program
+    // bind or layout invalidation puts the buffer's own attributes back. Null: nothing changes.
+    typedef void (*fs_skin_once_hook_t)(const LLVertexBuffer* vb, U32 start, U32 end);
+    static fs_skin_once_hook_t sFSSkinOnceHook;
+    // Asked by setBuffer() (FSPerfVertexArrayObjects): the draws of this buffer with the bound program will read
+    // its skinned copy, so it is set up in the global object they use instead of in its own one
+    typedef bool (*fs_skin_once_serves_t)(const LLVertexBuffer* vb);
+    static fs_skin_once_serves_t sFSSkinOnceServes;
+    bool fsBindPreskinned(U32 gl_buffer, U32 first, U32 capacity) const; // true: pointers changed
+    void fsEndPreskinned() const;
+    // </FS:Trish>
     // <FS:Trish> GPU-driven draws (FSPerfGPUDrivenDraws, newview/fsgpudrivendraws.cpp) copy the positions and
     // indices of this buffer into shared arenas on the GPU.
     U32 getFSGLBuffer() const               { return mGLBuffer; }
@@ -433,6 +448,13 @@ protected:
     static U32  sFSVAOGenerationNow;
     static U32  sFSFrame;           // advanced by fsSetVAOEnabled, once a frame
     static U32  sFSVAOClock;        // advanced by every bind of a buffer's own object
+    // </FS:Trish>
+    // <FS:Trish> FSRenderSkinOnce: the layout (mAttributeLayoutID, 0: none) whose position, normal and tangent
+    // pointers in the global object read pre-skinned vertices, and from where (fsBindPreskinned)
+    static U64  sFSPreskinLayout;
+    static U32  sFSPreskinBuffer;
+    static U32  sFSPreskinFirst;
+    static U32  sFSPreskinCapacity;
     // </FS:Trish>
 
 private:
