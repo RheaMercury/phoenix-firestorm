@@ -102,6 +102,7 @@
 #include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
 #include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
 
 const F32 FORCE_SIMPLE_RENDER_AREA = 512.f;
 const F32 FORCE_CULL_AREA = 8.f;
@@ -2116,6 +2117,35 @@ bool LLVOVolume::calcLOD()
 
     if (cur_detail != mLOD)
     {
+        // <FS:Trish> FSRenderMovingLODHold: while the camera walks, runs or turns (FSRenderLighterWhileMoving), a
+        // change of detail rebuilds the object's whole group, and walking crossed thresholds every few steps. No
+        // decrease then (walking away, the object keeps its higher detail a little longer), and an increase only
+        // once it is clear of the threshold by a margin, so objects at the edge don't flip. What was held back is
+        // worked out again once the camera is still (FSMoving::catchUpLOD). HUDs, selections and avatars' objects
+        // change as before.
+        // A decrease held for a few seconds goes one level down (FSMoving::lodDecreaseDue): in continuous motion (a
+        // long drive, mouselook) everything passed at close range kept its highest detail until the camera stopped.
+        // An object not built yet takes its first detail without the margin (it would stay at the lowest).
+        if (FSMoving::lodHold() && !isHUDAttachment() && !isSelected() && !getAvatar())
+        {
+            constexpr F32 FS_LOD_INCREASE_MARGIN = 1.15f; // 15% nearer than the threshold
+            bool fs_hold = cur_detail < mLOD;
+            if (!fs_hold && mDrawable->isState(LLDrawable::BUILT))
+            {
+                const S32 margin_detail = computeLODDetail(ll_round(distance * FS_LOD_INCREASE_MARGIN, 0.01f), ll_round(radius, 0.01f), lod_factor);
+                fs_hold = margin_detail <= mLOD;
+            }
+            if (fs_hold && cur_detail < mLOD && FSMoving::lodDecreaseDue(getID()))
+            {
+                cur_detail = mLOD - 1; // the rest stays held
+                fs_hold = false;
+            }
+            if (fs_hold && FSMoving::noteLODHeld(getID(), cur_detail < mLOD))
+            {
+                return false;
+            }
+        }
+        // </FS:Trish>
         // <FS:Trish> FSPerfThreadedGeometry: keep the current LOD for this frame while a worker builds the
         // new LOD's shape; the switch goes ahead on the next call whatever state the build is in
         if (!FSVolumePrebuild::lodReady(this, cur_detail))
@@ -2649,6 +2679,12 @@ bool LLVOVolume::updateGeometry(LLDrawable *drawable)
     {
         return true; // No update to complete
     }
+
+    // <FS:Trish> FSRenderMovingShadowCache: whether this update is a detail change and nothing else, for the far
+    // shadow cache, which lets those wait while the camera moves (see fs_group_lod_only)
+    FSMoving::noteVolumeUpdate(mDrawable.get(), mLODChanged && !mVolumeChanged && !mSculptChanged && !mFaceMappingChanged &&
+                                                !mColorChanged && !mDrawable->isState(LLDrawable::REBUILD_POSITION));
+    // </FS:Trish>
 
     bool compiled = false;
     // This should be true in most cases, unless we're sure no octree update is

@@ -526,6 +526,15 @@ namespace
         { "RenderReflectionProbeRefreshFrameInterval", CS, VN },
         { "RenderReflectionProbeMinRefresh", CS, VN },
         { "RenderHiddenAvatarUpdatePeriod", CS, VN },
+        { "FSRenderLighterWhileMoving", CS, VN },
+        { "FSRenderMovingRebuildBudget", CS, VN },
+        { "FSRenderMovingLODHold", CS, VM },
+        { "FSRenderMovingShadowReduce", CS, VN },
+        { "FSRenderMovingTextureBiasHold", CS, VN },
+        { "FSRenderMovingShadowHold", CS, VN },
+        { "FSRenderMovingShadowCache", CS, VN },
+        { "FSRenderMovingProbeHold", CS, VN },
+        { "FSRenderAsyncOcclusionReadback", CS, VN },
 
         // Logging
         { "FSHitchLogThresholdMs", CL, VN },
@@ -546,6 +555,7 @@ namespace
         { "FSDebugReflectionProbeCulls", CL, VN },
         { "FSDiagnosticsGPUWork", CL, VN },
         { "FSRenderUICapStats", CL, VN },
+        { "FSRenderMotionStats", CL, VN },
     };
 
     const LLColor4& costColor(Cost cost)

@@ -62,6 +62,7 @@
 #if LL_WINDOWS
 #pragma warning (pop)
 #endif
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingProbeHold
 
 LLPointer<LLImageGL> gEXRImage;
 
@@ -484,6 +485,10 @@ void LLReflectionMapManager::update()
     // </FS:Trish>
 
     bool did_update = false;
+    // <FS:Trish> FSRenderMovingProbeHold: while it holds, complete probes aren't candidates at all, so the update
+    // goes to a probe that has no map yet (one the walk brought into range) instead of to nothing
+    const bool fs_probe_hold = FSMoving::probeHold();
+    // </FS:Trish>
 
     bool realtime = mRenderReflectionProbeDetail >= (S32)LLReflectionMapManager::DetailLevel::REALTIME;
 
@@ -777,6 +782,7 @@ void LLReflectionMapManager::update()
                 !probe->mOrphaned && // <FS:Trish/>
                 !recently_refreshed && // <FS:Trish/>
                 !(skip_unchanged && isProbeUnchanged(probe, fs_max_stale)) && // <FS:Trish/>
+                !(fs_probe_hold && probe->mComplete && probe->mLastUpdateTime > 0.f) && // <FS:Trish/> FSRenderMovingProbeHold
                 (oldestProbe == nullptr ||
                     check_priority(probe, oldestProbe)))
             {
@@ -846,12 +852,26 @@ void LLReflectionMapManager::update()
       const F32 since = gFrameTimeSeconds - mDefaultProbe->mLastUpdateTime;
       const bool sky_unchanged = fs_slow_sky && mDefaultProbe->mComplete && mDefaultProbe->mFSUpdateStart >= 0.f &&
                                  mDefaultProbe->mFSEnvVersion == mEnvVersion && since >= 0.f && since < (F32)fs_sky_period;
-      if (!sky_unchanged)
+      // FSRenderMovingProbeHold: a held sky probe doesn't take the turn of a probe that has no map yet
+      const bool sky_held = fs_probe_hold && mDefaultProbe->mComplete && mDefaultProbe->mLastUpdateTime > 0.f;
+      if (!sky_unchanged && !sky_held)
       {
           oldestProbe = mDefaultProbe;
       }
       // </FS:Trish>
     }
+
+    // <FS:Trish> FSRenderMovingProbeHold: while the camera walks, runs or turns (FSRenderLighterWhileMoving), probes
+    // that already have a map aren't refreshed; they are once the camera is still. New probes, and probes a sky
+    // change invalidated (their update time reset), are still captured, and a refresh already under way finishes.
+    // The loop above already passed over complete probes, so only the sky probe (picked after it) can be held here.
+    if (!did_update && oldestProbe != nullptr && oldestProbe->mComplete && oldestProbe->mLastUpdateTime > 0.f &&
+        fs_probe_hold)
+    {
+        ++FSMoving::stats().mProbeSkipped;
+        oldestProbe = nullptr;
+    }
+    // </FS:Trish>
 
     // switch to updating the next oldest probe
     if (!did_update && oldestProbe != nullptr)

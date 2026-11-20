@@ -8456,7 +8456,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2545"
+                 height="2845"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -9834,6 +9834,139 @@
                      top="2511"
                      width="475" />
                     <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> FSRenderLighterWhileMoving -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="perf_heading_while_moving"
+                     top="2565"
+                     width="340">
+                        While moving
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_perf_heading_while_moving"
+                     tool_tip="Set every option in &quot;While moving&quot; back to its default value."
+                     top="2564"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderLighterWhileMoving,FSRenderMovingRebuildBudget,FSRenderMovingLODHold,FSRenderMovingShadowReduce,FSRenderMovingTextureBiasHold,FSRenderMovingShadowHold,FSRenderMovingShadowCache,FSRenderMovingProbeHold,FSRenderAsyncOcclusionReadback" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Lighter frames while walking, running or turning the camera"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderlighterwhilemoving"
+                     tool_tip="EXPERIMENTAL. Walking and running never counted as moving for the motion throttles, which only reacted to turning faster than 35 degrees a second or travelling faster than 20 m/s, so every step changed object detail, re-rendered the far sun shadows and filled texture memory. This adds a walking tier (walking, running, gentle turns) that the options below use; each must be on as well. Off: everything as before."
+                     top="2589"
+                     width="475" />
+                    <check_box
+                     control_name="FSRenderMovingRebuildBudget"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Spread detail rebuilds over frames while moving"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingrebuildbudget"
+                     tool_tip="EXPERIMENTAL. While moving, the group rebuild throttle (debug setting FSPerfGroupRebuildBudgetMs) also works at walking speed, with a budget of what the last frame left of the target frame time (the frame rate limit, or 60), at least 1 ms. Bursts of detail changes are spread over several frames instead of 20-30 ms spikes. What is in view and nearest sharpens first."
+                     top="2615"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingLODHold"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Hold level of detail changes while moving"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovinglodhold"
+                     tool_tip="EXPERIMENTAL. While moving, objects don&apos;t drop to a lower level of detail, and only go up once clearly past the threshold (15%), so objects at the edge don&apos;t flip back and forth. Held changes are applied once the camera is still. Objects you walk towards may sharpen a moment later; objects behind you keep their detail until you stop."
+                     top="2641"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingShadowReduce"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Fewer small shadows in the far shadow maps while walking"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingshadowreduce"
+                     tool_tip="EXPERIMENTAL. Needs &apos;Fewer small shadows while the camera moves fast&apos; (Shadows tab). While walking, running or turning gently, the far sun shadow maps leave out objects twice as small as they otherwise would. Small distant shadows may pop back in when you stop."
+                     top="2667"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingTextureBiasHold"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Hold the texture discard bias while moving"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingtexturebiashold"
+                     tool_tip="EXPERIMENTAL. While moving, texture memory nearing its limit doesn&apos;t raise the discard bias and loaded textures aren&apos;t shrunk (each shrunk texture is a new texture, thousands of them mid-walk). The bias carries on once you stop. Running out of memory still lowers texture resolution at once."
+                     top="2693"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingShadowHold"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Keep the far shadow maps while the view still fits them"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingshadowhold"
+                     tool_tip="EXPERIMENTAL. Needs &apos;Update far sun shadows every N frames&apos; above 1 (Shadows tab). Moving 2% of the shadow range or turning 3 degrees used to render every far shadow map, every frame while walking. Now a far map keeps its interval while what the view needs from it (the visible surfaces in its range, with a few texels to spare, and its depth range) still fits inside it; when it doesn&apos;t, all are rendered at once as before. Distant moving objects&apos; shadows follow at the interval, as when still."
+                     top="2719"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingShadowCache"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Keep the far shadow cache while moving"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingshadowcache"
+                     tool_tip="EXPERIMENTAL. Needs &apos;Cache static far shadows&apos; (Shadows tab). The cache ignores changes of objects too small to cast into it, lets level of detail changes wait while the camera moves (2 seconds at most, or until it stops), keeps its map from shrinking while moving, and is stored while moving. A distant object&apos;s shadow may show its previous level of detail for up to 2 seconds."
+                     top="2745"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderMovingProbeHold"
+                     enabled_control="FSRenderLighterWhileMoving"
+                     follows="left|top"
+                     height="20"
+                     label="Don&apos;t refresh reflection probes while moving"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermovingprobehold"
+                     tool_tip="EXPERIMENTAL. While moving, reflection probes that already have a picture aren&apos;t refreshed; they are once you stop. New probes and probes a sky change needs are still captured. Reflections of things that changed while you walked update when you stop."
+                     top="2771"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderAsyncOcclusionReadback"
+                     follows="left|top"
+                     height="20"
+                     label="Read occlusion results without waiting for the render thread"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderasyncocclusionreadback"
+                     tool_tip="With the render thread on: hidden-object test results are read from what the render thread has already collected, never with a read that makes the main thread wait for it. A test it no longer tracks (after a shader build) isn&apos;t waited for: its objects show until a new test answers, which can cost a little more drawing for a frame. Off: as before."
+                     top="2801"
+                     width="475" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>
@@ -9857,7 +9990,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="642"
+                 height="670"
                  layout="topleft"
                  left="0"
                  name="experimental_logging_settings"
@@ -10154,7 +10287,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderVRSLogInterval,FSDebugReflectionProbeCulls,FSDiagnosticsGPUWork,FSRenderUICapStats" />
+                         parameter="FSRenderVRSLogInterval,FSDebugReflectionProbeCulls,FSDiagnosticsGPUWork,FSRenderUICapStats,FSRenderMotionStats" />
                     </button>
                     <text
                      follows="left|top"
@@ -10215,6 +10348,19 @@
                      tool_tip="Every 10 seconds, logs (FSUICap) how often the cached UI was composited and redrawn and why, how many redraws had views change while drawn, how many frames drew the UI directly and why, and how many times its buffer was allocated. A few counters per frame."
                      top="598"
                      width="455" />
+                    <!-- <FS:Trish> FSRenderMotionStats -->
+                    <check_box
+                     control_name="FSRenderMotionStats"
+                     follows="left|top"
+                     height="20"
+                     label="Log what the lighter-while-moving options do"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermotionstats"
+                     tool_tip="Every 10 seconds, logs (FSMotion) the time spent still, walking and moving fast, the rebuild budget while moving, level of detail changes held and caught up, texture bias holds, far shadow maps held or rendered and why, static shadow cache filtering, reflection probe refreshes put off, and occlusion results read without and with waiting. A few counters per frame."
+                     top="626"
+                     width="455" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>

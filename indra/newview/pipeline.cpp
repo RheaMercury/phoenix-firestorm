@@ -158,6 +158,7 @@
 #include "fsgpudrivendraws.h" // <FS:Trish/> FSPerfGPUDrivenDraws
 #include "fsgpudrivenshadowalpha.h" // <FS:Trish/> FSPerfGPUDrivenShadowAlpha
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
 
 #if LL_CLANG
 #pragma clang diagnostic push
@@ -512,6 +513,11 @@ static LLCullResult* sCull = NULL;
 // <FS:Trish> Bumped whenever a light joins mLights, so a throttled calcNearbyLights rescans at once
 static U32 sLightSetSerial = 0;
 static bool sFSShadowCameraMoving = false; // <FS:Trish/> FSRenderShadowReduceWhileMoving, see fs_update_shadow_camera_motion
+static bool sFSShadowCameraWalking = false; // <FS:Trish/> FSRenderMovingShadowReduce, see fs_update_shadow_camera_motion
+// <FS:Trish> FSRenderMovingShadowHold and FSRenderMovingShadowCache: per sun cascade, as last rendered for the main view
+static bool sFSCascadeHasProj[4] = {};      // the map was drawn with mShadowProjection/mShadowModelview (it had receivers)
+static F32 sFSCascadeMinCaster[4] = {};     // casters smaller than this were left out of it
+// </FS:Trish>
 
 // <FS:Trish> Whether the camera turns or travels fast, and for a quarter second after it settles. Worked out
 // once a frame by updateGeom (before the frame renders); the moving shadow option and the group rebuild
@@ -528,10 +534,12 @@ static void fs_update_camera_motion()
     const LLViewerCamera* camera = LLViewerCamera::getInstance();
     const F32 dt = llmax(gFrameIntervalSeconds.value(), 0.001f);
     bool moving = false;
+    F32 turn_rate = 0.f; // FSRenderLighterWhileMoving
+    F32 speed = 0.f;
     if (have_last)
     {
-        const F32 turn_rate = acosf(llclamp(camera->getAtAxis() * last_at, -1.f, 1.f)) / dt; // radians per second
-        const F32 speed = dist_vec(camera->getOrigin(), last_origin) / dt;                   // metres per second
+        turn_rate = acosf(llclamp(camera->getAtAxis() * last_at, -1.f, 1.f)) / dt; // radians per second
+        speed = dist_vec(camera->getOrigin(), last_origin) / dt;                   // metres per second
         moving = turn_rate > 0.6f || speed > 20.f; // about 35 degrees a second, or flying fast
     }
     last_origin = camera->getOrigin();
@@ -543,6 +551,11 @@ static void fs_update_camera_motion()
         settle_timer.resetWithExpiry(0.25f);
     }
     sFSCameraMovingFast = moving || !settle_timer.hasExpired();
+
+    // FSRenderLighterWhileMoving: the walking tier below this, and the detail changes it held back caught up
+    // once the camera is still
+    FSMoving::updateTier(speed, turn_rate, sFSCameraMovingFast, dt);
+    FSMoving::catchUpLOD();
 }
 // </FS:Trish>
 // </FS:Trish>
@@ -3420,6 +3433,8 @@ static bool fs_can_defer_group_rebuild(LLSpatialGroup* group)
 // frame, so they spread over more frames. A group in view is never drawn from stale geometry: only the
 // change that would dirty it waits.
 static F32 sFSGroupRebuildMs = 0.f;
+// FSRenderMovingRebuildBudget: time the last updateGeom spent applying drawable updates, which cause those rebuilds
+static F32 sFSDrawableUpdateMs = 0.f;
 
 // Drawables that must be updated this frame even when the rebuild queue is over its time budget.
 static bool fs_is_priority_drawable_rebuild(LLDrawable* drawablep)
@@ -3532,6 +3547,7 @@ void LLPipeline::updateGeom(F32 max_dtime)
     bool over_budget = false;
     fs_update_camera_motion();
     bool fs_throttling = false;
+    F32 fs_loop_cap_s = 0.f; // FSRenderMovingRebuildBudget: the drawable loop's own time cap, 0 for none
     // FSPerfGroupRebuildBudgetMs: fewer drawable updates while the group rebuilds they cause run over
     // budget, only while the camera moves fast: once it settles, detail catches up at full speed.
     // Smoothed over a few frames, so one heavy frame doesn't stall detail changes. Independent of
@@ -3539,19 +3555,63 @@ void LLPipeline::updateGeom(F32 max_dtime)
     {
         static LLCachedControl<F32> group_budget_ms(gSavedSettings, "FSPerfGroupRebuildBudgetMs", 4.f);
         static F32 s_group_ms_avg = 0.f;
+        const F32 last_group_ms = sFSGroupRebuildMs; // FSRenderMovingRebuildBudget
         s_group_ms_avg = s_group_ms_avg * 0.6f + sFSGroupRebuildMs * 0.4f;
         sFSGroupRebuildMs = 0.f;
+        // FSRenderMovingRebuildBudget: also while walking (FSRenderLighterWhileMoving), with a budget of what the
+        // last frame left of the target frame time, between 1 ms and FSPerfGroupRebuildBudgetMs
+        // and for a moment after the camera settles, so the backlog of the walk spreads over a few frames
+        // instead of landing in the first still one
+        FSMoving::noteGroupRebuildMs(last_group_ms);
+        const bool walk_budget = (FSMoving::rebuildBudget() || FSMoving::rebuildSettling()) && group_budget_ms > 0.f;
+        F32 budget_ms = group_budget_ms;
+        if (walk_budget)
+        {
+            budget_ms = FSMoving::frameRebuildBudgetMs(group_budget_ms, (F32)gFrameIntervalSeconds.value() * 1000.f, last_group_ms);
+        }
         static U32 s_frames = 0;
         static U32 s_throttled = 0;
         static F32 s_peak_ms = 0.f;
         static LLFrameTimer s_log_timer;
         ++s_frames;
         s_peak_ms = llmax(s_peak_ms, s_group_ms_avg);
-        if (sFSCameraMovingFast && group_budget_ms > 0.f && s_group_ms_avg > group_budget_ms)
+        if ((sFSCameraMovingFast || walk_budget) && group_budget_ms > 0.f && s_group_ms_avg > budget_ms)
         {
-            max_dtime *= llclamp((F32)group_budget_ms / s_group_ms_avg, 0.1f, 1.f);
+            max_dtime *= llclamp(budget_ms / s_group_ms_avg, 0.1f, 1.f);
             fs_throttling = true;
             ++s_throttled;
+        }
+        // FSRenderMovingRebuildBudget: the throttle above reacts a frame late, after a burst of detail changes
+        // already cost a 20-30 ms frame. While moving, the drawable updates are also capped up front to what
+        // should cause about the budget's worth of group rebuilds, from how many ms of rebuilds a ms of updates
+        // has been causing lately. At least one drawable is always updated.
+        // The cap is timed from the start of the drawable loop (fs_loop_cap_s), not from the start of updateGeom:
+        // the queue's sort alone could use it up, and then one drawable a frame was all that went. The frame's
+        // group rebuilds are not all caused by the drawable updates (shadow passes, groups coming into view, new
+        // objects), so the ratio is held to at most 4, and the cap never drops below 1 ms.
+        static F32 s_rebuild_ratio = 0.f; // group rebuild ms per ms of drawable updates
+        if (sFSDrawableUpdateMs > 0.05f)
+        {
+            const F32 ratio = llmin(last_group_ms / sFSDrawableUpdateMs, 4.f);
+            s_rebuild_ratio = s_rebuild_ratio > 0.f ? s_rebuild_ratio * 0.8f + ratio * 0.2f : ratio;
+        }
+        if (walk_budget && s_rebuild_ratio > 0.f)
+        {
+            const F32 cap = llmax(budget_ms / s_rebuild_ratio, 1.f) * 0.001f;
+            if (cap < max_dtime)
+            {
+                fs_loop_cap_s = cap;
+                fs_throttling = true;
+            }
+        }
+        if (walk_budget)
+        {
+            FSMoving::Stats& motion_stats = FSMoving::stats();
+            ++motion_stats.mBudgetFrames;
+            motion_stats.mBudgetThrottled += fs_throttling ? 1 : 0;
+            motion_stats.mBudgetMsSum += budget_ms;
+            motion_stats.mGroupMsSum += last_group_ms;
+            motion_stats.mGroupMsPeak = llmax(motion_stats.mGroupMsPeak, last_group_ms);
         }
         if (s_log_timer.getElapsedTimeF32() > 10.f)
         {
@@ -3618,6 +3678,7 @@ void LLPipeline::updateGeom(F32 max_dtime)
     //    LLDrawable::drawable_list_t::iterator curiter = iter++;
     //    LLDrawable* drawablep = *curiter;
     size_t write_idx = 0;
+    LLTimer fs_loop_timer; // FSRenderMovingRebuildBudget: the drawable updates alone
     for (size_t read_idx = 0; read_idx < mBuildQ1.size(); ++read_idx)
     {
         LLPointer<LLDrawable> drawablep = mBuildQ1[read_idx];
@@ -3627,9 +3688,14 @@ void LLPipeline::updateGeom(F32 max_dtime)
         //if (rebuild_budget && drawablep && !drawablep->isDead() && num_updated > 0 && !over_budget)
         if (fs_budget_active && drawablep && !drawablep->isDead() && num_updated > 0 && !over_budget)
         {
-            over_budget = update_timer.getElapsedTimeF32() > max_dtime;
+            over_budget = update_timer.getElapsedTimeF32() > max_dtime ||
+                          (fs_loop_cap_s > 0.f && fs_loop_timer.getElapsedTimeF32() > fs_loop_cap_s);
         }
-        if (over_budget && drawablep && !drawablep->isDead() && !fs_is_priority_drawable_rebuild(drawablep))
+        // FSRenderMovingRebuildBudget: what only moves (child prims moving against their root, scale changes,
+        // snaps) and animated children don't wait for the cap: they would lag or jump until the camera stops
+        if (over_budget && drawablep && !drawablep->isDead() && !fs_is_priority_drawable_rebuild(drawablep) &&
+            !(fs_loop_cap_s > 0.f && (drawablep->isState(LLDrawable::ANIMATED_CHILD) ||
+                                      (drawablep->isState(LLDrawable::REBUILD_POSITION) && !drawablep->isState(LLDrawable::REBUILD_VOLUME)))))
         {
             keep = true;
         }
@@ -3672,6 +3738,7 @@ void LLPipeline::updateGeom(F32 max_dtime)
         // </FS:Trish>
     }
     mBuildQ1.resize(write_idx); // <FS:Trish/>
+    sFSDrawableUpdateMs = fs_loop_timer.getElapsedTimeF32().value() * 1000.f; // <FS:Trish/> FSRenderMovingRebuildBudget
 
     updateMovedList(mMovedBridge);
 }
@@ -14439,6 +14506,38 @@ namespace
         static LLCachedControl<bool> stable(gSavedSettings, "FSPerfShadowStaticCacheStable", false);
         return stable;
     }
+
+    // FSRenderMovingShadowCache: detail changes inside a cached far cascade, deferred while the camera moves. They
+    // invalidate the cache once the camera is still, after FS_SC_DEFER_SECONDS at most, or not at all when the
+    // cache is stored again before (it then holds them). While one waits, the cache is reused even though its
+    // static draw list differs (the detail change is what changed it).
+    struct FSDeferredShadowDirty
+    {
+        LLVector4a  mExtents[2];
+        F32         mTime;
+        U32         mCache;     // index into mFSShadowCache
+    };
+    std::vector<FSDeferredShadowDirty> sFSDeferredShadowDirty;
+    constexpr F32 FS_SC_DEFER_SECONDS = 2.f;
+    constexpr size_t FS_SC_DEFER_MAX = 4096;
+
+    // Whether static geometry changed within extents (agent space min, max) can change the cache's map. Depth
+    // isn't tested: casters toward the sun past the near plane are depth clamped into the map.
+    bool fs_extents_in_cache(const glm::mat4& clip, const LLVector4a& lo, const LLVector4a& hi)
+    {
+        glm::vec2 mn(FLT_MAX, FLT_MAX);
+        glm::vec2 mx(-FLT_MAX, -FLT_MAX);
+        for (U32 c = 0; c < 8; ++c)
+        {
+            const glm::vec4 p = clip * glm::vec4((c & 1) ? hi[0] : lo[0],
+                                                 (c & 2) ? hi[1] : lo[1],
+                                                 (c & 4) ? hi[2] : lo[2], 1.f);
+            const F32 w = fabsf(p.w) > 1e-6f ? p.w : 1e-6f;
+            mn = glm::min(mn, glm::vec2(p.x / w, p.y / w));
+            mx = glm::max(mx, glm::vec2(p.x / w, p.y / w));
+        }
+        return mx.x >= -1.f && mn.x <= 1.f && mx.y >= -1.f && mn.y <= 1.f;
+    }
 }
 
 void LLPipeline::fsReleaseShadowCache()
@@ -14456,6 +14555,9 @@ void LLPipeline::fsReleaseShadowCache()
     }
     mFSShadowDirty.clear();
     mFSShadowDirtyChurn.clear();
+    mFSShadowDirtySize.clear();
+    mFSShadowDirtyLOD.clear();
+    sFSDeferredShadowDirty.clear();
     mFSShadowDirtyAll = false;
     mFSShadowCacheInUse = false;
 }
@@ -14480,11 +14582,43 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
         }
         mFSShadowDirty.clear();
         mFSShadowDirtyChurn.clear();
+        mFSShadowDirtySize.clear();
+        mFSShadowDirtyLOD.clear();
         mFSShadowDirtyAll = false;
         return;
     }
     mFSShadowCacheInUse = true;
     const bool stable = fs_shadow_cache_stable(); // FSPerfShadowStaticCacheStable: rebuilds that moved no vertex don't count
+
+    // FSRenderMovingShadowCache: changes of casters too small for the cascade the cache was drawn for are ignored,
+    // detail changes wait while the camera moves (see FSDeferredShadowDirty)
+    const bool fs_filter = FSMoving::shadowCacheEnabled();
+    const bool fs_defer = fs_filter && FSMoving::moving() && !mFSShadowDirtyAll;
+    FSMoving::Stats& motion_stats = FSMoving::stats();
+    if (!sFSDeferredShadowDirty.empty())
+    {
+        const bool all_due = !fs_defer || sFSDeferredShadowDirty.size() >= FS_SC_DEFER_MAX;
+        size_t keep = 0;
+        for (const FSDeferredShadowDirty& dirty : sFSDeferredShadowDirty)
+        {
+            if (all_due || gFrameTimeSeconds - dirty.mTime > FS_SC_DEFER_SECONDS || gFrameTimeSeconds < dirty.mTime)
+            {
+                FSShadowCache& cache = mFSShadowCache[llmin(dirty.mCache, 1U)];
+                if (cache.mValid)
+                {
+                    cache.mValid = false;
+                    cache.mInvalidReason = FS_SC_MISS_DIRTY;
+                }
+                cache.mLODDeferred = false;
+                ++motion_stats.mCacheLODApplied;
+            }
+            else
+            {
+                sFSDeferredShadowDirty[keep++] = dirty;
+            }
+        }
+        sFSDeferredShadowDirty.resize(keep);
+    }
 
     // drop the caches whose cascade bounds saw static geometry change since the last update
     for (FSShadowCache& cache : mFSShadowCache)
@@ -14505,22 +14639,30 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
             {
                 continue;
             }
+            // FSRenderMovingShadowCache: a group too small to cast into the map, before and after the change,
+            // can't change it (the cascade cull leaves out whole groups by this size, isShadowCasterTooSmall)
+            if (fs_filter && i / 2 < mFSShadowDirtySize.size() && mFSShadowDirtySize[i / 2] < cache.mMinCasterSize)
+            {
+                ++motion_stats.mCacheSmallIgnored;
+                continue;
+            }
             const LLVector4a& lo = mFSShadowDirty[i];
             const LLVector4a& hi = mFSShadowDirty[i + 1];
-            glm::vec2 mn(FLT_MAX, FLT_MAX);
-            glm::vec2 mx(-FLT_MAX, -FLT_MAX);
-            for (U32 c = 0; c < 8; ++c)
+            if (fs_extents_in_cache(cache.mClip, lo, hi))
             {
-                const glm::vec4 p = cache.mClip * glm::vec4((c & 1) ? hi[0] : lo[0],
-                                                            (c & 2) ? hi[1] : lo[1],
-                                                            (c & 4) ? hi[2] : lo[2], 1.f);
-                const F32 w = fabsf(p.w) > 1e-6f ? p.w : 1e-6f;
-                mn = glm::min(mn, glm::vec2(p.x / w, p.y / w));
-                mx = glm::max(mx, glm::vec2(p.x / w, p.y / w));
-            }
-            // depth isn't tested: casters toward the sun past the near plane are depth clamped into the map
-            if (mx.x >= -1.f && mn.x <= 1.f && mx.y >= -1.f && mn.y <= 1.f)
-            {
+                // FSRenderMovingShadowCache: a detail change waits while the camera moves
+                if (fs_defer && i / 2 < mFSShadowDirtyLOD.size() && mFSShadowDirtyLOD[i / 2])
+                {
+                    FSDeferredShadowDirty dirty;
+                    dirty.mExtents[0] = lo;
+                    dirty.mExtents[1] = hi;
+                    dirty.mTime = gFrameTimeSeconds;
+                    dirty.mCache = (U32)(&cache - mFSShadowCache);
+                    sFSDeferredShadowDirty.push_back(dirty);
+                    cache.mLODDeferred = true;
+                    ++motion_stats.mCacheLODDeferred;
+                    continue;
+                }
                 cache.mValid = false;
                 cache.mInvalidReason = FS_SC_MISS_DIRTY;
                 break;
@@ -14529,6 +14671,8 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
     }
     mFSShadowDirty.clear();
     mFSShadowDirtyChurn.clear();
+    mFSShadowDirtySize.clear();
+    mFSShadowDirtyLOD.clear();
     mFSShadowDirtyAll = false;
 }
 
@@ -14561,8 +14705,10 @@ void LLPipeline::fsShadowCacheSnapDepth(S32 cascade, F32 grid_z, F32& znear, F32
     const F32 world_near = znear + grid_z;
     const F32 world_far = zfar + grid_z;
     const F32 range = world_far - world_near;
+    // FSRenderMovingShadowCache: the range doesn't shrink while moving, only once the camera is still
+    const bool keep_range = FSMoving::shadowCacheEnabled() && FSMoving::moving();
     if (!cache.mDepthSet || world_near < cache.mDepthNear || world_far > cache.mDepthFar ||
-        range < (cache.mDepthFar - cache.mDepthNear) * 0.8f)
+        (range < (cache.mDepthFar - cache.mDepthNear) * 0.8f && !keep_range))
     {
         const F32 step = powf(2.f, ceilf(log2f(llmax(range / 32.f, 0.001f))));
         cache.mChanges |= cache.mDepthSet ? FS_SC_DEPTH : 0U;
@@ -14735,7 +14881,7 @@ bool LLPipeline::fsShadowPoolAllowed(U32 pool_type) const
 }
 
 // no_depth_change: a group rebuild that moved no vertex (FSPerfShadowStaticCacheStable), see llspatialpartition.cpp
-void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change)
+void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change, F32 caster_size, bool lod_only)
 {
     if ((!mFSShadowCacheInUse && !mFSSpotCacheInUse) || !extents)
     {
@@ -14750,6 +14896,11 @@ void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents, bool no_dep
     mFSShadowDirty.push_back(extents[1]);
     mFSShadowDirtyChurn.resize(mFSShadowDirty.size() / 2 - 1, 0); // one per pair
     mFSShadowDirtyChurn.push_back(no_depth_change ? 1 : 0);
+    // FSRenderMovingShadowCache, one per pair as well
+    mFSShadowDirtySize.resize(mFSShadowDirty.size() / 2 - 1, FLT_MAX);
+    mFSShadowDirtySize.push_back(caster_size);
+    mFSShadowDirtyLOD.resize(mFSShadowDirty.size() / 2 - 1, 0);
+    mFSShadowDirtyLOD.push_back(lod_only ? 1 : 0);
 }
 
 // Called from renderShadow once the cascade's render map is sorted and its matrices are loaded, with the
@@ -14778,7 +14929,13 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
     };
     // While the cascade moves (camera moving), the cached depth can't match and storing it is wasted:
     // no hash and no copy into the cache until the projection holds still for an update.
-    const bool keep = cache.mMatch || cache.mStill;
+    // FSRenderMovingShadowCache: stored while moving too. The far cascades are held between updates and their
+    // windows and depth ranges stay put while moving, so the next update mostly matches. Only with
+    // FSPerfShadowStaticCacheStable: without it the window is placed again whenever the slice's centre crosses
+    // a texel, so a map stored while moving never matched and its depth copy was wasted.
+    //const bool fs_moving_cache = FSMoving::shadowCacheEnabled() && FSMoving::moving();
+    const bool fs_moving_cache = FSMoving::shadowCacheEnabled() && FSMoving::moving() && fs_shadow_cache_stable();
+    const bool keep = cache.mMatch || cache.mStill || fs_moving_cache;
     // FSPerfShadowStaticCacheStable: by the index count per region matrix, which a rebuild that only
     // re-batches the same triangles (new draw infos and buffers) leaves as it was
     const bool stable = fs_shadow_cache_stable();
@@ -14850,10 +15007,13 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
 
     const S32 width = (S32)shadow.getWidth();
     const S32 height = (S32)shadow.getHeight();
-    if (cache.mMatch && cache.mHash == hash)
+    // FSRenderMovingShadowCache: the draw list differs, but by detail changes that wait while moving
+    const bool fs_deferred_reuse = cache.mMatch && cache.mHash != hash && cache.mLODDeferred && fs_moving_cache;
+    if ((cache.mMatch && cache.mHash == hash) || fs_deferred_reuse)
     {
         shadow.copyContents(cache.mTarget, 0, 0, width, height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
         ++hits;
+        FSMoving::stats().mCacheDeferredReuse += fs_deferred_reuse ? 1 : 0;
     }
     else
     {
@@ -14904,6 +15064,14 @@ void LLPipeline::fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* type
             cache.mItems = indices;                 // FSPerfShadowBatchStats
             cache.mChanges = 0;
             cache.mInvalidReason = FS_SC_MISS_NEW;
+            // FSRenderMovingShadowCache: what it was drawn with; it now holds the deferred changes
+            cache.mMinCasterSize = sFSCascadeMinCaster[cascade];
+            cache.mLODDeferred = false;
+            const U32 cache_index = (U32)(cascade - 2);
+            sFSDeferredShadowDirty.erase(std::remove_if(sFSDeferredShadowDirty.begin(), sFSDeferredShadowDirty.end(),
+                                                        [cache_index](const FSDeferredShadowDirty& dirty) { return dirty.mCache == cache_index; }),
+                                         sFSDeferredShadowDirty.end());
+            FSMoving::stats().mCacheStoredMoving += (cache.mMatch || cache.mStill) ? 0 : 1;
         }
         ++misses;
     }
@@ -18241,6 +18409,9 @@ static void fs_update_shadow_camera_motion(const LLCamera& camera)
     // the motion itself is worked out by fs_update_camera_motion(), once a frame
     static LLCachedControl<bool> reduce_while_moving(gSavedSettings, "FSRenderShadowReduceWhileMoving", false);
     sFSShadowCameraMoving = reduce_while_moving && sFSCameraMovingFast;
+    // FSRenderMovingShadowReduce: while walking, running or turning gently (FSRenderLighterWhileMoving), the far
+    // cascades leave out casters twice (not four times) as small, and keep their alpha masked casters
+    sFSShadowCameraWalking = !sFSShadowCameraMoving && FSMoving::shadowReduce();
 }
 
 // How many times RenderShadowMinCasterTexels a caster must span to be drawn into a sun cascade.
@@ -18253,7 +18424,118 @@ F32 fs_shadow_cascade_caster_scale(S32 cascade)
     {
         scale *= 4.f;
     }
+    else if (sFSShadowCameraWalking && cascade >= 2 && !gCubeSnapshot)
+    {
+        scale *= 2.f;
+    }
     return scale;
+}
+// </FS:Trish>
+
+// <FS:Trish> FSRenderMovingShadowHold: whether a far cascade's held map (drawn on an earlier frame, with the light
+// space projection still in mShadowProjection and mShadowModelview) covers what this frame's view needs from it:
+// the visible shadow receivers in its slice of the view, between the split distances it was drawn for, as the
+// cascade loop gathers them. They must project inside the map with four texels to spare for the shadow filter,
+// and inside its depth range. A sun or moon map is fixed in the world, so whatever falls inside it gets the right
+// shadow, from the casters as they were when it was drawn (the interval's lag, as before). When they don't fit,
+// why says how, and the caller renders every cascade. Leaves the main view's matrices current.
+bool LLPipeline::fsFarCascadeStillFits(S32 cascade, const LLCamera& camera, F32 near_dist, F32 far_dist, const LLVector3& light_dir,
+                                       const glm::mat4& main_view, const glm::mat4& main_proj, U32& why)
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
+    if (cascade < 0 || cascade > 3 || !(near_dist > 0.f) || !(far_dist > near_dist))
+    {
+        why = FSMoving::FORCE_SLICE;
+        return false;
+    }
+
+    // the slice's frustum, as the cascade loop builds it
+    set_current_modelview(main_view);
+    set_current_projection(main_proj);
+    LLCamera shadow_cam = camera;
+    shadow_cam.setFar(16.f);
+    LLViewerCamera::updateFrustumPlanes(shadow_cam, false, false, true);
+    LLVector3* frust = shadow_cam.mAgentFrustum;
+    const LLVector3 eye = camera.getOrigin();
+    const LLVector3 pn = shadow_cam.getAtAxis();
+    for (U32 i = 0; i < 4; i++)
+    {
+        LLVector3 delta = frust[i + 4] - eye;
+        delta += (frust[i + 4] - frust[(i + 2) % 4 + 4]) * 0.05f;
+        delta.normVec();
+        const F32 dp = delta * pn;
+        if (!(dp > 1e-4f))
+        {
+            why = FSMoving::FORCE_SLICE;
+            return false;
+        }
+        frust[i] = eye + (delta * near_dist * 0.75f) / dp;
+        frust[i + 4] = eye + (delta * far_dist * 1.25f) / dp;
+    }
+    shadow_cam.calcAgentFrustumPlanes(frust);
+    shadow_cam.mFrustumCornerDist = 0.f;
+
+    if (!sFSCascadeHasProj[cascade])
+    {
+        // checked before the receivers are gathered (the answer is the same whatever they are, unless there are none)
+        std::vector<LLVector3> fp;
+        LLVector3 min, max;
+        if (!getVisiblePointCloud(shadow_cam, min, max, fp, light_dir))
+        {
+            return true; // nothing in the slice to receive its shadows
+        }
+        why = FSMoving::FORCE_NO_MAP;
+        return false;
+    }
+
+    const glm::mat4 clip = mShadowProjection[cascade] * mShadowModelview[cascade];
+    const F32 pad_x = 8.f / (F32)llmax(mRT->shadow[cascade].getWidth(), 1U);
+    const F32 pad_y = 8.f / (F32)llmax(mRT->shadow[cascade].getHeight(), 1U);
+    auto fits = [&](const LLVector3* points, size_t count, U32& reason) -> bool
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            const LLVector3& p = points[i];
+            const glm::vec4 c = clip * glm::vec4(p.mV[VX], p.mV[VY], p.mV[VZ], 1.f);
+            if (!(c.w > 1e-6f))
+            {
+                reason = FSMoving::FORCE_SLICE;
+                return false;
+            }
+            const F32 x = c.x / c.w;
+            const F32 y = c.y / c.w;
+            const F32 z = c.z / c.w;
+            if (!(fabsf(x) <= 1.f - pad_x) || !(fabsf(y) <= 1.f - pad_y))
+            {
+                reason = FSMoving::FORCE_SLICE;
+                return false;
+            }
+            if (!(z >= -1.f && z <= 1.f))
+            {
+                reason = FSMoving::FORCE_DEPTH;
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // The slice's eight corners first: every receiver in it lies inside them, so when they fit, the receivers do,
+    // without walking every octree for them (twice a frame with both far cascades held, unless the camera cull
+    // gathered the receiver bounds, FSPerfShadowPointCloudFromCull)
+    U32 corner_reason = 0;
+    if (fits(frust, 8, corner_reason))
+    {
+        return true;
+    }
+
+    // the visible receivers in the slice, as the cascade loop gathers them
+    std::vector<LLVector3> fp;
+    LLVector3 min, max;
+    if (!getVisiblePointCloud(shadow_cam, min, max, fp, light_dir))
+    {
+        return true; // nothing in the slice to receive its shadows
+    }
+    return fp.empty() || fits(fp.data(), fp.size(), why);
 }
 // </FS:Trish>
 
@@ -18579,12 +18861,25 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         ++mShadowFrame;
 
         // a FOV or aspect change moves the splits and frustum, and tiled snapshots render sub-frusta
-        bool force = interval <= 1 || gSnapshot ||
-                     dist_vec(camera.getOrigin(), mFarCascadeEye) > llmax(mSunClipPlanes.mV[3], 1.f) * 0.02f ||
-                     camera.getAtAxis() * mFarCascadeAt < 0.9986f ||    // about 3 degrees
-                     lightDir * mFarCascadeLight < 0.99999f ||          // about a quarter of a degree
-                     fabsf(camera.getView() - mFarCascadeFov) > 1e-4f ||
-                     fabsf(camera.getAspect() - mFarCascadeAspect) > 1e-4f;
+        //bool force = interval <= 1 || gSnapshot ||
+        //             dist_vec(camera.getOrigin(), mFarCascadeEye) > llmax(mSunClipPlanes.mV[3], 1.f) * 0.02f ||
+        //             camera.getAtAxis() * mFarCascadeAt < 0.9986f ||    // about 3 degrees
+        //             lightDir * mFarCascadeLight < 0.99999f ||          // about a quarter of a degree
+        //             fabsf(camera.getView() - mFarCascadeFov) > 1e-4f ||
+        //             fabsf(camera.getAspect() - mFarCascadeAspect) > 1e-4f;
+        // FSRenderMovingShadowHold: moving or turning the camera doesn't render them all any more. A held map is
+        // used for as long as the view's slice of it still fits inside it (fsFarCascadeStillFits, below): walking
+        // with the follow camera moved 2% of the shadow range or turned 3 degrees within a few frames, so the far
+        // cascades rendered every frame while walking.
+        const bool fs_fit_test = FSMoving::shadowHoldEnabled();
+        const bool fs_view_changed = interval <= 1 || gSnapshot ||
+                                     lightDir * mFarCascadeLight < 0.99999f ||          // about a quarter of a degree
+                                     fabsf(camera.getView() - mFarCascadeFov) > 1e-4f ||
+                                     fabsf(camera.getAspect() - mFarCascadeAspect) > 1e-4f;
+        const bool fs_camera_moved = dist_vec(camera.getOrigin(), mFarCascadeEye) > llmax(mSunClipPlanes.mV[3], 1.f) * 0.02f ||
+                                     camera.getAtAxis() * mFarCascadeAt < 0.9986f;      // about 3 degrees
+        bool force = fs_view_changed || (!fs_fit_test && fs_camera_moved);
+        U32 fs_force_reason = fs_view_changed ? FSMoving::FORCE_VIEW : FSMoving::FORCE_MOVED; // FSRenderMotionStats
         if (force)
         {
             mFarCascadeEye = camera.getOrigin();
@@ -18603,6 +18898,24 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 skip_cascade[j] = !due && (S32)j <= RenderShadowSplits && mFarCascadeValid[j] &&
                                   mFarCascadeTex[j] == mRT->shadow[j].getDepth();
             }
+            // <FS:Trish> FSRenderMovingShadowHold: a held map must still hold this frame's view, or all render now.
+            // Cascade j covers the view between the split distances it was rendered for, which are held with it.
+            for (U32 j = 2; fs_fit_test && j < 4; ++j)
+            {
+                if (skip_cascade[j] && !fsFarCascadeStillFits((S32)j, camera, mFarCascadeClip[j - 1], mFarCascadeClip[j], lightDir,
+                                                              saved_view, saved_proj, fs_force_reason))
+                {
+                    force = true;
+                    skip_cascade[2] = skip_cascade[3] = false;
+                    mFarCascadeEye = camera.getOrigin();
+                    mFarCascadeAt = camera.getAtAxis();
+                    mFarCascadeLight = lightDir;
+                    mFarCascadeFov = camera.getView();
+                    mFarCascadeAspect = camera.getAspect();
+                    break;
+                }
+            }
+            // </FS:Trish>
         }
 
         LLVector4 clip = mSunClipPlanes;
@@ -18627,6 +18940,23 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
         for (U32 i = 0; i < 4; ++i)
         {
             mFarCascadeClip[i] = mSunClipPlanes.mV[i];
+        }
+        // FSRenderMotionStats: what became of the far cascades this frame
+        FSMoving::Stats& motion_stats = FSMoving::stats();
+        for (S32 j = 2; j <= llmin(RenderShadowSplits, 3); ++j)
+        {
+            if (skip_cascade[j])
+            {
+                ++motion_stats.mCascadeHeld;
+            }
+            else if (force)
+            {
+                ++motion_stats.mCascadeForced[llmin(fs_force_reason, (U32)FSMoving::FORCE_COUNT - 1)];
+            }
+            else
+            {
+                ++motion_stats.mCascadeDue;
+            }
         }
     }
     // </FS:Trish>
@@ -18863,6 +19193,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 mShadowError.mV[j] = 0.f;
                 mShadowFOV.mV[j] = 0.f;
 
+                // <FS:Trish> FSRenderMovingShadowHold: a cleared map, its projection is an older one
+                if (!gCubeSnapshot)
+                {
+                    sFSCascadeHasProj[j] = false;
+                }
+                // </FS:Trish>
+
                 continue;
             }
 
@@ -18983,7 +19320,16 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 // they drift, and only step it when the slice outgrows it or shrinks well inside it.
                 static F32 snap_radius[4] = { 0.f, 0.f, 0.f, 0.f };
                 const F32 slice_radius = radius; // FSPerfShadowStaticCacheStable
-                if (radius > snap_radius[j] || radius < snap_radius[j] * 0.7f)
+                // FSRenderMovingShadowCache: a cached far cascade doesn't shrink while moving, so its map (and the
+                // cache's projection) stays put; it does once the camera is still
+                const bool fs_keep_size = j >= 2 && FSMoving::shadowCacheEnabled() && FSMoving::moving();
+                // ...and once still it takes the size the slice wants now: kept from the walk, it only ever grew
+                // there, and could stay a step or two coarser than the view needs for good
+                static bool fs_size_kept[4] = { false, false, false, false };
+                const bool fs_settle_size = fs_size_kept[j] && !fs_keep_size;
+                fs_size_kept[j] = fs_keep_size;
+                //if (radius > snap_radius[j] || (radius < snap_radius[j] * 0.7f && !fs_keep_size))
+                if (radius > snap_radius[j] || (radius < snap_radius[j] * 0.7f && !fs_keep_size) || fs_settle_size)
                 {
                     const F32 step = powf(2.f, floorf(log2f(radius)) - 4.f);
                     snap_radius[j] = ceilf(radius * 1.15f / step) * step;
@@ -19228,6 +19574,17 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             mShadowModelview[j] = view[j];
             mShadowProjection[j] = proj[j];
             mSunShadowMatrix[j] = trans*proj[j]*view[j]*inv_view;
+
+            // <FS:Trish> FSRenderMovingShadowHold, FSRenderMovingShadowCache: what this map is drawn with, worked out
+            // as below and in fsParallelShadowCullDefer
+            if (!gCubeSnapshot)
+            {
+                static LLCachedControl<F32> fs_min_caster_texels(gSavedSettings, "RenderShadowMinCasterTexels", 1.f);
+                sFSCascadeHasProj[j] = true;
+                sFSCascadeMinCaster[j] = (fs_min_caster_texels > 0.f && llfinite(min_texel_size))
+                    ? llmax(min_texel_size, 0.f) * fs_min_caster_texels * fs_shadow_cascade_caster_scale(j) : 0.f;
+            }
+            // </FS:Trish>
 
             stop_glerror();
 

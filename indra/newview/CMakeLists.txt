@@ -179,6 +179,7 @@ set(viewer_SOURCE_FILES
     fsfloaterwhitelisthelper.cpp
     fsjointpose.cpp
     fskeywords.cpp
+    fslighterwhilemoving.cpp
     fslinksetinventoryloader.cpp
     fslslbridge.cpp
     fslslbridgerequest.cpp
@@ -1114,6 +1115,7 @@ set(viewer_HEADER_FILES
     fsjointpose.h
     fsgridhandler.h
     fskeywords.h
+    fslighterwhilemoving.h
     fslinksetinventoryloader.h
     fslslbridge.h
     fslslbridgerequest.h

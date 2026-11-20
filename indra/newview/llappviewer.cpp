@@ -33,6 +33,7 @@
 #include "llvolume.h" // <FS:Trish/> FSPerfBackgroundVolumeFree
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fssettingstuner.h" // <FS:Trish/> Suggest settings
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingRebuildBudget
 #include "fsavatarcostlog.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsparticlerender.h" // <FS:Trish/> FSRenderGPUTimings: the particle line
 #include "fsavataralpha.h" // <FS:Trish/> FSRenderGPUTimings: the avatar alpha line
@@ -2321,6 +2322,7 @@ bool LLAppViewer::doFrame()
                 LLPerfStats::RecordSceneTime T ( LLPerfStats::StatType_t::RENDER_FPSLIMIT );
                 F32 min_frame_time = 1.f / (F32)max_fps;
                 S32 milliseconds_to_sleep = llclamp((S32)((min_frame_time - frameTimer.getElapsedTimeF64()) * 1000.f), 0, 1000);
+                FSMoving::noteLimiterSleep(milliseconds_to_sleep); // <FS:Trish/> FSRenderMovingRebuildBudget: the sleep is no work
                 if (milliseconds_to_sleep > 0)
                 {
                     LL_PROFILE_ZONE_NAMED_CATEGORY_APP("sleep2");

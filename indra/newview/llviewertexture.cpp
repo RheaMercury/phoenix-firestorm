@@ -58,6 +58,7 @@
 #include "llappviewer.h"
 #include "llagent.h" // <FS:Trish/> teleport aware bias hold
 #include "fsdiskthread.h" // <FS:Trish/> FSPerfDiskThread
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingTextureBiasHold
 #include <atomic> // <FS:Trish/>
 #include <thread> // <FS:Trish/>
 #include "llface.h"
@@ -738,6 +739,17 @@ void LLViewerTexture::updateClass()
     bool is_sys_low = isSystemMemoryLow();
     bool is_low = is_sys_low || over_pct > 0.f;
     bool vram_tight = is_low; // <FS:Trish/> textures may be shrunk (see fsUnderDownscalePressure)
+    // <FS:Trish> FSRenderMovingTextureBiasHold: while the camera walks, runs or turns (FSRenderLighterWhileMoving), the
+    // soft zone doesn't raise the bias and nothing resident is shrunk: each shrunk texture is a new GL texture (and,
+    // bindless, a new handle), thousands of them in the middle of a walk. Textures still load at the bias as it is.
+    // Real shortage (over the target, or system memory low) is handled as always. Once still, the soft zone carries
+    // on from where it was, so the bias rises as gradually as before, after the walk instead of during it.
+    // Released once usage is well into the soft zone (FS_BIAS_HOLD_MAX_DEPTH): held all the way, a long walk
+    // went on filling memory past the target, where the bias jumps and the overflow hold recovers far slower.
+    bool fs_hold_bias = FSMoving::textureBiasHold() && !is_low;
+    constexpr F32 FS_BIAS_HOLD_MAX_DEPTH = 0.7f;
+    bool fs_bias_held = false; // FSRenderMotionStats: the hold kept the bias from rising this frame
+    // </FS:Trish>
 
     // <FS:Trish>
     sVRAMUsedMegabytes = used;
@@ -889,7 +901,19 @@ void LLViewerTexture::updateClass()
         {
             static LLCachedControl<F32> soft_discard_increment(gSavedSettings, "RenderLowMemMinDiscardIncrement", .1f);
             const F32 depth = (over_pct + soft_zone) / soft_zone; // 0 at the edge of the zone, 1 at the target
-            sDesiredDiscardBias += soft_discard_increment * depth * gFrameIntervalSeconds;
+            // FSRenderMovingTextureBiasHold: no rise while moving, unless deep in the zone
+            if (depth >= FS_BIAS_HOLD_MAX_DEPTH)
+            {
+                fs_hold_bias = false;
+            }
+            if (fs_hold_bias)
+            {
+                fs_bias_held = true;
+            }
+            else
+            {
+                sDesiredDiscardBias += soft_discard_increment * depth * gFrameIntervalSeconds;
+            }
             // <FS:Trish> a new peak decides where the hold comes from
             //soft_zone_peak = llmax(soft_zone_peak, sDesiredDiscardBias);
             if (sDesiredDiscardBias > soft_zone_peak)
@@ -1063,7 +1087,7 @@ void LLViewerTexture::updateClass()
     // </FS:Trish>
 
     // <FS:Trish> Backgrounded or minimized, memory is handed back whatever the headroom
-    sFSVRAMTight = vram_tight || was_backgrounded;
+    sFSVRAMTight = (vram_tight && !fs_hold_bias) || was_backgrounded; // FSRenderMovingTextureBiasHold: nothing shrunk while moving
     // </FS:Trish>
 
     // <FS:Trish> Textures see the bias in steps. Their thresholds (on and off screen resets, the
@@ -1089,7 +1113,20 @@ void LLViewerTexture::updateClass()
         if (s_bias_state <= 1.f || s_bias_state >= max_bias || fabsf(s_bias_state - s_applied_bias) >= BIAS_STEP // <FS:Trish/>
             || s_settle_timer.getElapsedTimeF32() > SETTLE_TIME)
         {
-            s_applied_bias = s_bias_state;
+            // FSRenderMovingTextureBiasHold: no step up while moving; it is applied once still
+            if (fs_hold_bias && !was_backgrounded && s_bias_state > s_applied_bias)
+            {
+                fs_bias_held = true;
+            }
+            else
+            {
+                s_applied_bias = s_bias_state;
+            }
+        }
+        // FSRenderMotionStats
+        if (fs_bias_held)
+        {
+            FSMoving::stats().mBiasHoldSeconds += gFrameIntervalSeconds.value();
         }
         sDesiredDiscardBias = s_applied_bias;
     }

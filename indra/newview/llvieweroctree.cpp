@@ -35,6 +35,7 @@
 #include "lldrawpoolwater.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
 #include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderAsyncOcclusionReadback
 
 //-----------------------------------------------------------------------------------
 //static variables definitions
@@ -1144,10 +1145,58 @@ void LLOcclusionCullingGroup::checkOcclusion()
         }
         else
         {
+            // <FS:Trish> FSRenderAsyncOcclusionReadback: with the render thread, the result is taken from what it has
+            // collected, never with a read that waits for it. A query it doesn't track (one issued before the stream
+            // was paused and resumed for a shader build, which forgets them all) used to be read that way, a wait
+            // each, hundreds a minute while walking: the group is shown instead (a hidden result it can't confirm
+            // is not kept) and asked again this frame, as when a result is late. With the option off, nothing is
+            // peeked (peeking hands the stream's pending work over early): FSRenderMotionStats only counts the
+            // reads that wait.
+            bool fs_async = false;
+            bool fs_ready = false;
+            U64 fs_value = 0;
+            if (FSGLStream::isRecording() && !FSMoving::asyncOcclusion() && FSMoving::statsEnabled())
+            {
+                ++FSMoving::stats().mOcclusionWaited;
+            }
+            if (FSGLStream::isRecording() && FSMoving::asyncOcclusion())
+            {
+                const FSGLStream::EQueryState fs_state =
+                    FSGLStream::peekQueryState(mOcclusionQuery[LLViewerCamera::sCurCameraID], fs_value);
+                FSMoving::Stats& fs_stats = FSMoving::stats();
+                if (fs_state == FSGLStream::QUERY_UNTRACKED)
+                {
+                    ++fs_stats.mOcclusionUntracked;
+                    mOcclusionCheckCount[LLViewerCamera::sCurCameraID] = 0;
+                    // A hidden result that can't be confirmed is not kept: kept, a group could stay hidden on a stale
+                    // answer, again each time the stream forgot its query, until the camera moved enough (missing
+                    // geometry and the light it should cast or bounce). It shows until the new query answers.
+                    clearOcclusionState(LLOcclusionCullingGroup::OCCLUDED, LLOcclusionCullingGroup::STATE_MODE_DIFF);
+                    clearOcclusionState(QUERY_PENDING); // doOcclusion issues a new one
+                    return;
+                }
+                else
+                {
+                    fs_async = true;
+                    fs_ready = fs_state == FSGLStream::QUERY_READY;
+                    ++(fs_ready ? fs_stats.mOcclusionCached : fs_stats.mOcclusionPending);
+                }
+            }
+            // </FS:Trish>
             GLuint available;
             {
                 LL_PROFILE_ZONE_NAMED_CATEGORY_OCTREE("co - query available");
-                glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT_AVAILABLE, &available);
+                // <FS:Trish> FSRenderAsyncOcclusionReadback
+                //glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT_AVAILABLE, &available);
+                if (fs_async)
+                {
+                    available = fs_ready ? GL_TRUE : GL_FALSE;
+                }
+                else
+                {
+                    glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT_AVAILABLE, &available);
+                }
+                // </FS:Trish>
                 // <FS:Trish> checkOcclusion runs several times per frame (cull and state sort, cube map faces), so count the
                 // timeout in frames, not calls, to avoid a blocking GL_QUERY_RESULT read on a query the GPU hasn't reached yet
                 //mOcclusionCheckCount[LLViewerCamera::sCurCameraID]++;
@@ -1178,9 +1227,18 @@ void LLOcclusionCullingGroup::checkOcclusion()
                 GLuint query_result;    // Will be # samples drawn, or a boolean depending on mHasOcclusionQuery2 (both are type GLuint)
                 {
                     LL_PROFILE_ZONE_NAMED_CATEGORY_OCTREE("co - query result");
+                    // <FS:Trish> FSRenderAsyncOcclusionReadback: already collected
+                    if (fs_async && fs_ready)
+                    {
+                        query_result = (GLuint)llmin(fs_value, (U64)U32_MAX);
+                    }
+                    else
+                    {
+                    // </FS:Trish>
                     // Ping watchdog before a blocking GL_QUERY_RESULT GPU call
                     LLAppViewer::instance()->pingMainloopTimeout("Display:CullQueryResult");
                     glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT, &query_result);
+                    } // <FS:Trish/>
                 }
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                 sPendingQueries.erase(mOcclusionQuery[LLViewerCamera::sCurCameraID]);

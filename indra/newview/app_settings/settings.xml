@@ -31021,6 +31021,116 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSRenderLighterWhileMoving</key>
+    <map>
+      <key>Comment</key>
+      <string>Lighter frames while walking, running or turning the camera gently: a 'walking' motion tier below the existing fast motion test (which only counts turning faster than 35 degrees a second or travelling faster than 20 m/s), used by the FSRenderMoving* options, each of which must be on as well. Off: everything as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingRebuildBudget</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving: while moving, the group rebuild throttle (FSPerfGroupRebuildBudgetMs) also works at walking speed, with a budget of what the last frame left of the target frame time (the frame rate limit, or 60), between 1 ms and FSPerfGroupRebuildBudgetMs, and drawable updates are capped up front so a burst of detail changes is spread over frames. Objects in view and nearest change first.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingLODHold</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving: while moving, objects don't drop to a lower level of detail, and only go up once 15% clear of the threshold. Held changes are applied once the camera is still (a few hundred objects a frame). HUDs, selected objects and avatars' attachments change as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingShadowReduce</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving and FSRenderShadowReduceWhileMoving: while walking, running or turning gently, the far sun shadow maps leave out objects twice as small as they otherwise would (fast motion keeps its four times). Back to normal half a second after the camera settles.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingTextureBiasHold</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving: while moving, the texture discard bias doesn't rise from the soft zone (FSTextureBiasSoftZone) and resident textures aren't shrunk; the bias carries on once the camera is still. Running out of video or system memory still raises it at once.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingShadowHold</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving and FSRenderShadowFarCascadeInterval above 1: the far sun shadow maps keep their interval while the camera moves or turns, for as long as what the view needs from a map (the visible surfaces in its range, with a few texels to spare, and its depth range) still fits inside it. Otherwise all of them are rendered at once, as before. Off: moving 2% of the shadow range or turning 3 degrees renders them all.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingShadowCache</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving and FSPerfShadowStaticCache: the far sun shadow cache ignores changes of objects too small to cast into it, lets level of detail changes wait while the camera moves (2 seconds at most, or until it is still), keeps its map window and depth range from shrinking while moving, and is stored while moving.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMovingProbeHold</key>
+    <map>
+      <key>Comment</key>
+      <string>With FSRenderLighterWhileMoving: while moving, reflection probes that already have a map aren't refreshed; they are once the camera is still. New probes and probes a sky change invalidated are still captured.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderAsyncOcclusionReadback</key>
+    <map>
+      <key>Comment</key>
+      <string>With the render thread (FSRenderThread): occlusion query results are read from what the render thread has collected, never with a read that waits for it. A query it no longer tracks (after the stream was paused for a shader build) is not waited for: its group shows until a new query answers. Off: as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderMotionStats</key>
+    <map>
+      <key>Comment</key>
+      <string>Every 10 seconds, logs (FSMotion) the time spent still, walking and moving fast, the frame aware rebuild budget, level of detail changes held, texture bias holds, far sun cascades held or rendered and why, static shadow cache filtering, probe refreshes put off and occlusion reads collected or waited for.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfPrefetchPreferences</key>
     <map>
       <key>Comment</key>

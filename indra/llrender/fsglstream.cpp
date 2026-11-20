@@ -4175,6 +4175,37 @@ namespace FSGLStream
         return false;
     }
 
+    EQueryState peekQueryState(U32 id, U64& value)
+    {
+        if (!tRecording)
+        {
+            return QUERY_UNTRACKED;
+        }
+        const U64* issued = sQueryIssued.find(id);
+        if (!issued)
+        {
+            return QUERY_UNTRACKED;
+        }
+        {
+            std::lock_guard<std::mutex> lock(sQueryResultMutex);
+            const QueryResult* r = sQueryResults.find(id);
+            if (r && r->mGen == *issued)
+            {
+                if (r->mDropped)
+                {
+                    return QUERY_UNTRACKED; // only the driver knows the result now
+                }
+                value = r->mValue;
+                return QUERY_READY;
+            }
+        }
+        if (sQueryEndUnsubmitted)
+        {   // the caller asks again later: make sure the render thread has the query's end
+            submitCurrent();
+        }
+        return QUERY_PENDING;
+    }
+
     void clearErrors()
     {
         if (!tRecording)
@@ -4357,6 +4388,7 @@ namespace FSGLStream
     void recordCall(void (*fn)(U64), U64 value) { fn(value); }
     bool reserveTextures(U32, U32) { return true; }
     bool peekQueryResult(U32, U64&) { return false; }
+    EQueryState peekQueryState(U32, U64&) { return QUERY_UNTRACKED; }
     void setRenderPoll(bool (*)(bool)) {}
     void setFilter(bool) {}
     void setCallStats(bool) {}

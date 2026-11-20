@@ -311,10 +311,15 @@ public:
         U32             mChanges = 0;               // projection steps since the target was stored
         U32             mInvalidReason = 0;         // what dropped it, while not valid
         U64             mItems = 0;                 // index count of the static casters it holds
+        // FSRenderMovingShadowCache
+        F32             mMinCasterSize = 0.f;       // casters smaller than this were left out of it
+        bool            mLODDeferred = false;       // detail changes inside it wait (fsShadowCacheBeginFrame)
     };
     FSShadowCache           mFSShadowCache[2];      // sun cascades 2 and 3
     std::vector<LLVector4a> mFSShadowDirty;         // agent space extents (min, max) of changed static geometry
     std::vector<U8>         mFSShadowDirtyChurn;    // per extents pair: a rebuild that moved no vertex (colour, texture)
+    std::vector<F32>        mFSShadowDirtySize;     // per extents pair: largest size of the group as a caster (FSRenderMovingShadowCache)
+    std::vector<U8>         mFSShadowDirtyLOD;      // per extents pair: a detail change only (FSRenderMovingShadowCache)
     std::vector<const LLMatrix4*> mFSShadowStaticMatrices; // region render matrices: model matrix of static batches
     bool                    mFSShadowDirtyAll = false;
     bool                    mFSShadowCacheInUse = false;
@@ -330,7 +335,10 @@ public:
     void fsShadowCacheRenderStatic(LLCamera& shadow_cam, const U32* types, U32 type_count);
     bool fsIsStaticShadowBatch(const LLDrawInfo* params) const;
     bool fsShadowPoolAllowed(U32 pool_type) const;
-    void fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change = false);
+    void fsNoteShadowStaticChange(const LLVector4a* extents, bool no_depth_change = false, F32 caster_size = FLT_MAX, bool lod_only = false);
+    // FSRenderMovingShadowHold: whether a held far cascade map still covers this frame's view (FSMoving::EForce in why if not)
+    bool fsFarCascadeStillFits(S32 cascade, const LLCamera& camera, F32 near_dist, F32 far_dist, const LLVector3& light_dir,
+                               const glm::mat4& main_view, const glm::mat4& main_proj, U32& why);
     void fsReleaseShadowCache();
     // </FS:Trish>
     // <FS:Trish> FSPerfShadowSinglePass (fsshadowsinglepass.cpp): the sun cascades record their opaque and

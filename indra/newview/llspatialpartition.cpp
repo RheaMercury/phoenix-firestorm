@@ -59,6 +59,7 @@
 #include "llformat.h"
 #include "llselectmgr.h"
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
+#include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingShadowCache
 // </FS:Beq>
 
 extern bool gShiftFrame;
@@ -316,7 +317,9 @@ void LLSpatialGroup::expandExtents(const LLVector4a* addingExtents, const LLXfor
 // far sun cascade cache and the projector shadow cache (FSPerfSpotShadowCache). Bridged partitions
 // are skipped: their batches are always drawn as dynamic.
 // no_depth_change: a rebuild that moved no vertex (FSPerfShadowStaticCacheStable, see fs_group_moves_vertices)
-static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a* extents, bool no_depth_change = false)
+// lod_only: a rebuild for detail changes only (FSRenderMovingShadowCache, see fs_group_lod_only)
+static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a* extents, bool no_depth_change = false,
+                                         bool lod_only = false)
 {
     if ((!gPipeline.mFSShadowCacheInUse && !gPipeline.mFSSpotCacheInUse) || !group || !extents)
     {
@@ -328,7 +331,71 @@ static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a
     {
         return;
     }
-    gPipeline.fsNoteShadowStaticChange(extents, no_depth_change);
+    // FSRenderMovingShadowCache: the group's size as a caster, before or after the change: the sun cascades leave
+    // out whole volume groups smaller than their minimum (LLPipeline::isShadowCasterTooSmall). Terrain always casts.
+    F32 caster_size = FLT_MAX;
+    if (part->mPartitionType == LLViewerRegion::PARTITION_VOLUME)
+    {
+        LLVector4a lo;
+        LLVector4a hi;
+        lo.setMin(group->getObjectExtents()[0], extents[0]);
+        hi.setMax(group->getObjectExtents()[1], extents[1]);
+        LLVector4a size;
+        size.setSub(hi, lo);
+        caster_size = llmax(size[0], llmax(size[1], size[2]));
+        if (!llfinite(caster_size))
+        {
+            caster_size = FLT_MAX;
+        }
+    }
+    gPipeline.fsNoteShadowStaticChange(extents, no_depth_change, caster_size, lod_only);
+}
+
+// FSRenderMovingShadowCache: whether a group rebuild only applies detail changes, read before the rebuild clears the
+// flags: every drawable of it whose volume or position is rebuilt had a detail change and nothing else in its last
+// geometry update while the camera moved (LLVOVolume::updateGeometry notes it). Takes those notes.
+static bool fs_group_lod_only(LLSpatialGroup* group)
+{
+    if (!gPipeline.mFSShadowCacheInUse || !FSMoving::shadowCacheEnabled() || !FSMoving::moving())
+    {
+        return false;
+    }
+    bool any = false;
+    bool all_lod = true;
+    for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
+    {
+        LLDrawable* drawablep = (LLDrawable*)(*i)->getDrawable();
+        if (!drawablep)
+        {
+            all_lod = false;
+            continue;
+        }
+        if (drawablep->isState(LLDrawable::REBUILD_VOLUME | LLDrawable::REBUILD_POSITION))
+        {
+            any = true;
+            // taken for every such drawable, so none is left behind
+            const bool lod_only = FSMoving::takeLODOnly(drawablep) && !drawablep->isState(LLDrawable::REBUILD_POSITION);
+            all_lod = all_lod && lod_only;
+        }
+    }
+    return any && all_lod;
+}
+
+// FSRenderMovingShadowCache: whether the group's bounds stayed about the same through a rebuild (within 2% of its
+// size): a detail change that grew or shrank the group a lot doesn't wait
+static bool fs_extents_close(const LLVector4a* before, const LLVector4a* after)
+{
+    LLVector4a size;
+    size.setSub(before[1], before[0]);
+    const F32 tolerance = llmax(llmax(size[0], llmax(size[1], size[2])) * 0.02f, 0.01f);
+    for (U32 i = 0; i < 3; ++i)
+    {
+        if (fabsf(before[0][i] - after[0][i]) > tolerance || fabsf(before[1][i] - after[1][i]) > tolerance)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 // FSPerfShadowStaticCacheStable: whether a rebuild of the group can move vertices, read before the rebuild
@@ -387,11 +454,13 @@ void LLSpatialGroup::rebuildGeom()
         const bool fs_geom_dirty = hasState(LLSpatialGroup::GEOM_DIRTY);
         LLVector4a fs_before[2];
         bool fs_moves = true; // FSPerfShadowStaticCacheStable
+        bool fs_lod_only = false; // FSRenderMovingShadowCache
         if (fs_geom_dirty)
         {
             fs_before[0] = getObjectExtents()[0];
             fs_before[1] = getObjectExtents()[1];
             fs_moves = fs_group_moves_vertices(this);
+            fs_lod_only = fs_group_lod_only(this);
         }
         // </FS:Trish>
         getSpatialPartition()->rebuildGeom(this);
@@ -409,7 +478,9 @@ void LLSpatialGroup::rebuildGeom()
                 fs_changed[1].setMax(fs_before[1], fs_changed[1]);
             }
             //fs_note_static_shadow_change(this, fs_changed);
-            fs_note_static_shadow_change(this, fs_changed, fs_no_depth_change);
+            // FSRenderMovingShadowCache: detail changes only, with about the same bounds before and after
+            fs_lod_only = fs_lod_only && !fs_before[0].equals3(fs_before[1]) && fs_extents_close(fs_before, getObjectExtents());
+            fs_note_static_shadow_change(this, fs_changed, fs_no_depth_change, fs_lod_only);
         }
         // </FS:Trish>
 

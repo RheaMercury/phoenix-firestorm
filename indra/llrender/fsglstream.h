@@ -113,6 +113,13 @@ namespace FSGLStream
     // not recording, or when the result isn't known (yet, or since a DirectScope). Main thread.
     bool peekQueryResult(U32 id, U64& value);
 
+    // FSRenderAsyncOcclusionReadback: as peekQueryResult, and tells a result not in yet (QUERY_PENDING, the
+    // render thread will collect it) from a query it doesn't track (QUERY_UNTRACKED: not recording, issued before
+    // a DirectScope or not through the proxies, or given up on), whose glGetQueryObject* reads would wait for the
+    // render thread. Never waits. Main thread.
+    enum EQueryState { QUERY_UNTRACKED = 0, QUERY_PENDING, QUERY_READY };
+    EQueryState peekQueryState(U32 id, U64& value);
+
     // Render thread work that waits on the GPU (fences of asynchronous readbacks). fn runs on the
     // render thread after each replayed chunk and while it waits for work, and returns true while
     // it still has work, which keeps the waiting thread polling. stop() calls it once more on the
