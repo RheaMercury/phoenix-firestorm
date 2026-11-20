@@ -63,6 +63,10 @@ bool    LLView::sDebugUnicode = false;
 bool    LLView::sDebugCamera = false;
 bool    LLView::sIsRectDirty = false;
 LLRect  LLView::sDirtyRect;
+// <FS:Trish> FSRenderUICap: counts every dirtyRect() call, so the capped UI path can tell
+// whether views changed while it drew them (sIsRectDirty alone can't: it stays set then)
+U32     gFSUIDirtyMarks = 0;
+// </FS:Trish>
 bool    LLView::sDebugRectsShowNames = true;
 bool    LLView::sDebugKeys = false;
 bool    LLView::sDebugMouseHandling = false;
@@ -1345,6 +1349,7 @@ void LLView::drawChildren()
 
 void LLView::dirtyRect()
 {
+    ++gFSUIDirtyMarks; // <FS:Trish/> FSRenderUICap
     LLView* child = getParent();
     LLView* parent = child ? child->getParent() : NULL;
     LLView* cur = this;

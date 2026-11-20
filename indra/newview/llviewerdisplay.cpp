@@ -2007,26 +2007,109 @@ void render_ui_3d()
 // quarter second, or a UI element holding the mouse), at most FSRenderUICap times a second while something marks it dirty, and
 // otherwise FSRenderUIIdleRate times a second: most changes (text, counters, chat) mark nothing,
 // so that rate is how late they can show. 0 for the cap draws the UI every frame as before.
+extern U32 gFSUIDirtyMarks; // llview.cpp: dirtyRect() calls so far
 namespace
 {
     LLRenderTarget* sFSUIBuffer = nullptr;      // never destroyed at exit: released with the GL buffers
-    F64 sFSUILastDraw = -1.0;
+    F64 sFSUILastDraw = -1.0;                   // < 0: the buffer doesn't hold the current UI
+    F64 sFSUILastComposite = -1.0;
+
+    // FSRenderUICapStats: what the capped path did, logged every 10 seconds
+    struct FSUICapStats
+    {
+        U32 mComposites = 0;        // frames the buffer was composited
+        U32 mRedrawAlloc = 0;       // redrawn after the buffer was (re)allocated
+        U32 mRedrawStale = 0;       // redrawn because the UI was drawn some other way since
+        U32 mRedrawDirty = 0;       // redrawn for dirty marks (at most FSRenderUICap a second)
+        U32 mRedrawIdle = 0;        // redrawn by the FSRenderUIIdleRate timer
+        U32 mMarkedWhileDrawn = 0;  // redraws during which views marked themselves dirty
+        U32 mDirectInUse = 0;       // drawn straight to the frame: UI in use or animating
+        U32 mDirectNoSize = 0;      // drawn straight to the frame: the window has no size
+        U32 mDirectFailed = 0;      // drawn straight to the frame: the buffer could not be made
+        U32 mBypassed = 0;          // drawn the stock way: mouselook, progress screen, ...
+        U32 mAllocs = 0;            // buffer (re)allocations
+    };
+    FSUICapStats sFSUIStats;
+    F64 sFSUIStatsStart = -1.0;
+
+    void fs_ui_log_stats()
+    {
+        static LLCachedControl<bool> log_stats(gSavedSettings, "FSRenderUICapStats", false);
+        if (!log_stats)
+        {
+            sFSUIStatsStart = -1.0;
+            return;
+        }
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        if (sFSUIStatsStart < 0.0)
+        {
+            sFSUIStats = FSUICapStats();
+            sFSUIStatsStart = now;
+            return;
+        }
+        if (now - sFSUIStatsStart < 10.0)
+        {
+            return;
+        }
+        const FSUICapStats& s = sFSUIStats;
+        LL_INFOS("FSUICap") << "UI frame cap, last " << llformat("%.1f", now - sFSUIStatsStart) << " s: "
+                            << s.mComposites << " frames composited the UI buffer, redrawn "
+                            << (s.mRedrawAlloc + s.mRedrawStale + s.mRedrawDirty + s.mRedrawIdle) << " times ("
+                            << s.mRedrawAlloc << " after (re)allocation, " << s.mRedrawStale << " stale, "
+                            << s.mRedrawDirty << " marked dirty, " << s.mRedrawIdle << " idle timer; "
+                            << s.mMarkedWhileDrawn << " changed views while drawn); drawn directly "
+                            << s.mDirectInUse << " frames in use, " << s.mDirectNoSize << " with no window size, "
+                            << s.mDirectFailed << " with no buffer; cap bypassed " << s.mBypassed
+                            << " frames; " << s.mAllocs << " buffer allocations" << LL_ENDL;
+        sFSUIStats = FSUICapStats();
+        sFSUIStatsStart = now;
+    }
+
+    // The UI drawn without the buffer. LLView::drawChildren skips views outside
+    // LLView::sDirtyRect, and while sIsRectDirty is clear the first dirtyRect() replaces the
+    // rectangle with the one view that changed instead of growing it: a view changing during the
+    // draw (shown, hidden, resized or deleted) then left out every view drawn after it. Keep it
+    // set, so a change during the draw only grows the rectangle, as it does with the cap off,
+    // where it is never cleared. The buffer misses whatever this draw shows.
+    void fs_ui_draw_direct()
+    {
+        if (LLView* root = LLUI::getInstance()->getRootView())
+        {
+            LLView::sDirtyRect = root->getLocalRect();
+        }
+        LLView::sIsRectDirty = true;
+        sFSUILastDraw = -1.0;
+        gViewerWindow->draw();
+    }
 
     bool fs_ui_cap_active()
     {
         static LLCachedControl<U32> cap(gSavedSettings, "FSRenderUICap", 0);
+        if (cap == 0 || LLPipeline::RenderUIBuffer || !gViewerWindow)
+        {
+            return false;
+        }
         // Not in mouselook: the crosshair, IFF markers and range text there move with the
         // camera every frame. Not while a progress screen is up (teleport, the fade into the world
         // after login, logout, GL restore): its bar, text and fades change every frame and mark
         // nothing dirty.
-        if (cap == 0 || gSnapshot || gCubeSnapshot || LLPipeline::RenderUIBuffer || !gViewerWindow ||
-            gAgentCamera.cameraMouselook())
+        const LLProgressView* progress = gViewerWindow->getProgressView();
+        if (gSnapshot || gCubeSnapshot || gAgentCamera.cameraMouselook() || gTeleportDisplay || gRestoreGL ||
+            LLAppViewer::instance()->logoutRequestSent() || (progress && progress->getVisible()))
         {
+            // Drawn the stock way below: the buffer goes stale, and that draw needs the same
+            // protection from views changing while drawn (see fs_ui_draw_direct)
+            if (!gSnapshot && !gCubeSnapshot)
+            {
+                ++sFSUIStats.mBypassed;
+                fs_ui_log_stats();
+            }
+            sFSUILastDraw = -1.0;
+            LLView::sIsRectDirty = true;
             return false;
         }
-        const LLProgressView* progress = gViewerWindow->getProgressView();
-        return !gTeleportDisplay && !gRestoreGL && !LLAppViewer::instance()->logoutRequestSent() &&
-               !(progress && progress->getVisible());
+        fs_ui_log_stats();
+        return true;
     }
 
     // Something in the UI changes every frame without any input aimed at it
@@ -2067,47 +2150,44 @@ namespace
         return interacting || fs_ui_animating(captor);
     }
 
-    bool fs_ui_redraw_due(bool resized)
+    enum class FSUIRedraw { NONE, ALLOC, STALE, DIRTY, IDLE };
+
+    FSUIRedraw fs_ui_redraw_due(bool resized)
     {
         static LLCachedControl<U32> cap(gSavedSettings, "FSRenderUICap", 0);
         static LLCachedControl<F32> idle_rate(gSavedSettings, "FSRenderUIIdleRate", 10.f);
 
-        const F64 since = LLFrameTimer::getElapsedSeconds() - sFSUILastDraw;
-        if (resized || sFSUILastDraw < 0.0)
+        // No frame composited the buffer for this long (the UI hidden, or frames that didn't
+        // draw it): whatever changed meanwhile isn't in it
+        constexpr F64 MAX_COMPOSITE_GAP = 0.5;
+
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        const F64 since = now - sFSUILastDraw;
+        if (resized)
         {
-            return true;
+            return FSUIRedraw::ALLOC;
+        }
+        if (sFSUILastDraw < 0.0 || sFSUILastComposite < 0.0 || now - sFSUILastComposite > MAX_COMPOSITE_GAP)
+        {
+            return FSUIRedraw::STALE;
         }
         if (LLView::sIsRectDirty && since >= 1.0 / (F64)llmax((U32)cap, 1u))
         {
-            return true;
+            return FSUIRedraw::DIRTY;
         }
-        return since >= 1.0 / (F64)llclamp((F32)idle_rate, 0.5f, 120.f);
-    }
-
-    // LLView::drawChildren skips views outside LLView::sDirtyRect. Without a UI buffer it only ever
-    // grows (sIsRectDirty is never cleared), so it soon covers the screen; this path clears
-    // sIsRectDirty on each redraw, after which dirtyRect() starts it over at the one view that
-    // changed, and the next draw left everything else out: parts of the UI blinked away until a
-    // later redraw. Every draw here is of the whole UI, so the whole screen is dirty.
-    void fs_ui_dirty_all()
-    {
-        if (LLView* root = LLUI::getInstance()->getRootView())
-        {
-            LLView::sDirtyRect = root->getLocalRect();
-        }
+        return since >= 1.0 / (F64)llclamp((F32)idle_rate, 0.5f, 120.f) ? FSUIRedraw::IDLE : FSUIRedraw::NONE;
     }
 
     void fs_render_ui_cached()
     {
         LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
-        fs_ui_dirty_all();
         // Redrawn every frame anyway: the buffer saves nothing then, so draw straight to the frame
         // as with the cap off (going through the buffer made the whole UI blink while the colour
         // picker was dragged). The buffer is stale afterwards: redraw it once the UI is idle.
         if (fs_ui_in_use())
         {
-            sFSUILastDraw = -1.0;
-            gViewerWindow->draw();
+            ++sFSUIStats.mDirectInUse;
+            fs_ui_draw_direct();
             return;
         }
         const U32 width = (U32)gViewerWindow->getWindowWidthRaw();
@@ -2116,8 +2196,8 @@ namespace
         // binding that drew into the default one and logged an invalid attachment every frame
         if (!width || !height)
         {
-            sFSUILastDraw = -1.0;
-            gViewerWindow->draw();
+            ++sFSUIStats.mDirectNoSize;
+            fs_ui_draw_direct();
             return;
         }
         if (!sFSUIBuffer)
@@ -2127,35 +2207,74 @@ namespace
         bool resized = false;
         if (!sFSUIBuffer->isComplete() || sFSUIBuffer->getWidth() != width || sFSUIBuffer->getHeight() != height)
         {
+            ++sFSUIStats.mAllocs;
             sFSUIBuffer->release();
+            sFSUILastDraw = -1.0;   // nothing drawn into the new buffer yet
             if (!sFSUIBuffer->allocate(width, height, GL_RGBA, false) || !sFSUIBuffer->isComplete())
             {
                 sFSUIBuffer->release();
-                gViewerWindow->draw(); // no buffer: draw it directly
+                ++sFSUIStats.mDirectFailed;
+                fs_ui_draw_direct(); // no buffer: draw it directly
                 return;
             }
             resized = true;
         }
 
-        if (fs_ui_redraw_due(resized))
+        const FSUIRedraw redraw = fs_ui_redraw_due(resized);
+        if (redraw != FSUIRedraw::NONE)
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_UI("fs ui redraw");
-            sFSUILastDraw = LLFrameTimer::getElapsedSeconds();
-            LLView::sIsRectDirty = false;
+            switch (redraw)
+            {
+                case FSUIRedraw::ALLOC: ++sFSUIStats.mRedrawAlloc; break;
+                case FSUIRedraw::STALE: ++sFSUIStats.mRedrawStale; break;
+                case FSUIRedraw::DIRTY: ++sFSUIStats.mRedrawDirty; break;
+                default:                ++sFSUIStats.mRedrawIdle; break;
+            }
+            // Every draw here is of the whole UI, so the whole screen is dirty. sIsRectDirty stays
+            // set during the draw: cleared, the first view to change while drawn (shown, hidden,
+            // resized or deleted) replaced LLView::sDirtyRect with its own rectangle, and
+            // LLView::drawChildren left out every later view outside it. The buffer then held a
+            // UI with parts missing until the next redraw: the random flicker. Marks made during
+            // the draw are counted instead, and leave it set for the next redraw.
+            if (LLView* root = LLUI::getInstance()->getRootView())
+            {
+                LLView::sDirtyRect = root->getLocalRect();
+            }
+            LLView::sIsRectDirty = true;
+            const U32 marks = gFSUIDirtyMarks;
+
             sFSUIBuffer->bindTarget();
             gGL.setColorMask(true, true);
             glClearColor(0.f, 0.f, 0.f, 0.f);
-            sFSUIBuffer->clear(GL_COLOR_BUFFER_BIT);
+            {
+                // The clear must reach the whole buffer: a scissor left on would keep old UI
+                LLGLDisable scissor(GL_SCISSOR_TEST);
+                sFSUIBuffer->clear(GL_COLOR_BUFFER_BIT);
+            }
             gGL.fsSetPremultipliedAlpha(true);
             gViewerWindow->draw();
             gGL.flush();
             gGL.fsSetPremultipliedAlpha(false);
             sFSUIBuffer->flush();
             gGL.setColorMask(true, false);
+
+            sFSUILastDraw = LLFrameTimer::getElapsedSeconds();
+            LLView::sIsRectDirty = gFSUIDirtyMarks != marks;
+            if (LLView::sIsRectDirty)
+            {
+                ++sFSUIStats.mMarkedWhileDrawn;
+            }
         }
 
         // Over the frame: the buffer holds premultiplied colour
         LL_PROFILE_ZONE_NAMED_CATEGORY_UI("fs ui composite");
+        ++sFSUIStats.mComposites;
+        sFSUILastComposite = LLFrameTimer::getElapsedSeconds();
+        // Over the whole window, as the UI itself is drawn: the buffer's flush restores
+        // gGLViewport, which a view changing it while drawn would leave behind on the frames
+        // that redraw, and only on those
+        gViewerWindow->setup2DViewport();
         gUIProgram.bind();
         LLGLDisable cull(GL_CULL_FACE);
         LLGLDepthTest depth(GL_FALSE, GL_FALSE);

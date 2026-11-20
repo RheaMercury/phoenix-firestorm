@@ -9470,7 +9470,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="614"
+                 height="642"
                  layout="topleft"
                  left="0"
                  name="experimental_logging_settings"
@@ -9767,7 +9767,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderVRSLogInterval,FSDebugReflectionProbeCulls,FSDiagnosticsGPUWork" />
+                         parameter="FSRenderVRSLogInterval,FSDebugReflectionProbeCulls,FSDiagnosticsGPUWork,FSRenderUICapStats" />
                     </button>
                     <text
                      follows="left|top"
@@ -9815,6 +9815,18 @@
                      name="fs_fsdiagnosticsgpuwork"
                      tool_tip="Diagnostics. Every 10 seconds, logs (FSGPUWork) how many objects share one mesh or prim shape and the geometry their copies take, how much of what is in view the occlusion queries hide and how much of what is drawn is behind the finished depth anyway (one box test per object on one frame), and texture memory by whether its faces are visible, hidden or off screen. Each log costs a few milliseconds once."
                      top="570"
+                     width="455" />
+                    <check_box
+                     control_name="FSRenderUICapStats"
+                     enabled_control="FSRenderUICap"
+                     follows="left|top"
+                     height="20"
+                     label="Log UI frame cap statistics"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderuicapstats"
+                     tool_tip="Every 10 seconds, logs (FSUICap) how often the cached UI was composited and redrawn and why, how many redraws had views change while drawn, how many frames drew the UI directly and why, and how many times its buffer was allocated. A few counters per frame."
+                     top="598"
                      width="455" />
                 </panel>
             </scroll_container>

@@ -528,6 +528,7 @@ namespace
         { "FSRenderVRSLogInterval", CL, VN },
         { "FSDebugReflectionProbeCulls", CL, VN },
         { "FSDiagnosticsGPUWork", CL, VN },
+        { "FSRenderUICapStats", CL, VN },
     };
 
     const LLColor4& costColor(Cost cost)
