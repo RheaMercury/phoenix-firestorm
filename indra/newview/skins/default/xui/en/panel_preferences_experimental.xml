@@ -9210,7 +9210,7 @@
                      name="fs_fsperfimagebufferpoolmb_label"
                      tool_tip="EXPERIMENTAL. How much of the pixel buffers freed by decoded textures is kept, in MB, for the next texture of a similar size instead of being handed back to Windows and fetched fresh, page by page, every time. Saves the bursts of page faults that stall the viewer while many textures decode at once (logging in, arriving somewhere). Kept buffers unused for 30 seconds are handed back. 0 turns it off. Takes effect at once."
                      top="1016"
-                     width="310">
+                     width="290">
                         Texture pixel buffers kept for reuse (MB)
                     </text>
                     <spinner
@@ -10221,7 +10221,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="670"
+                 height="700"
                  layout="topleft"
                  left="0"
                  name="experimental_logging_settings"
@@ -10603,7 +10603,7 @@
                      left="35"
                      name="fs_fsrendermotionstats"
                      tool_tip="Every 10 seconds, logs (FSMotion) the time spent still, walking and moving fast, the rebuild budget while moving, level of detail changes held and caught up, texture bias holds, far shadow maps held or rendered and why, static shadow cache filtering, reflection probe refreshes put off, and occlusion results read without and with waiting. A few counters per frame."
-                     top="626"
+                     top="654"
                      width="455" />
                     <!-- </FS:Trish> -->
                 </panel>
