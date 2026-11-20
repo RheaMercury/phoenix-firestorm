@@ -30,6 +30,10 @@
 
 #include "stdtypes.h"
 
+#include <string>
+#include <utility>
+#include <vector>
+
 // Every LL_PROFILE_GPU_ZONE in the viewer (about a hundred: passes, shadow maps, post effects)
 // writes a GPU timestamp when it opens and when it closes. The results are read back once they
 // are ready, a few frames later, without ever waiting for the GPU (also with the render thread,
@@ -44,6 +48,15 @@ namespace FSGPUTimers
 
     // Main thread, GL context gone or going: forget all queries
     void releaseGL();
+
+    // The settings tuner's measurement (fssettingstuner.cpp). While a capture runs, timing is on whether
+    // frame() is asked for it or not (nothing is logged unless it is), and every frame read back is also
+    // summed into the capture. startCapture clears it; stopCapture ends it. Main thread.
+    void startCapture();
+    void stopCapture();
+    // Average GPU ms per frame of each zone and of the whole frame over the frames captured so far
+    // (frames: how many). Zones are inclusive, as in the log.
+    void getCapture(std::vector<std::pair<std::string, F64>>& zones_ms, F64& frame_ms, U32& frames);
 }
 
 #endif // FS_GPUTIMERS_H

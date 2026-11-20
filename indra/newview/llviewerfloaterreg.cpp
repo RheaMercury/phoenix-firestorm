@@ -211,6 +211,7 @@
 #include "fsfloatergrouptitles.h"
 #include "fsfloaterimport.h"
 #include "fsfloatermeasure.h" // <FS:Trish/> Measuring tool
+#include "fssettingstuner.h" // <FS:Trish/> Suggest settings
 #include "fsfloaterim.h"
 #include "fsfloaterimcontainer.h"
 #include "fsfloaterpartialinventory.h"
@@ -661,6 +662,7 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("fs_import", "floater_fs_import.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterImport>);
     LLFloaterReg::add("fs_linkset_cost", "floater_fs_linkset_cost.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterLinksetCost>); // <FS:Trish/>
     LLFloaterReg::add("fs_measure", "floater_fs_measure.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterMeasure>); // <FS:Trish/> Measuring tool
+    LLFloaterReg::add("fs_settings_tuner", "floater_fs_settings_tuner.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterSettingsTuner>); // <FS:Trish/> Suggest settings
     LLFloaterReg::add("fs_posestand", "floater_fs_posestand.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPoseStand>);
     LLFloaterReg::add("fs_partial_inventory", "floater_fs_partial_inventory.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPartialInventory>);
     LLFloaterReg::add("fs_placedetails", "floater_fs_placedetails.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<FSFloaterPlaceDetails>);

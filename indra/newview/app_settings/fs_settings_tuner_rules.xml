@@ -1,0 +1,778 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Rules of the settings tuner (Preferences > Experimental > General > Suggest settings..., fssettingstuner.cpp).
+  An LLSD array of maps, one rule each:
+    id           a name, shown in the copied report
+    bound        when it applies, comma separated: gpu, cpu, capped (frame limit or vsync leaves headroom),
+                 memory (texture memory short: the discard bias above 1.3 at least half the time), any.
+                 When the main thread and the GPU are both near the frame time ("balanced"), gpu and cpu
+                 rules both apply; the saving shown is then what the frame gains: the main thread part
+                 (cpu zones) and the GPU part (gpu zones) each cut their side, and the slower side
+                 sets the frame. Rules with the same changes are shown as one row.
+    zones        measured times summed, ms a frame: "gpu:<GPU zone>" (LL_PROFILE_GPU_ZONE names),
+                 "cpu:<block timer>" (own time) or "cpui:<block timer>" (with children)
+    min_ms       the sum must reach this (rules without zones skip the test)
+    min_share    and this share of the frame time (optional)
+    fraction     estimated saving = the sum times this
+    when         all must hold: "<setting or $measurement> <eq|ne|gt|ge|lt|le> <number>". A setting this build
+                 doesn't have makes the rule not apply. Measurements: $frame_ms $fps $gpu_ms $cpu_busy_ms
+                 $sleep_ms $swap_ms $wait_ms $headroom_ms $bias $bias_max $bias_high_frac $tight_frac
+                 $vram_used_mb $vram_target_mb $vram_free_frac $avatars $full_avatars $visible_avatars
+                 $particles $max_particles $fps_limit $vsync $amd $nvidia $intel $gpu_bound $cpu_bound
+                 $balanced $capped $memory_bound $gpu_timed $gpu_frame_ms
+    set          changes: setting, value ("x2" multiplies, "+1"/"-1" add, "=-1" or a plain number sets), min, max
+    effect       the "Saves" column of rules without a saving estimate
+    looks        the visual cost, short
+    description  what it does, shown when the row is selected
+  A rule is listed only when at least one of its settings would really change.
+  Regenerated from a table; keep the format if editing by hand.
+-->
+<llsd>
+<array>
+  <map>
+    <key>id</key><string>probe_refresh_interval</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:probe update</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.4</real>
+    <key>when</key><array><string>RenderReflectionProbeLevel ge 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeRefreshFrameInterval</string><key>value</key><string>x2</string><key>min</key><real>2.0</real><key>max</key><real>8.0</real></map>
+    </array>
+    <key>looks</key><string>Reflections of changes nearby catch up a little later</string>
+    <key>description</key><string>Reflection probes that are already complete refresh one cube face every few frames instead of every frame. New probes still update at once.</string>
+  </map>
+  <map>
+    <key>id</key><string>probe_realtime_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:probe update</string></array>
+    <key>min_ms</key><real>0.5</real>
+    <key>fraction</key><real>0.5</real>
+    <key>when</key><array><string>RenderReflectionProbeDetail eq 2</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeDetail</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Moving avatars and objects show in reflections with a delay</string>
+    <key>description</key><string>Reflection detail goes from Real-time to Static and dynamic: the probe around the camera is no longer redrawn every frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>probe_realtime_faces</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:probe update</string></array>
+    <key>min_ms</key><real>0.5</real>
+    <key>fraction</key><real>0.4</real>
+    <key>when</key><array><string>RenderReflectionProbeDetail eq 2</string><string>FSPerfProbeRealtimeFacesPerFrame gt 2</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSPerfProbeRealtimeFacesPerFrame</string><key>value</key><string>2</string></map>
+    </array>
+    <key>looks</key><string>Real-time reflections update a little less smoothly</string>
+    <key>description</key><string>The real-time reflection probe renders two cube faces a frame instead of the whole cube, so a full update is spread over three frames.</string>
+  </map>
+  <map>
+    <key>id</key><string>probe_draw_distance</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:cubeSnapshot</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderReflectionProbeDrawDistance gt 40</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeDrawDistance</string><key>value</key><string>x0.5</string><key>min</key><real>32.0</real></map>
+    </array>
+    <key>looks</key><string>Distant scenery drops out of reflections</string>
+    <key>description</key><string>Reflection probes draw the scene only to half the distance. Each probe update draws less, which matters most in built-up places.</string>
+  </map>
+  <map>
+    <key>id</key><string>probe_level</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:probe update</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderReflectionProbeLevel eq 3</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeLevel</string><key>value</key><string>2</string></map>
+    </array>
+    <key>looks</key><string>Objects lose their automatic reflection probes; placed probes, terrain and water keep theirs</string>
+    <key>description</key><string>Reflection coverage goes from "manual, terrain, water and objects" to "manual, terrain and water", so there are fewer probes to update.</string>
+  </map>
+  <map>
+    <key>id</key><string>probe_count</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:probe update</string><string>gpu:atmospherics</string></array>
+    <key>min_ms</key><real>1.5</real>
+    <key>fraction</key><real>0.15</real>
+    <key>when</key><array><string>RenderReflectionProbeLevel ge 1</string><string>RenderReflectionProbeCount gt 64</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeCount</string><key>value</key><string>x0.5</string><key>min</key><real>32.0</real></map>
+    </array>
+    <key>looks</key><string>Fewer local reflections in busy places</string>
+    <key>description</key><string>Halves the number of reflection probes kept. Fewer probes are updated and searched for each pixel of the lighting pass.</string>
+  </map>
+  <map>
+    <key>id</key><string>ssr_cone_trace</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ssr trace</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>RenderScreenSpaceReflections eq 1</string><string>FSRenderSSRHiZ eq 1</string><string>FSRenderSSRConeTrace eq 0</string><string>RenderScreenSpaceReflectionGlossySamples gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSSRConeTrace</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Glossy reflections a little smoother and softer</string>
+    <key>description</key><string>Glossy screen-space reflections trace one ray and read a blurred copy of the scene instead of several jittered rays.</string>
+  </map>
+  <map>
+    <key>id</key><string>ssr_half_res</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ssr trace</string><string>gpu:ssr resolve</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.55</real>
+    <key>when</key><array><string>RenderScreenSpaceReflections eq 1</string><string>RenderScreenSpaceReflectionResolutionMultiplier gt 0.55</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderScreenSpaceReflectionResolutionMultiplier</string><key>value</key><string>0.5</string></map>
+    </array>
+    <key>looks</key><string>Reflections slightly softer on fine normal-map detail</string>
+    <key>description</key><string>Screen-space reflections are traced at half resolution and filtered back up along edges.</string>
+  </map>
+  <map>
+    <key>id</key><string>ssr_hiz_steps</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ssr trace</string></array>
+    <key>min_ms</key><real>0.4</real>
+    <key>fraction</key><real>0.25</real>
+    <key>when</key><array><string>RenderScreenSpaceReflections eq 1</string><string>FSRenderSSRHiZ eq 1</string><string>FSRenderSSRHiZSteps gt 24</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSSRHiZSteps</string><key>value</key><string>x0.5</string><key>min</key><real>16.0</real></map>
+    </array>
+    <key>looks</key><string>Very long reflections may end sooner</string>
+    <key>description</key><string>Halves the most steps a reflection ray may take through the depth pyramid.</string>
+  </map>
+  <map>
+    <key>id</key><string>ssr_iterations</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ssr trace</string></array>
+    <key>min_ms</key><real>0.4</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderScreenSpaceReflections eq 1</string><string>FSRenderSSRHiZ eq 0</string><string>RenderScreenSpaceReflectionIterations gt 16</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderScreenSpaceReflectionIterations</string><key>value</key><string>x0.5</string><key>min</key><real>12.0</real></map>
+    </array>
+    <key>looks</key><string>Reflections of far things may be missed</string>
+    <key>description</key><string>Halves the ray march iterations of screen-space reflections (the fixed-step march, without the depth pyramid).</string>
+  </map>
+  <map>
+    <key>id</key><string>ssr_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ssr trace</string><string>gpu:ssr copy</string><string>gpu:ssr resolve</string><string>gpu:ssr hi-z</string><string>gpu:ssr hi-z water</string><string>gpu:ssr mips</string></array>
+    <key>min_ms</key><real>1.2</real>
+    <key>fraction</key><real>0.9</real>
+    <key>when</key><array><string>RenderScreenSpaceReflections eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderScreenSpaceReflections</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>Floors and water stop reflecting nearby avatars and objects; probe reflections remain</string>
+    <key>description</key><string>Turns screen-space reflections off. Reflections come from the reflection probes only.</string>
+  </map>
+  <map>
+    <key>id</key><string>gtao_half</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:sun program</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>FSRenderGTAO eq 1</string><string>RenderDeferredSSAO eq 1</string><string>FSRenderGTAOHalfRes eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderGTAOHalfRes</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Slightly softer contact shadows in corners</string>
+    <key>description</key><string>Ground-truth ambient occlusion is computed at half resolution and filtered back up: roughly a quarter of its cost.</string>
+  </map>
+  <map>
+    <key>id</key><string>gtao_slices</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:gtao half</string><string>gpu:sun program</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.15</real>
+    <key>when</key><array><string>FSRenderGTAO eq 1</string><string>RenderDeferredSSAO eq 1</string><string>FSRenderGTAOSlices gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderGTAOSlices</string><key>value</key><string>-1</string><key>min</key><real>1.0</real></map>
+    </array>
+    <key>looks</key><string>Ambient occlusion a little noisier</string>
+    <key>description</key><string>One slice direction less per pixel for ground-truth ambient occlusion. Rebuilds the shaders.</string>
+  </map>
+  <map>
+    <key>id</key><string>gtao_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:gtao half</string></array>
+    <key>min_ms</key><real>0.4</real>
+    <key>fraction</key><real>0.7</real>
+    <key>when</key><array><string>FSRenderGTAO eq 1</string><string>RenderDeferredSSAO eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderGTAO</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>Ambient occlusion goes back to the classic, flatter SSAO</string>
+    <key>description</key><string>Turns ground-truth ambient occlusion off; the classic screen-space ambient occlusion is used instead.</string>
+  </map>
+  <map>
+    <key>id</key><string>spotvol_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:spot volumetrics</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.5</real>
+    <key>when</key><array><string>FSRenderSpotVolumetric eq 1</string><string>FSRenderSpotVolumetricResolution gt 0.3</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSpotVolumetricResolution</string><key>value</key><string>x0.5</string><key>min</key><real>0.25</real></map>
+    </array>
+    <key>looks</key><string>Light cones a little softer at their edges</string>
+    <key>description</key><string>The volumetric projector light is marched at half the resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>spotvol_lights</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:spot volumetrics</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>FSRenderSpotVolumetric eq 1</string><string>FSRenderSpotVolumetricMaxLights gt 2</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSpotVolumetricMaxLights</string><key>value</key><string>x0.5</string><key>min</key><real>2.0</real></map>
+    </array>
+    <key>looks</key><string>Fewer projectors show a light cone (the nearest keep theirs)</string>
+    <key>description</key><string>Halves the number of projectors that get a volumetric light cone.</string>
+  </map>
+  <map>
+    <key>id</key><string>spotvol_steps</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:spot volumetrics</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>FSRenderSpotVolumetric eq 1</string><string>FSRenderSpotVolumetricSteps gt 8</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSpotVolumetricSteps</string><key>value</key><string>x0.5</string><key>min</key><real>8.0</real></map>
+    </array>
+    <key>looks</key><string>Light cones slightly grainier</string>
+    <key>description</key><string>Halves the samples taken along each view ray through a projector cone.</string>
+  </map>
+  <map>
+    <key>id</key><string>spotvol_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:spot volumetrics</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.95</real>
+    <key>when</key><array><string>FSRenderSpotVolumetric eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSpotVolumetric</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>No light cones in the air from projectors</string>
+    <key>description</key><string>Turns the volumetric projector light off.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_far_interval</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:generateSunShadow</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.2</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>FSRenderShadowFarCascadeInterval eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderShadowFarCascadeInterval</string><key>value</key><string>2</string></map>
+    </array>
+    <key>looks</key><string>Distant shadows of moving things follow a frame late</string>
+    <key>description</key><string>The two far sun shadow maps are redrawn every other frame. Moving or turning the camera, or the sun moving, still redraws them at once.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_far_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:generateSunShadow</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.1</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>FSRenderShadowFarCascadeResolution gt 0.55</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderShadowFarCascadeResolution</string><key>value</key><string>0.5</string></map>
+    </array>
+    <key>looks</key><string>Distant shadows slightly blurrier</string>
+    <key>description</key><string>The two far sun shadow maps are drawn at half the resolution of the near ones.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_static_cache</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:generateSunShadow</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.25</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>FSPerfShadowStaticCache eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSPerfShadowStaticCache</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>None expected</string>
+    <key>description</key><string>Keeps the shadows of static objects and terrain in the far sun shadow maps in a cache; only moving, rigged and alpha-masked things are redrawn each update.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_static_cache_cpu</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpui:FS Render Shadows</string></array>
+    <key>min_ms</key><real>1.5</real>
+    <key>fraction</key><real>0.2</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>FSPerfShadowStaticCache eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSPerfShadowStaticCache</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>None expected</string>
+    <key>description</key><string>Keeps the shadows of static objects and terrain in the far sun shadow maps in a cache, so far fewer objects are sorted and drawn into them each update.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:generateSunShadow</string><string>gpu:soften shadow</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.2</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>RenderShadowResolutionScale gt 0.6</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderShadowResolutionScale</string><key>value</key><string>x0.75</string><key>min</key><real>0.5</real></map>
+    </array>
+    <key>looks</key><string>Shadow edges slightly softer</string>
+    <key>description</key><string>Shadow maps are drawn at three quarters of their resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_projector_interval</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:generateSunShadow</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.1</real>
+    <key>when</key><array><string>RenderShadowDetail eq 2</string><string>FSRenderSpotShadowUpdateInterval eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSpotShadowUpdateInterval</string><key>value</key><string>2</string></map>
+    </array>
+    <key>looks</key><string>Things moving in projector light cast their shadow a frame late</string>
+    <key>description</key><string>Projector shadows whose light and settings are unchanged are redrawn every other frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_blur</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:soften shadow</string></array>
+    <key>min_ms</key><real>0.4</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderShadowBlurSamples gt 3</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderShadowBlurSamples</string><key>value</key><string>x0.5</string><key>min</key><real>2.0</real></map>
+    </array>
+    <key>looks</key><string>Shadow edges a little less smooth</string>
+    <key>description</key><string>Halves the samples of the shadow and ambient occlusion blur.</string>
+  </map>
+  <map>
+    <key>id</key><string>shadow_distance_cpu</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:FS Shadow Union Cull</string><string>cpu:FS Shadow Cull and Sort</string><string>cpu:FS Shadow Shared Sort</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderShadowDetail ge 1</string><string>FSRenderShadowMaxDistance gt 160</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderShadowMaxDistance</string><key>value</key><string>x0.5</string><key>min</key><real>128.0</real></map>
+    </array>
+    <key>looks</key><string>No sun shadows beyond the shorter distance; nearer shadows get sharper</string>
+    <key>description</key><string>Sun and moon shadows reach half as far, so fewer objects are culled and sorted for the shadow maps.</string>
+  </map>
+  <map>
+    <key>id</key><string>glow_iterations</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:glow generate</string><string>gpu:glow combine</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>RenderGlow eq 1</string><string>RenderGlowIterations gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderGlowIterations</string><key>value</key><string>-1</string><key>min</key><real>1.0</real></map>
+    </array>
+    <key>looks</key><string>Glow a little narrower</string>
+    <key>description</key><string>One glow blur pass less.</string>
+  </map>
+  <map>
+    <key>id</key><string>glow_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:glow generate</string><string>gpu:glow combine</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.4</real>
+    <key>when</key><array><string>RenderGlow eq 1</string><string>RenderGlowResolutionPow gt 8</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderGlowResolutionPow</string><key>value</key><string>-1</string><key>min</key><real>8.0</real></map>
+    </array>
+    <key>looks</key><string>Glow slightly blockier</string>
+    <key>description</key><string>The glow map is half the width and height.</string>
+  </map>
+  <map>
+    <key>id</key><string>bloom_levels</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:bloom</string><string>gpu:bloom streaks</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.25</real>
+    <key>when</key><array><string>FSRenderBloom eq 1</string><string>FSRenderBloomLevels gt 4</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderBloomLevels</string><key>value</key><string>-2</string><key>min</key><real>4.0</real></map>
+    </array>
+    <key>looks</key><string>Bloom a little less wide</string>
+    <key>description</key><string>Two bloom blur levels less.</string>
+  </map>
+  <map>
+    <key>id</key><string>bloom_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:bloom</string><string>gpu:bloom streaks</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.95</real>
+    <key>when</key><array><string>FSRenderBloom eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderBloom</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>No bloom around bright parts (the classic glow stays)</string>
+    <key>description</key><string>Turns the HDR bloom off.</string>
+  </map>
+  <map>
+    <key>id</key><string>smaa_to_fxaa</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:SMAA Edge</string><string>gpu:SMAA</string></array>
+    <key>min_ms</key><real>0.2</real>
+    <key>fraction</key><real>0.6</real>
+    <key>when</key><array><string>RenderFSAAType eq 2</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFSAAType</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Edges a little softer, fine detail slightly blurred</string>
+    <key>description</key><string>Antialiasing goes from SMAA to FXAA, a single cheaper pass.</string>
+  </map>
+  <map>
+    <key>id</key><string>aa_quality</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:SMAA Edge</string><string>gpu:SMAA</string><string>gpu:FXAA</string></array>
+    <key>min_ms</key><real>0.25</real>
+    <key>fraction</key><real>0.3</real>
+    <key>when</key><array><string>RenderFSAAType ge 1</string><string>RenderFSAASamples gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFSAASamples</string><key>value</key><string>-1</string><key>min</key><real>1.0</real></map>
+    </array>
+    <key>looks</key><string>Edges slightly less smooth</string>
+    <key>description</key><string>One step lower antialiasing quality.</string>
+  </map>
+  <map>
+    <key>id</key><string>cheap_particles</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:alpha particles</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.5</real>
+    <key>when</key><array><string>FSRenderCheapParticles eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderCheapParticles</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Smoke and fog particles lit more simply</string>
+    <key>description</key><string>Particles are lit by the sky probe and one shadow sample instead of the full lighting.</string>
+  </map>
+  <map>
+    <key>id</key><string>particle_count_cpu</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:Simulate Particles</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.4</real>
+    <key>when</key><array><string>RenderMaxPartCount gt 2048</string><string>$particles gt 1500</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderMaxPartCount</string><key>value</key><string>x0.5</string><key>min</key><real>2048.0</real></map>
+    </array>
+    <key>looks</key><string>Dense particle effects thinner</string>
+    <key>description</key><string>Halves the most particles kept at once, so fewer are simulated each frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>cheap_avatar_alpha</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:alpha avatars</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.4</real>
+    <key>when</key><array><string>FSRenderCheapAvatarAlpha eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderCheapAvatarAlpha</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>Hair and sheer clothing of avatars further away lit more simply</string>
+    <key>description</key><string>The blended transparent parts of avatars beyond the cheap avatar alpha distance are lit like cheap particles.</string>
+  </map>
+  <map>
+    <key>id</key><string>cheap_avatar_alpha_distance</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:alpha avatars</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.2</real>
+    <key>when</key><array><string>FSRenderCheapAvatarAlpha eq 1</string><string>FSRenderCheapAvatarAlphaDistance gt 6</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderCheapAvatarAlphaDistance</string><key>value</key><string>x0.5</string><key>min</key><real>4.0</real></map>
+    </array>
+    <key>looks</key><string>Simpler hair lighting starts closer to the camera</string>
+    <key>description</key><string>Halves the distance beyond which avatar transparent parts are lit cheaply.</string>
+  </map>
+  <map>
+    <key>id</key><string>impostors_unlimited</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:FS Objects Idle Avatars</string><string>cpu:FS Objects Avatar Poses</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.35</real>
+    <key>when</key><array><string>RenderAvatarMaxNonImpostors eq 0</string><string>$full_avatars gt 12</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderAvatarMaxNonImpostors</string><key>value</key><string>12</string></map>
+    </array>
+    <key>looks</key><string>Avatars past the nearest 12 drawn as impostors, animating less often</string>
+    <key>description</key><string>Limits fully drawn avatars to 12; the others become impostors, which are updated less often.</string>
+  </map>
+  <map>
+    <key>id</key><string>impostors_lower</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:FS Objects Idle Avatars</string><string>cpu:FS Objects Avatar Poses</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.25</real>
+    <key>when</key><array><string>RenderAvatarMaxNonImpostors gt 8</string><string>$full_avatars gt 8</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderAvatarMaxNonImpostors</string><key>value</key><string>x0.67</string><key>min</key><real>6.0</real></map>
+    </array>
+    <key>looks</key><string>More distant avatars drawn as impostors</string>
+    <key>description</key><string>Lowers the number of fully drawn avatars by a third.</string>
+  </map>
+  <map>
+    <key>id</key><string>complexity_limit</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:FS Objects Idle Avatars</string><string>cpu:FS Objects Avatar Poses</string></array>
+    <key>min_ms</key><real>1.0</real>
+    <key>fraction</key><real>0.25</real>
+    <key>when</key><array><string>RenderAvatarMaxComplexity eq 0</string><string>$avatars ge 5</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderAvatarMaxComplexity</string><key>value</key><string>250000</string></map>
+    </array>
+    <key>looks</key><string>Very complex avatars shown as solid-colour shapes</string>
+    <key>description</key><string>Sets the avatar complexity limit to 250000. Avatars above it are drawn as plain shapes. You can still show any one of them fully from its context menu.</string>
+  </map>
+  <map>
+    <key>id</key><string>draw_distance_cpu</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpu:FS Render Cull</string><string>cpu:FS Render StateSort</string></array>
+    <key>min_ms</key><real>2.0</real>
+    <key>fraction</key><real>0.2</real>
+    <key>min_share</key><real>0.15</real>
+    <key>when</key><array><string>RenderFarClip gt 128</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFarClip</string><key>value</key><string>x0.75</string><key>min</key><real>128.0</real></map>
+    </array>
+    <key>looks</key><string>Distant objects drop out sooner</string>
+    <key>description</key><string>Draw distance three quarters as far. Culling and sorting handle fewer objects; most of their work is near you, so expect a modest saving.</string>
+  </map>
+  <map>
+    <key>id</key><string>draw_distance_gpu</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:renderGeomDeferred</string></array>
+    <key>min_ms</key><real>4.0</real>
+    <key>fraction</key><real>0.1</real>
+    <key>min_share</key><real>0.25</real>
+    <key>when</key><array><string>RenderFarClip gt 160</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFarClip</string><key>value</key><string>x0.75</string><key>min</key><real>128.0</real></map>
+    </array>
+    <key>looks</key><string>Distant objects drop out sooner</string>
+    <key>description</key><string>Draw distance three quarters as far, so fewer objects are drawn. Distant objects cover few pixels, so expect a modest saving.</string>
+  </map>
+  <map>
+    <key>id</key><string>dynamic_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:renderDeferredLighting</string><string>gpu:renderGeomDeferred</string><string>gpu:renderGeomPostDeferred</string></array>
+    <key>min_ms</key><real>8.0</real>
+    <key>fraction</key><real>0.2</real>
+    <key>when</key><array><string>FSRenderDynamicResolution eq 0</string><string>$frame_ms gt 18</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderDynamicResolution</string><key>value</key><string>1</string></map>
+    </array>
+    <key>looks</key><string>The 3D scene gets softer while the frame rate is low; the UI stays sharp</string>
+    <key>description</key><string>Lowers the scene resolution in steps when the frame rate is under its target, and raises it again when there is headroom.</string>
+  </map>
+  <map>
+    <key>id</key><string>ui_cap_gpu</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:ui</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.6</real>
+    <key>when</key><array><string>FSRenderUICap eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderUICap</string><key>value</key><string>30</string></map>
+    </array>
+    <key>looks</key><string>Changing text and counters in windows update a little later</string>
+    <key>description</key><string>The 2D UI is drawn into its own buffer and redrawn only when needed (every frame while you use it), instead of every frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>ui_cap_cpu</string>
+    <key>bound</key><string>cpu</string>
+    <key>zones</key><array><string>cpui:FS Render UI 2D</string></array>
+    <key>min_ms</key><real>0.8</real>
+    <key>fraction</key><real>0.6</real>
+    <key>when</key><array><string>FSRenderUICap eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderUICap</string><key>value</key><string>30</string></map>
+    </array>
+    <key>looks</key><string>Changing text and counters in windows update a little later</string>
+    <key>description</key><string>The 2D UI is drawn into its own buffer and redrawn only when needed (every frame while you use it), instead of every frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>gpu_occlusion_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:occlusion phase 2</string></array>
+    <key>min_ms</key><real>0.4</real>
+    <key>fraction</key><real>0.7</real>
+    <key>when</key><array><string>FSRenderGPUOcclusionCulling eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderGPUOcclusionCulling</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>None; hidden objects are culled the classic way</string>
+    <key>description</key><string>Turns GPU occlusion culling off. Its second phase was costly here (seen on AMD cards), more than it saves.</string>
+  </map>
+  <map>
+    <key>id</key><string>ssgi_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:indirect half</string></array>
+    <key>min_ms</key><real>0.6</real>
+    <key>fraction</key><real>0.9</real>
+    <key>when</key><array><string>FSRenderSSGI eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderSSGI</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>No bounced light from nearby surfaces</string>
+    <key>description</key><string>Turns screen-space indirect light off.</string>
+  </map>
+  <map>
+    <key>id</key><string>avatar_occlusion_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:atmospherics</string></array>
+    <key>min_ms</key><real>1.5</real>
+    <key>fraction</key><real>0.15</real>
+    <key>when</key><array><string>FSRenderAvatarOcclusion eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderAvatarOcclusion</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>No soft ambient shadow around avatars</string>
+    <key>description</key><string>Turns the soft occlusion around avatars off, which the full-screen lighting pass computes for every pixel.</string>
+  </map>
+  <map>
+    <key>id</key><string>occluded_discard</string>
+    <key>bound</key><string>memory</string>
+    <key>when</key><array><string>FSTextureOccludedDiscard eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSTextureOccludedDiscard</string><key>value</key><string>1</string></map>
+    </array>
+    <key>effect</key><string>less texture memory</string>
+    <key>looks</key><string>Textures behind walls may load back in when they come into view</string>
+    <key>description</key><string>Textures of objects hidden behind others are allowed to drop detail first, so visible ones keep theirs while memory is short.</string>
+  </map>
+  <map>
+    <key>id</key><string>draw_distance_memory</string>
+    <key>bound</key><string>memory</string>
+    <key>when</key><array><string>RenderFarClip gt 160</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFarClip</string><key>value</key><string>x0.75</string><key>min</key><real>128.0</real></map>
+    </array>
+    <key>effect</key><string>less texture memory</string>
+    <key>looks</key><string>Distant objects drop out sooner</string>
+    <key>description</key><string>Draw distance three quarters as far: fewer objects, fewer textures to hold, so the ones near you stay sharp.</string>
+  </map>
+  <map>
+    <key>id</key><string>soft_zone_lower</string>
+    <key>bound</key><string>any</string>
+    <key>when</key><array><string>$bias_high_frac ge 0.5</string><string>$vram_free_frac ge 0.2</string><string>FSAutoSizeResources eq 0</string><string>FSTextureBiasSoftZone gt 0.03</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSTextureBiasSoftZone</string><key>value</key><string>x0.5</string><key>min</key><real>0.02</real></map>
+    </array>
+    <key>effect</key><string>sharper textures</string>
+    <key>looks</key><string>Sharper textures</string>
+    <key>description</key><string>Texture detail was held down while video memory was still free. Halving the soft zone lets textures use more of it before detail is lowered.</string>
+  </map>
+  <map>
+    <key>id</key><string>soft_zone_lower_no_live</string>
+    <key>bound</key><string>any</string>
+    <key>when</key><array><string>$bias_high_frac ge 0.5</string><string>$vram_free_frac ge 0.2</string><string>FSAutoSizeResources eq 1</string><string>FSTextureUseLiveVRAM eq 0</string><string>FSTextureBiasSoftZone gt 0.03</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSTextureBiasSoftZone</string><key>value</key><string>x0.5</string><key>min</key><real>0.02</real></map>
+    </array>
+    <key>effect</key><string>sharper textures</string>
+    <key>looks</key><string>Sharper textures</string>
+    <key>description</key><string>Texture detail was held down while video memory was still free. Halving the soft zone lets textures use more of it before detail is lowered.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_gtao_full</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 4</string><string>FSRenderGTAO eq 1</string><string>RenderDeferredSSAO eq 1</string><string>FSRenderGTAOHalfRes eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderGTAOHalfRes</string><key>value</key><string>0</string></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Crisper contact shadows in corners</string>
+    <key>description</key><string>There is headroom: ground-truth ambient occlusion back at full resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_shadow_resolution</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 4</string><string>RenderShadowDetail ge 1</string><string>RenderShadowResolutionScale lt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderShadowResolutionScale</string><key>value</key><string>x1.25</string><key>max</key><real>1.0</real></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Sharper shadows</string>
+    <key>description</key><string>There is headroom: shadow maps drawn at a higher resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_far_cascade</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 3</string><string>RenderShadowDetail ge 1</string><string>FSRenderShadowFarCascadeInterval gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderShadowFarCascadeInterval</string><key>value</key><string>1</string></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Distant shadows of moving things follow at once</string>
+    <key>description</key><string>There is headroom: the far sun shadow maps redrawn every frame.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_probe_refresh</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 3</string><string>RenderReflectionProbeRefreshFrameInterval gt 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderReflectionProbeRefreshFrameInterval</string><key>value</key><string>x0.5</string><key>min</key><real>1.0</real></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Reflections catch up with changes sooner</string>
+    <key>description</key><string>There is headroom: reflection probes refresh more often.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_draw_distance</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 5</string><string>$memory_bound eq 0</string><string>RenderFarClip lt 256</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderFarClip</string><key>value</key><string>x1.25</string><key>max</key><real>256.0</real></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>See further</string>
+    <key>description</key><string>There is headroom: draw distance a quarter further.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_particles</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 2</string><string>FSRenderCheapParticles eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderCheapParticles</string><key>value</key><string>0</string></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Particles get the full lighting</string>
+    <key>description</key><string>There is headroom: particles lit by the nearby reflection probes and full shadows again.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_ssr_full</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 4</string><string>RenderScreenSpaceReflections eq 1</string><string>RenderScreenSpaceReflectionResolutionMultiplier lt 0.95</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderScreenSpaceReflectionResolutionMultiplier</string><key>value</key><string>1</string></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Crisper reflections</string>
+    <key>description</key><string>There is headroom: screen-space reflections traced at full resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_impostors</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 5</string><string>RenderAvatarMaxNonImpostors gt 0</string><string>RenderAvatarMaxNonImpostors lt 12</string><string>$avatars gt 4</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>RenderAvatarMaxNonImpostors</string><key>value</key><string>+4</string><key>max</key><real>12.0</real></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>More avatars fully drawn</string>
+    <key>description</key><string>There is headroom: four more avatars drawn fully instead of as impostors.</string>
+  </map>
+</array>
+</llsd>

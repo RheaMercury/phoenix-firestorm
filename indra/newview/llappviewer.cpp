@@ -32,6 +32,7 @@
 #include "llkeyframemotion.h" // <FS:Trish/> FSPerfDiskThread
 #include "llvolume.h" // <FS:Trish/> FSPerfBackgroundVolumeFree
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
+#include "fssettingstuner.h" // <FS:Trish/> Suggest settings
 #include "fsavatarcostlog.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsparticlerender.h" // <FS:Trish/> FSRenderGPUTimings: the particle line
 #include "fsavataralpha.h" // <FS:Trish/> FSRenderGPUTimings: the avatar alpha line
@@ -1725,7 +1726,9 @@ static void fs_log_profile()
     static std::unordered_map<const LLTrace::BlockTimerStatHandle*, std::tuple<std::string, F64, F64>> s_self_ms;
     static U32 s_frames = 0;
     static LLTimer s_timer;
-    if (interval <= 0.f || LLStartUp::getStartupState() < STATE_STARTED)
+    // The settings tuner's measurement reads the same timers, logged or not
+    const bool tuner = FSSettingsTuner::wantCPUZones();
+    if ((interval <= 0.f && !tuner) || LLStartUp::getStartupState() < STATE_STARTED)
     {
         s_self_ms.clear();
         s_frames = 0;
@@ -1738,7 +1741,11 @@ static void fs_log_profile()
         LLTrace::BlockTimerStatHandle& timer = static_cast<LLTrace::BlockTimerStatHandle&>(base);
         const F64 self_ms = F64Milliseconds(rec.getSum(timer.selfTime())).value();
         const F64 total_ms = F64Milliseconds(rec.getSum(timer)).value();
-        if (self_ms > 0.0 || total_ms > 0.0)
+        if (tuner && (self_ms > 0.0 || total_ms > 0.0))
+        {
+            FSSettingsTuner::addCPUZone(&timer, timer.getName(), self_ms, total_ms);
+        }
+        if (interval > 0.f && (self_ms > 0.0 || total_ms > 0.0))
         {
             auto& entry = s_self_ms[&timer];
             if (std::get<0>(entry).empty())
@@ -1748,6 +1755,10 @@ static void fs_log_profile()
             std::get<1>(entry) += self_ms;
             std::get<2>(entry) += total_ms;
         }
+    }
+    if (interval <= 0.f)
+    {
+        return; // measuring for the tuner only
     }
     ++s_frames;
     const F64 elapsed = s_timer.getElapsedTimeF64();
@@ -1936,6 +1947,7 @@ bool LLAppViewer::doFrame()
     {
         static LLCachedControl<bool> gpu_timings(gSavedSettings, "FSRenderGPUTimings", false);
         static LLCachedControl<F32> gpu_timings_interval(gSavedSettings, "FSRenderGPUTimingsInterval", 10.f);
+        FSSettingsTuner::frame(); // Suggest settings: its measurement, which turns the GPU timers on for itself
         FSGPUTimers::frame(gpu_timings && gGLManager.mInited, gpu_timings_interval);
         FSAvatarCostLog::frame(gpu_timings && LLStartUp::getStartupState() >= STATE_STARTED, gpu_timings_interval);
         FSParticleRender::frame(gpu_timings && LLStartUp::getStartupState() >= STATE_STARTED, gpu_timings_interval);
@@ -2311,6 +2323,7 @@ bool LLAppViewer::doFrame()
                 if (milliseconds_to_sleep > 0)
                 {
                     LL_PROFILE_ZONE_NAMED_CATEGORY_APP("sleep2");
+                    FSSettingsTuner::addCapSleep(milliseconds_to_sleep); // <FS:Trish/> Suggest settings: time the frame limit leaves spare
                     ms_sleep(milliseconds_to_sleep);
                 }
             }

@@ -34,6 +34,7 @@
 #include "llcallbacklist.h"
 #include "lldir.h"
 #include "llfile.h"
+#include "llfloaterreg.h"
 #include "llimageworker.h"
 #include "llviewercontrol.h"
 #include "llviewerregion.h"
@@ -1013,6 +1014,8 @@ public:
         mCommitCallbackRegistrar.add("FSExperimental.PresetLoad", [this](LLUICtrl*, const LLSD&) { onPresetLoad(); });
         mCommitCallbackRegistrar.add("FSExperimental.PresetSaveAs", [this](LLUICtrl*, const LLSD&) { onPresetSaveAs(); });
         mCommitCallbackRegistrar.add("FSExperimental.PresetDelete", [this](LLUICtrl*, const LLSD&) { onPresetDelete(); });
+        // General tab: measures this scene and suggests settings (fssettingstuner.cpp)
+        mCommitCallbackRegistrar.add("FSExperimental.SuggestSettings", [](LLUICtrl*, const LLSD&) { LLFloaterReg::showInstance("fs_settings_tuner"); });
     }
 
     bool postBuild() override

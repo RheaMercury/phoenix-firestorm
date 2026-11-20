@@ -233,6 +233,7 @@ set(viewer_SOURCE_FILES
     fsregioncross.cpp
     fsscriptlibrary.cpp
     fsscrolllistctrl.cpp
+    fssettingstuner.cpp
     fsslurlcommand.cpp
     fsshadowdepthfit.cpp
     fsshadowscreenfilter.cpp
@@ -1165,6 +1166,7 @@ set(viewer_HEADER_FILES
     fsregioncross.h
     fsscriptlibrary.h
     fsscrolllistctrl.h
+    fssettingstuner.h
     fsslurl.h
     fsslurlcommand.h
     fsshadowdepthfit.h

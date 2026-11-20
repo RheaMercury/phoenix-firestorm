@@ -87,6 +87,12 @@ namespace
     U32 sDroppedZones = 0;                  // zones past MAX_ZONES_PER_FRAME, not timed
     LLTimer sLogTimer;
 
+    // The settings tuner's capture: the same sums over the whole measurement
+    bool sCapture = false;
+    std::unordered_map<std::string, Total> sCapTotals;
+    U64 sCapFrameNs = 0;
+    U32 sCapFrames = 0;
+
     GLuint takeQuery()
     {
         if (sFreeQueries.empty())
@@ -208,6 +214,10 @@ namespace
         if (timestamp(f.mFrameBegin, t0) && timestamp(f.mFrameEnd, t1) && t1 > t0)
         {
             sFrameNs += t1 - t0;
+            if (sCapture)
+            {
+                sCapFrameNs += t1 - t0;
+            }
         }
         for (const Rec& r : f.mRecs)
         {
@@ -224,8 +234,18 @@ namespace
             Total& total = sTotals[nameOf(r.mName)];
             total.mNs += e > b ? e - b : 0;
             ++total.mCalls;
+            if (sCapture)
+            {
+                Total& cap = sCapTotals[nameOf(r.mName)];
+                cap.mNs += e > b ? e - b : 0;
+                ++cap.mCalls;
+            }
         }
         ++sFrames;
+        if (sCapture)
+        {
+            ++sCapFrames;
+        }
     }
 
     void logTotals()
@@ -298,6 +318,9 @@ namespace FSGPUTimers
             LLFSGPUZone::sBegin = &zoneBegin;
             LLFSGPUZone::sEnd = &zoneEnd;
         }
+        // A capture times frames without logging them
+        const bool log = enabled;
+        enabled = enabled || (sCapture && gGLManager.mInited);
 #if LL_WINDOWS // elsewhere these are prototypes, not loaded pointers
         if (!glQueryCounter || !glGetQueryObjectui64v)
         {
@@ -320,7 +343,18 @@ namespace FSGPUTimers
         if (enabled && sLogTimer.getElapsedTimeF32() >= llmax(interval_seconds, 1.f))
         {
             sLogTimer.reset();
-            logTotals();
+            if (log)
+            {
+                logTotals();
+            }
+            else
+            {   // capturing only: the log's sums are not wanted, only kept from growing
+                sTotals.clear();
+                sFrameNs = 0;
+                sFrames = 0;
+                sDropped = 0;
+                sDroppedZones = 0;
+            }
         }
 
         if (!enabled && sOn)
@@ -360,5 +394,37 @@ namespace FSGPUTimers
             glDeleteQueries((GLsizei)sFreeQueries.size(), sFreeQueries.data());
         }
         sFreeQueries.clear();
+    }
+
+    void startCapture()
+    {
+        sCapture = true;
+        sCapTotals.clear();
+        sCapFrameNs = 0;
+        sCapFrames = 0;
+    }
+
+    void stopCapture()
+    {
+        sCapture = false;
+    }
+
+    void getCapture(std::vector<std::pair<std::string, F64>>& zones_ms, F64& frame_ms, U32& frames)
+    {
+        zones_ms.clear();
+        frames = sCapFrames;
+        frame_ms = 0.0;
+        if (!sCapFrames)
+        {
+            return;
+        }
+        const F64 per_frame = 1.0 / (F64)sCapFrames / 1.0e6;
+        frame_ms = (F64)sCapFrameNs * per_frame;
+        zones_ms.reserve(sCapTotals.size());
+        for (const auto& [name, total] : sCapTotals)
+        {
+            zones_ms.emplace_back(name, (F64)total.mNs * per_frame);
+        }
+        std::sort(zones_ms.begin(), zones_ms.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
     }
 }
