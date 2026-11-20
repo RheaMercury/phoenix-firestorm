@@ -1589,7 +1589,8 @@ private:
             }
         }
 
-        // Nothing chosen yet: the preset a fresh install starts on (LLAppViewer::initConfiguration)
+        // Nothing chosen yet: the preset a fresh install starts on (LLAppViewer::initConfiguration and
+        // initWindow, which decide by gGLManager.mIsAMD too)
         if (selection.empty())
         {
             selection = std::string(PRESET_BUILTIN_PREFIX) + (gGLManager.mIsAMD ? PRESET_DEFAULT_BUILTIN_AMD : PRESET_DEFAULT_BUILTIN);

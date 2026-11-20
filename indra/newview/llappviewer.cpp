@@ -195,55 +195,6 @@
 #   include <sys/file.h> // For processMarkerFiles
 #endif
 
-// <FS:Trish> The first run's experimental preset depends on the graphics card, known before GL is up
-#if LL_WINDOWS
-#   include "llwin32headers.h"
-#   include <dxgi.h>
-#endif
-
-namespace
-{
-    // Whether the adapter with the most dedicated video memory (the one the viewer renders on, as in
-    // LLWindowWin32) is an AMD card. Asked through DXGI, loaded here, because GL isn't up yet when
-    // the first run's settings are made. False when it can't be told.
-    bool fs_first_run_gpu_is_amd()
-    {
-#if LL_WINDOWS
-        HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
-        if (!dxgi)
-        {
-            return false;
-        }
-        typedef HRESULT(WINAPI* create_factory_t)(REFIID, void**);
-        create_factory_t create_factory = (create_factory_t)GetProcAddress(dxgi, "CreateDXGIFactory1");
-        bool amd = false;
-        IDXGIFactory1* factory = nullptr;
-        if (create_factory && SUCCEEDED(create_factory(__uuidof(IDXGIFactory1), (void**)&factory)) && factory)
-        {
-            SIZE_T most_vram = 0;
-            IDXGIAdapter1* adapter = nullptr;
-            for (UINT i = 0; factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i)
-            {
-                DXGI_ADAPTER_DESC1 desc;
-                if (SUCCEEDED(adapter->GetDesc1(&desc)) && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) &&
-                    desc.DedicatedVideoMemory > most_vram)
-                {
-                    most_vram = desc.DedicatedVideoMemory;
-                    amd = desc.VendorId == 0x1002;
-                }
-                adapter->Release();
-            }
-            factory->Release();
-        }
-        FreeLibrary(dxgi);
-        return amd;
-#else
-        return false;
-#endif
-    }
-}
-// </FS:Trish>
-
 #include "llapr.h"
 #include <boost/lexical_cast.hpp>
 
@@ -3634,6 +3585,61 @@ bool tempSetControl(const std::string& name, const std::string& value)
     return false;
 }
 
+// <FS:Trish> The first run's experimental preset depends on the graphics card the viewer renders
+// on. That is known once GL is up (gGLManager.mIsAMD, from the GL vendor string), as the preset bar
+// knows it, but most settings are read before then: the first run applies Mid-Nvidia early, and once
+// the window is made, on AMD, Mid-AMD over it. The two differ in GL and render settings only.
+namespace
+{
+    bool sFSFirstRunPresetPending = false;
+
+    LLSD fs_read_builtin_preset(const char* preset_file_name)
+    {
+        const std::string preset_path = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "experimental_presets", preset_file_name);
+        llifstream preset_file(preset_path.c_str());
+        LLSD preset;
+        if (preset_file.is_open() && LLSDSerialize::fromXML(preset, preset_file) != LLSDParser::PARSE_FAILURE
+            && preset.has("Settings") && preset["Settings"].isMap())
+        {
+            return preset["Settings"];
+        }
+        LL_WARNS("AppInit") << "First run: cannot read experimental preset " << preset_path << LL_ENDL;
+        return LLSD();
+    }
+
+    // Sets what the preset lists; settings only the replaced preset listed go back to their defaults,
+    // as when the preset is loaded from the preset bar
+    bool fs_apply_builtin_preset(const char* preset_file_name, const LLSD& replaced = LLSD())
+    {
+        const LLSD settings = fs_read_builtin_preset(preset_file_name);
+        if (!settings.isMap())
+        {
+            return false;
+        }
+        for (LLSD::map_const_iterator it = settings.beginMap(); it != settings.endMap(); ++it)
+        {
+            if (LLControlVariable* control = gSavedSettings.getControl(it->first))
+            {
+                control->setValue(it->second);
+            }
+        }
+        if (replaced.isMap())
+        {
+            for (LLSD::map_const_iterator it = replaced.beginMap(); it != replaced.endMap(); ++it)
+            {
+                LLControlVariable* control = settings.has(it->first) ? nullptr : gSavedSettings.getControl(it->first);
+                if (control)
+                {
+                    control->setValue(control->getDefault());
+                }
+            }
+        }
+        LL_INFOS("AppInit") << "First run: applied experimental preset " << preset_file_name << LL_ENDL;
+        return true;
+    }
+}
+// </FS:Trish>
+
 bool LLAppViewer::initConfiguration()
 {
     // Load settings files list
@@ -3803,31 +3809,10 @@ bool LLAppViewer::initConfiguration()
         }
         // </FS>
 
-        // <FS:Trish> A fresh install starts on the built-in Mid-Nvidia experimental preset, or Mid-AMD on an AMD card.
-        // Settings it doesn't list keep their defaults; Stock Firestorm in the preset bar goes back to stock.
-        {
-            const char* preset_file_name = fs_first_run_gpu_is_amd() ? "Mid-AMD.xml" : "Mid-Nvidia.xml";
-            const std::string preset_path = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "experimental_presets", preset_file_name);
-            llifstream preset_file(preset_path.c_str());
-            LLSD preset;
-            if (preset_file.is_open() && LLSDSerialize::fromXML(preset, preset_file) != LLSDParser::PARSE_FAILURE
-                && preset.has("Settings") && preset["Settings"].isMap())
-            {
-                const LLSD& preset_settings = preset["Settings"];
-                for (LLSD::map_const_iterator it = preset_settings.beginMap(); it != preset_settings.endMap(); ++it)
-                {
-                    if (LLControlVariable* control = gSavedSettings.getControl(it->first))
-                    {
-                        control->setValue(it->second);
-                    }
-                }
-                LL_INFOS("AppInit") << "First run: applied experimental preset " << preset_path << LL_ENDL;
-            }
-            else
-            {
-                LL_WARNS("AppInit") << "First run: cannot read experimental preset " << preset_path << LL_ENDL;
-            }
-        }
+        // <FS:Trish> A fresh install starts on the built-in Mid-Nvidia experimental preset, or Mid-AMD on an AMD card
+        // (applied in initWindow, once GL tells which card renders). Settings it doesn't list keep their defaults;
+        // Stock Firestorm in the preset bar goes back to stock.
+        sFSFirstRunPresetPending = fs_apply_builtin_preset("Mid-Nvidia.xml");
         // </FS:Trish>
 
 
@@ -4491,6 +4476,19 @@ bool LLAppViewer::initWindow()
     gViewerWindow = new LLViewerWindow(window_params);
 
     LL_INFOS("AppInit") << "gViewerwindow created." << LL_ENDL;
+
+    // <FS:Trish> First run on an AMD card: Mid-AMD over the Mid-Nvidia applied in initConfiguration. GL is up
+    // (gGLManager.mIsAMD, which the preset bar's default also follows) and the pipeline and its shaders are not
+    // made yet, so its GL and render settings take effect from the start.
+    if (sFSFirstRunPresetPending)
+    {
+        sFSFirstRunPresetPending = false;
+        if (gGLManager.mIsAMD)
+        {
+            fs_apply_builtin_preset("Mid-AMD.xml", fs_read_builtin_preset("Mid-Nvidia.xml"));
+        }
+    }
+    // </FS:Trish>
 
     // Need to load feature table before cheking to start watchdog.
     bool use_watchdog = false;
