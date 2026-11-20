@@ -6813,7 +6813,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="697"
+                 height="727"
                  layout="topleft"
                  left="0"
                  name="experimental_textures_settings"
@@ -7228,6 +7228,19 @@
                      tool_tip="EXPERIMENTAL. The smallest texture size, in pixels, the textures of attachments in view are loaded at. 128 keeps eyes sharp at a conversation distance."
                      top="649"
                      width="100" />
+                    <!-- <FS:Trish> FSTextureOccludedDiscard -->
+                    <check_box
+                     control_name="FSTextureOccludedDiscard"
+                     follows="left|top"
+                     height="20"
+                     label="Load textures seen only behind other objects one size smaller"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstextureoccludeddiscard"
+                     tool_tip="EXPERIMENTAL. A texture whose every surface in view has been hidden behind other objects for a few seconds (the seconds set above, also without that option) is wanted at half its width and height. As soon as any of its surfaces is visible again it counts in full and sharpens as fast as it loads. Saves video memory in busy scenes; it takes effect once textures are being reduced to save memory."
+                     top="675"
+                     width="475" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>

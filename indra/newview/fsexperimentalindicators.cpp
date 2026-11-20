@@ -396,6 +396,7 @@ namespace
         { "FSTexturePriorityGLTFScale", CL, VM },
         { "FSTextureAvatarSmallParts", CL, VM },
         { "FSTextureAvatarSmallPartsSize", CL, VN },
+        { "FSTextureOccludedDiscard", CL, VN },
 
         // Avatar
         { "FSExperimentalRepairAnimations", CL, VN },

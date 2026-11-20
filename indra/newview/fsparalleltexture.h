@@ -49,9 +49,18 @@ class LLViewerFetchedTexture;
 //  - FSTexturePriorityGLTFScale: on a face with a GLTF material, its PBR textures use the repeats of the
 //    material's texture transform for their channel (which is what draws them), not the face's legacy
 //    texture repeats (which GLTF materials don't use).
+//  - FSTextureOccludedDiscard: a face in the view whose group the occlusion test has found hidden for the
+//    same grace counts at a quarter of its virtual size, one texture level less. A texture keeps the largest
+//    size of its faces, so only one whose every face in the view is hidden that way is reduced; such a texture
+//    is also reconsidered at every sweep (mOnlyOccluded), as off screen ones are while the bias is up, or the
+//    size it had before would hold. A face found visible again counts in full at once (no grace that way).
 struct FSTextureFaceBias
 {
+    // FSTextureOccludedDiscard: an occluded face's virtual size is multiplied by this, one discard level
+    static constexpr F32 OCCLUDED_VSIZE_SCALE = 0.25f;
+
     bool mHidden = false;
+    bool mOccludedDiscard = false;
     bool mGLTFScale = false;
     F32 mGrace = 0.f;
     F64 mNow = 0.0;
@@ -60,6 +69,8 @@ struct FSTextureFaceBias
     static FSTextureFaceBias current();
     // face->mInFrustum, unless hidden as above
     bool inView(const LLFace* face) const;
+    // FSTextureOccludedDiscard: in the frustum, but in a group hidden for the grace
+    bool occluded(const LLFace* face) const;
     // FSTextureAvatarSmallParts: the virtual size of an in view face of a world attachment, raised to the
     // floor, so small parts (eyes, lips, nails) load early and stay loaded instead of going by their tiny
     // pixel area. Reads only flags of objp, safe on the priority workers.
@@ -85,6 +96,7 @@ struct FSTexturePriorityFaces
     F32  mMaxVSize = 0.f;
     U32  mFaceCount = 0;
     bool mOnScreen = false;
+    bool mOnlyOccluded = false; // FSTextureOccludedDiscard: faces in the frustum, all of them occluded
 };
 
 // Parallel face pass for the regular texture sweep in updateImagesFetchTextures.

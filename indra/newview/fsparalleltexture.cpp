@@ -361,6 +361,8 @@ FSTextureFaceBias FSTextureFaceBias::current()
     static LLCachedControl<bool> gltf_scale(gSavedSettings, "FSTexturePriorityGLTFScale", false);
     FSTextureFaceBias bias;
     bias.mHidden = hidden_faces && LLPipeline::sUseOcclusion > 1;
+    static LLCachedControl<bool> occluded_discard(gSavedSettings, "FSTextureOccludedDiscard", false);
+    bias.mOccludedDiscard = occluded_discard && LLPipeline::sUseOcclusion > 1;
     bias.mGLTFScale = gltf_scale;
     bias.mGrace = llmax((F32)hidden_grace, 0.f);
     bias.mNow = LLFrameTimer::getElapsedSeconds();
@@ -397,6 +399,17 @@ bool FSTextureFaceBias::inView(const LLFace* face) const
     const LLDrawable* drawable = face->getDrawable();
     const LLSpatialGroup* group = drawable ? drawable->getSpatialGroup() : nullptr;
     return !(group && group->fsHiddenFor(mNow, mGrace));
+}
+
+bool FSTextureFaceBias::occluded(const LLFace* face) const
+{
+    if (!mOccludedDiscard || !face->mInFrustum)
+    {
+        return false;
+    }
+    const LLDrawable* drawable = face->getDrawable();
+    const LLSpatialGroup* group = drawable ? drawable->getSpatialGroup() : nullptr;
+    return group && group->fsHiddenFor(mNow, mGrace);
 }
 
 // static
@@ -464,6 +477,8 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
     F32 max_vsize = 0.f;
     bool on_screen = false;
     U32 face_count = 0;
+    bool any_in_frustum = false;    // FSTextureOccludedDiscard: as in updateImageDecodePriority
+    bool any_unoccluded = false;
 
     // get adjusted bias based on image resolution, as a vsize scaler
     LLImageGL* img = imagep->getGLTexture();
@@ -486,6 +501,13 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 // FSTexturePriorityHiddenFaces: as in updateImageDecodePriority
                 const bool in_view = p.mFaceBias.inView(face);
                 on_screen |= in_view;
+                // FSTextureOccludedDiscard: as in updateImageDecodePriority
+                const bool occluded = p.mFaceBias.occluded(face);
+                if (face->mInFrustum)
+                {
+                    any_in_frustum = true;
+                    any_unoccluded |= !occluded;
+                }
 
                 S32 te_offset = face->getTEOffset();  // offset is -1 if not inited
                 LLViewerObject* objp = face->getViewerObject();
@@ -502,6 +524,10 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 {
                     vsize *= llmax(face->mImportanceToCamera * p.mCameraBoost, 1.f);
                     vsize = p.mFaceBias.avatarFloor(objp, vsize); // FSTextureAvatarSmallParts: as in updateImageDecodePriority
+                }
+                if (occluded)
+                {
+                    vsize *= FSTextureFaceBias::OCCLUDED_VSIZE_SCALE;
                 }
 
                 max_vsize = llmax(max_vsize, vsize);
@@ -524,6 +550,7 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
     out.mMaxVSize = max_vsize;
     out.mOnScreen = on_screen;
     out.mFaceCount = face_count;
+    out.mOnlyOccluded = any_in_frustum && !any_unoccluded;
 }
 
 // Step 3 check: recompute a few parallel calcPixelArea results on the main thread.

@@ -1066,6 +1066,11 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
         U32 face_count = 0;
         U32 max_faces_to_check = 1024;
 
+        // <FS:Trish> FSTextureOccludedDiscard: faces in the frustum, and whether any of them isn't occluded
+        bool fs_any_in_frustum = false;
+        bool fs_any_unoccluded = false;
+        // </FS:Trish>
+
         // <FS:Trish> FSPerfParallelTexturePriority: face pass already done on workers
         if (fs_pre)
         {
@@ -1126,6 +1131,14 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                     const bool in_view = face_bias.inView(face);
                     on_screen |= in_view;
                     // </FS:Trish>
+                    // <FS:Trish> FSTextureOccludedDiscard (FSParallelTexture::reduceFaces does the same)
+                    const bool fs_occluded = face_bias.occluded(face);
+                    if (face->mInFrustum)
+                    {
+                        fs_any_in_frustum = true;
+                        fs_any_unoccluded |= !fs_occluded;
+                    }
+                    // </FS:Trish>
 
                     // Scale desired texture resolution higher or lower depending on texture scale
                     //
@@ -1167,6 +1180,12 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                         vsize *= llmax(face->mImportanceToCamera*texture_camera_boost, 1.f);
                         vsize = face_bias.avatarFloor(objp, vsize); // <FS:Trish/> FSTextureAvatarSmallParts
                     }
+                    // <FS:Trish> FSTextureOccludedDiscard: a face in an occluded group counts one level smaller
+                    if (fs_occluded)
+                    {
+                        vsize *= FSTextureFaceBias::OCCLUDED_VSIZE_SCALE;
+                    }
+                    // </FS:Trish>
 
                     max_vsize = llmax(max_vsize, vsize);
 
@@ -1186,12 +1205,17 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
             }
         }
 
+        // <FS:Trish> FSTextureOccludedDiscard: every face in the frustum is occluded
+        const bool fs_only_occluded = fs_pre ? fs_pre->mOnlyOccluded : fs_any_in_frustum && !fs_any_unoccluded;
+        // </FS:Trish>
+
         // <FS:Trish> FSPerfParallelTexturePriorityVerify: report the serial face pass
         if (fs_out)
         {
             fs_out->mMaxVSize = max_vsize;
             fs_out->mOnScreen = on_screen;
             fs_out->mFaceCount = face_count;
+            fs_out->mOnlyOccluded = fs_only_occluded; // FSTextureOccludedDiscard
         }
         // </FS:Trish>
 
@@ -1206,8 +1230,15 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
           // this is an alternative to decaying mMaxVirtualSize over time
           // that keeps textures from continously downrezzing and uprezzing in the background
 
+            // <FS:Trish> FSTextureOccludedDiscard: a texture shown only on occluded faces is reconsidered
+            // too, at any bias, or the larger size it had while visible would hold (a texture on more faces
+            // than are checked has no faces looked at, so it is never one of them)
+            //if (LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_OUT_OF_SCREEN ||
+            //    (!on_screen && LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_ON_SCREEN))
             if (LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_OUT_OF_SCREEN ||
-                (!on_screen && LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_ON_SCREEN))
+                (!on_screen && LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_ON_SCREEN) ||
+                (fs_only_occluded && face_count <= max_faces_to_check))
+            // </FS:Trish>
             {
                 imagep->mMaxVirtualSize = 0.f;
                 imagep->mSceneVirtualSize = 0.f;

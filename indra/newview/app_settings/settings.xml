@@ -31076,6 +31076,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <map />
     </map>
+    <key>FSTextureOccludedDiscard</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. A texture shown only on surfaces in view that the occlusion test has found hidden behind other objects for FSTexturePriorityHiddenGrace seconds is wanted one level smaller (half the width and height). Any surface of it found visible again counts in full at once; it then sharpens as fast as it loads. Saves video memory in busy scenes once textures are being reduced; off by default.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSShowAutorespondInNametag</key>
     <map>
       <key>Comment</key>
