@@ -55,10 +55,12 @@ class LLVertexBuffer;
 //
 // The same lights glow in the air (FSRenderPointLightScatter): fsPointLightScatterF.glsl adds
 // their in-scattering into the projector volumetric map (LLPipeline::renderSpotVolumetrics), so
-// it shares that map's resolution, temporal resolve and composite. With clustered shading on,
-// each pixel takes the lights of its screen tile (the union of the tile's clusters, binned with
-// them); without it, the nearest lights. The lights are collected in the same stock loop, so the
-// glow follows every setting that decides which lights are drawn.
+// it shares that map's resolution, temporal resolve and composite. The glowing lights are chosen
+// once for the whole screen (chooseGlowLights): the FSRenderPointLightScatterMaxLights that weigh
+// most on screen, the last few fading as they near the cut, so a light glows everywhere or
+// nowhere. With clustered shading on, each pixel takes the chosen lights of its screen tile
+// (binned with the clusters); without it, all of them. The lights are collected in the same stock
+// loop, so the glow follows every setting that decides which lights are drawn.
 class FSClusteredLights
 {
 public:
@@ -87,7 +89,7 @@ public:
     // setting and strength, its program, not under water nor in a snapshot without post effects.
     static bool scatterWanted();
     // Gets the lists ready for the glow: this frame's tile lists after clustered shading, else
-    // the nearest max_lights lights. False when there is nothing to draw.
+    // one list of the chosen lights (chooseGlowLights). False when there is nothing to draw.
     bool prepareScatter(S32 max_lights);
     // Draws the glow into the bound target (the projector volumetric map, cleared, additive
     // blend), writing the distance each pixel sees into alpha as that map wants. strength_scale
@@ -106,6 +108,8 @@ public:
 
 private:
     U32 sortShadowedLights(U32 wanted);
+    // The glow's lights (mGlowWeights), see the .cpp. Returns how many were chosen.
+    U32 chooseGlowLights(U32 max_lights);
     void binLights(bool tile_lists);
     void upload();
     // Binds the two buffer textures to texture units past the shader's own samplers and sets
@@ -146,7 +150,9 @@ private:
     std::vector<U32> mCounts;
     std::vector<U32> mFill;
     std::vector<U32> mLists;            // header (offset, count per cluster, then per tile list),
-                                        // then the light indices
+                                        // then the light indices (in the tile lists, the glow's
+                                        // weight in the high 16 bits)
+    std::vector<U16> mGlowWeights;      // per light: its glow's weight, 0 (no glow) to 65535
 
     U32 mLightBuffer = 0;
     U32 mLightTexture = 0;

@@ -88,6 +88,12 @@ namespace
     // Point light shadows (FSRenderPointLightShadows): the shader marches towards the first
     // FSRenderPointLightShadowCount lights of the buffer only
     constexpr U32 MAX_SHADOWED = 8;
+
+    // The point light glow: at most this many lights (drawScatter's clamp of
+    // FSRenderPointLightScatterMaxLights), and the share of the cut-off score over which the
+    // last chosen lights fade in
+    constexpr U32 GLOW_MAX_LIGHTS = 64;
+    constexpr F32 GLOW_FADE = 0.15f;
 }
 
 // Moves the lights that weigh most on screen to the front of the list: brightness times the share
@@ -136,6 +142,60 @@ U32 FSClusteredLights::sortShadowedLights(U32 wanted)
     }
     mLights.swap(sorted);
     return wanted;
+}
+
+// The point light glow's lights, chosen once for the whole screen: the max_lights whose glow weighs
+// most on screen, scored like sortShadowedLights (brightness times the share of the view the
+// sphere takes). The glow used to take the first lights of each screen tile's list instead, so a
+// light kept in one tile could be dropped in the next, where more lights reached: its halo was cut
+// along the tile edges, in long straight lines where a big light's tiles ended. Now a light glows
+// in every tile its sphere reaches or in none. So that a light changing places with the first one
+// left out does not pop, the chosen ones fade out as their score nears that light's: weight 0 at
+// its score, 1 from GLOW_FADE above it. Fills mGlowWeights; returns how many lights were chosen.
+U32 FSClusteredLights::chooseGlowLights(U32 max_lights)
+{
+    const U32 count = (U32)(mLights.size() / 2);
+    mGlowWeights.assign(count, 0);
+    max_lights = llclamp(max_lights, 1u, GLOW_MAX_LIGHTS);
+
+    std::vector<std::pair<F32, U32>> score;
+    score.reserve(count);
+    for (U32 i = 0; i < count; ++i)
+    {
+        const LLVector4& c = mLights[i * 2];
+        const LLVector4& col = mLights[i * 2 + 1];
+        const F32 size = c.mV[VW];
+        if (size <= 0.f || -c.mV[VZ] + size <= 0.f)
+        {
+            continue; // no range, or wholly behind the camera
+        }
+        const F32 lum = 0.2126f * col.mV[VX] + 0.7152f * col.mV[VY] + 0.0722f * col.mV[VZ];
+        if (!(lum > 0.f))
+        {
+            continue;
+        }
+        const F32 size2 = size * size;
+        const F32 d2 = c.mV[VX] * c.mV[VX] + c.mV[VY] * c.mV[VY] + c.mV[VZ] * c.mV[VZ];
+        score.emplace_back(-lum * size2 / llmax(d2, size2, 0.01f), i); // negated: the strongest first
+    }
+
+    const U32 chosen = llmin((U32)score.size(), max_lights);
+    if (chosen == 0)
+    {
+        return 0;
+    }
+    F32 cut = 0.f; // the score of the first light left out, 0 when all fit
+    if (chosen < (U32)score.size())
+    {
+        std::partial_sort(score.begin(), score.begin() + chosen + 1, score.end());
+        cut = -score[chosen].first;
+    }
+    for (U32 k = 0; k < chosen; ++k)
+    {
+        const F32 w = cut > 0.f ? llclamp((-score[k].first / cut - 1.f) / GLOW_FADE, 0.f, 1.f) : 1.f;
+        mGlowWeights[score[k].second] = (U16)llclamp(ll_round(w * 65535.f), 0, 65535);
+    }
+    return chosen;
 }
 
 bool FSClusteredLights::begin(const glm::mat4& modelview, const glm::mat4& projection, U32 width, U32 height, bool probe)
@@ -232,12 +292,18 @@ bool FSClusteredLights::add(const F32* center_agent, F32 size, const LLColor3& l
 
 // Sorts the lights into the grid: mLists gets a header of (offset, count) per cluster (and with
 // tile_lists, per screen tile after them), then the lists of light indices, each list nearest
-// light first.
+// light first. The tile lists hold the glow's chosen lights only (chooseGlowLights), each entry
+// with its weight in the high 16 bits.
 void FSClusteredLights::binLights(bool tile_lists)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
 
     const U32 light_count = (U32)(mLights.size() / 2);
+    if (tile_lists)
+    {
+        static LLCachedControl<S32> glow_max_lights(gSavedSettings, "FSRenderPointLightScatterMaxLights", 16);
+        chooseGlowLights((U32)llmax((S32)glow_max_lights, 1));
+    }
     mTilesX = (mWidth + TILE_PIXELS - 1) / TILE_PIXELS;
     mTilesY = (mHeight + TILE_PIXELS - 1) / TILE_PIXELS;
     mSlices = DEPTH_SLICES;
@@ -343,8 +409,8 @@ void FSClusteredLights::binLights(bool tile_lists)
                 mSpans.push_back(span);
             }
         }
-        // The glow's tile list: every tile the whole sphere covers, any depth
-        if (tile_lists)
+        // The glow's tile list: every tile the whole sphere covers, any depth (chosen lights only)
+        if (tile_lists && mGlowWeights[i] > 0)
         {
             const F32 rs = s * (1.f + DEPTH_SLACK) + 1e-3f;
             Span span;
@@ -418,7 +484,7 @@ void FSClusteredLights::binLights(bool tile_lists)
                 U32& fill = mFill[idx];
                 if (fill < mLists[idx * 2 + 1])
                 {
-                    mLists[mLists[idx * 2] + fill++] = span.mLight;
+                    mLists[mLists[idx * 2] + fill++] = span.mSlice == mSlices ? (span.mLight | ((U32)mGlowWeights[span.mLight] << 16)) : span.mLight;
                 }
             }
         }
@@ -559,9 +625,13 @@ bool FSClusteredLights::prepareScatter(S32 max_lights)
         return mTileLists; // the tile lists went up with the clusters (unless the glow was off then)
     }
 
-    // Without clustered shading: one tile covering the screen, listing the nearest lights (the
-    // stock loop runs nearest first)
-    const U32 count = llmin((U32)(mLights.size() / 2), (U32)max_lights);
+    // Without clustered shading: one tile covering the screen, listing the chosen lights with
+    // their weights, as the tile lists do
+    const U32 count = chooseGlowLights((U32)max_lights);
+    if (count == 0)
+    {
+        return false;
+    }
     mTilesX = 1;
     mTilesY = 1;
     mSlices = 0;
@@ -571,10 +641,15 @@ bool FSClusteredLights::prepareScatter(S32 max_lights)
     mLists.resize(2 + (size_t)count);
     mLists[0] = 2;
     mLists[1] = count;
-    for (U32 i = 0; i < count; ++i)
+    U32 entry = 2;
+    for (U32 i = 0; i < (U32)mGlowWeights.size() && entry < 2 + count; ++i)
     {
-        mLists[2 + i] = i;
+        if (mGlowWeights[i] > 0)
+        {
+            mLists[entry++] = i | ((U32)mGlowWeights[i] << 16);
+        }
     }
+    mLists[1] = entry - 2;
     upload();
     mBinned = true;
     mTileLists = true;
@@ -682,6 +757,8 @@ void FSClusteredLights::release()
     mFill.shrink_to_fit();
     mLists.clear();
     mLists.shrink_to_fit();
+    mGlowWeights.clear();
+    mGlowWeights.shrink_to_fit();
     mActive = false;
     mShade = false;
     mBinned = false;

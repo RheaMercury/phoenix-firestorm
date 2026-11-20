@@ -48,11 +48,12 @@ out vec4 frag_color;
 in vec2 vary_fragcoord;
 
 uniform samplerBuffer fs_cl_lights;     // per light: view space centre + range, linear colour + falloff
-uniform usamplerBuffer fs_cl_lists;     // header of (offset, count) entries, then light indices
+uniform usamplerBuffer fs_cl_lists;     // header of (offset, count) entries, then light indices,
+                                        // each with its glow's weight in the high 16 bits
 uniform ivec4 fs_cl_dims;               // tiles across, tiles down, depth slices, first tile entry
 uniform vec4 fs_cl_scale;               // tiles per unit of screen coordinate across and down
 
-uniform int fs_scatter_max;             // lights per pixel at most (the nearest)
+uniform int fs_scatter_max;             // lights per pixel at most (the lists hold no more)
 uniform float fs_scatter_strength;      // over the strength the composite applies
 uniform float fs_scatter_density;       // scattering per metre, without the height fog
 uniform float vol_anisotropy;           // 0 scatters evenly, toward 1 concentrates looking into the light
@@ -114,7 +115,11 @@ void main()
     vec3 result = vec3(0.0);
     for (int i = 0; i < count; ++i)
     {
-        int idx = int(texelFetch(fs_cl_lists, first + i).r);
+        // The light and its weight: the lights are chosen for the whole screen, and the last of
+        // them fade out as they near the cut (FSClusteredLights::chooseGlowLights)
+        uint entry_value = texelFetch(fs_cl_lists, first + i).r;
+        int idx = int(entry_value & 0xFFFFu);
+        float weight = float(entry_value >> 16u) * (1.0 / 65535.0);
         vec4 light = texelFetch(fs_cl_lights, idx * 2);
         vec4 light_col = texelFetch(fs_cl_lights, idx * 2 + 1);
         vec3 center = light.xyz;
@@ -181,7 +186,7 @@ void main()
         float sigma = airDensity(view_dir * t_near);
         float transmit = exp(-airDensity(view_dir * (0.5 * t_near)) * t_near);
 
-        result += light_col.rgb * (atten * sigma * transmit);
+        result += light_col.rgb * (atten * sigma * transmit * weight);
     }
 
     frag_color = vec4(max(result * fs_scatter_strength, vec3(0.0)), scene_dist);
