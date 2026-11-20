@@ -191,6 +191,9 @@ namespace
         { "FSRenderPointLightScatterStrength", CL, VM },
         { "FSRenderPointLightScatterDensity", CL, VM },
         { "FSRenderPointLightScatterMaxLights", CL, VM },
+        { "FSRenderPointLightScatterClassic", CL, VM },
+        { "FSRenderPointLightScatterAnisotropy", CL, VM },
+        { "FSRenderPointLightScatterVariation", CL, VN },
 
         // Effects: water
         { "FSRenderWaterCaustics", CL, VM },

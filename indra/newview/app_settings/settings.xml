@@ -28024,7 +28024,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderPointLightScatter</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. Local point lights (lanterns, lamps, club lights) glow in the air: the light each one scatters toward the camera along every view ray, in closed form for its falloff, with the Henyey-Greenstein lobe of FSRenderSpotVolumetricAnisotropy. Drawn into the volumetric projector light's map at its resolution (FSRenderSpotVolumetricResolution) and temporal option, and added to the scene with it. The air is the height fog's when that is on, else FSRenderPointLightScatterDensity. Uses the lights the light pass draws (RenderLocalLightCount, attached lights). Off under water and in snapshots without post effects.</string>
+      <string>EXPERIMENTAL. Local point lights (lanterns, lamps, club lights) glow in the air: the light each one scatters toward the camera along every view ray, in closed form. The look is FSRenderPointLightScatterClassic, FSRenderPointLightScatterAnisotropy and FSRenderPointLightScatterVariation. Drawn into the volumetric projector light's map at its resolution (FSRenderSpotVolumetricResolution) and temporal option, and added to the scene with it. The air is the height fog's when that is on, else FSRenderPointLightScatterDensity. Uses the lights the light pass draws (RenderLocalLightCount, attached lights). Off under water and in snapshots without post effects.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -28057,13 +28057,46 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderPointLightScatterMaxLights</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. Point lights that glow per pixel at most, the nearest first (FSRenderPointLightScatter). With clustered lights (FSRenderClusteredLights) this many of each screen tile's lights, else this many of the nearest lights overall. Each costs a few dozen instructions per pixel at the volumetric map's resolution.</string>
+      <string>EXPERIMENTAL. Point lights that glow at most (FSRenderPointLightScatter), chosen for the whole screen: those that weigh most on screen (brightness times the share of the view they take), the last few fading out as they near the first one left out. With clustered lights (FSRenderClusteredLights) each pixel only takes those whose glow reaches its screen tile. Each costs a few dozen instructions per pixel at the volumetric map's resolution.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>S32</string>
       <key>Value</key>
       <integer>16</integer>
+    </map>
+    <key>FSRenderPointLightScatterClassic</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. The point light glow's previous look (FSRenderPointLightScatter): a broad ball whose soft core is a share of the light's range, scattered with the projector cones' FSRenderSpotVolumetricAnisotropy, even and round. Off: the natural look, a small bright core the size of a lamp that tapers off like a lamp in mist, dimmed by thick fog, with its own anisotropy (FSRenderPointLightScatterAnisotropy), slow variation in the air (FSRenderPointLightScatterVariation) and less glow right around the camera.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderPointLightScatterAnisotropy</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Forward scattering of the point light glow's natural look (FSRenderPointLightScatter), the Henyey-Greenstein g, 0 to 0.9, blended with 30% even scattering: 0 glows the same from every side, higher glows more looking toward the light and less from the side. Not used by the classic look (FSRenderPointLightScatterClassic), which takes FSRenderSpotVolumetricAnisotropy.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
+    <key>FSRenderPointLightScatterVariation</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. How much the air around point lights varies for their glow's natural look (FSRenderPointLightScatter), 0 to 1: a slow noise fixed in the world, in cells of about 2 metres, that drifts with the region's wind when FSRenderWindEffects is on, so halos are not perfect discs. 0 is even air.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.35</real>
     </map>
     <key>FSRenderSpecularAA</key>
     <map>

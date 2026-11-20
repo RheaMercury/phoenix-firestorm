@@ -30,6 +30,7 @@
 #include "fsclusteredlights.h"
 #include "fswindfield.h"
 
+#include "llagent.h"
 #include "lldrawpoolalpha.h"
 #include "llenvironment.h"
 #include "llgl.h"
@@ -82,6 +83,9 @@ namespace
     LLStaticHashedString s_anisotropy("vol_anisotropy");
     LLStaticHashedString s_air_fog("fs_air_fog");
     LLStaticHashedString s_air_plane("fs_air_plane");
+    LLStaticHashedString s_scatter_look("fs_scatter_look");
+    LLStaticHashedString s_scatter_noise_origin("fs_scatter_noise_origin");
+    LLStaticHashedString s_scatter_noise_basis("fs_scatter_noise_basis");
     LLStaticHashedString s_pl_shadow("fs_pl_shadow");
     LLStaticHashedString s_pl_shadow_proj("fs_pl_shadow_proj");
 
@@ -90,10 +94,22 @@ namespace
     constexpr U32 MAX_SHADOWED = 8;
 
     // The point light glow: at most this many lights (drawScatter's clamp of
-    // FSRenderPointLightScatterMaxLights), and the share of the cut-off score over which the
-    // last chosen lights fade in
+    // FSRenderPointLightScatterMaxLights), and the share of the last wanted light's score below
+    // which the lights past it fade out
     constexpr U32 GLOW_MAX_LIGHTS = 64;
     constexpr F32 GLOW_FADE = 0.15f;
+    // How many lights the glow takes at most for a max_lights setting: the setting plus room for
+    // the lights that tie with the last wanted one or fade out just below it (chooseGlowLights)
+    U32 glow_list_cap(U32 max_lights)
+    {
+        return llmin(GLOW_MAX_LIGHTS, max_lights + llmax(max_lights / 2, 4u));
+    }
+    // The natural glow's look: the share of even scattering blended into the Henyey-Greenstein
+    // lobe, the size of the air's noise cells (metres) and the cells after which it repeats (as
+    // fsPointLightScatterF.glsl's hash wraps)
+    constexpr F32 GLOW_ISOTROPIC = 0.3f;
+    constexpr F64 GLOW_NOISE_CELL = 2.0;
+    constexpr F64 GLOW_NOISE_PERIOD = 256.0;
 }
 
 // Moves the lights that weigh most on screen to the front of the list: brightness times the share
@@ -149,14 +165,44 @@ U32 FSClusteredLights::sortShadowedLights(U32 wanted)
 // sphere takes). The glow used to take the first lights of each screen tile's list instead, so a
 // light kept in one tile could be dropped in the next, where more lights reached: its halo was cut
 // along the tile edges, in long straight lines where a big light's tiles ended. Now a light glows
-// in every tile its sphere reaches or in none. So that a light changing places with the first one
-// left out does not pop, the chosen ones fade out as their score nears that light's: weight 0 at
-// its score, 1 from GLOW_FADE above it. Fills mGlowWeights; returns how many lights were chosen.
+// in every tile its sphere reaches or in none.
+// So that a light changing places with the last one wanted does not pop, the weights follow the
+// score of the max_lights-th light (ref): 1 at ref and above, falling to 0 at GLOW_FADE below it,
+// and the lights in that band are taken too (a few past max_lights, glow_list_cap). Lights that
+// tie with ref all glow in full: a set of identical lamps no longer loses its glow because one of
+// them was left out (the fade used to end at the first light left out, so a tie gave weight 0).
+// Only when the band holds more lights than the cap does the fade end at the first one it leaves
+// out instead.
+// Lights whose sphere lies wholly outside the view take no place: they glow on no pixel, and
+// turning the camera would swap them in and out of the set. Not in the tiles of a high resolution
+// snapshot, which must all choose the same lights. Fills mGlowWeights; returns how many lights
+// were chosen.
 U32 FSClusteredLights::chooseGlowLights(U32 max_lights)
 {
     const U32 count = (U32)(mLights.size() / 2);
     mGlowWeights.assign(count, 0);
     max_lights = llclamp(max_lights, 1u, GLOW_MAX_LIGHTS);
+
+    // The view's side planes (projection rows 3 +- 0 and 3 +- 1; reverse-Z only changes row 2),
+    // for a sphere test in eye space
+    glm::vec4 planes[4];
+    F32 plane_scale[4] = { 0.f, 0.f, 0.f, 0.f };
+    const bool frustum_test = LLViewerCamera::getInstance()->getZoomFactor() <= 1.f;
+    if (frustum_test)
+    {
+        const glm::vec4 row0(mProjection[0][0], mProjection[1][0], mProjection[2][0], mProjection[3][0]);
+        const glm::vec4 row1(mProjection[0][1], mProjection[1][1], mProjection[2][1], mProjection[3][1]);
+        const glm::vec4 row3(mProjection[0][3], mProjection[1][3], mProjection[2][3], mProjection[3][3]);
+        planes[0] = row3 + row0;
+        planes[1] = row3 - row0;
+        planes[2] = row3 + row1;
+        planes[3] = row3 - row1;
+        for (U32 p = 0; p < 4; ++p)
+        {
+            const F32 len = sqrtf(planes[p].x * planes[p].x + planes[p].y * planes[p].y + planes[p].z * planes[p].z);
+            plane_scale[p] = len > 1e-6f ? 1.f / len : 0.f;
+        }
+    }
 
     std::vector<std::pair<F32, U32>> score;
     score.reserve(count);
@@ -169,6 +215,16 @@ U32 FSClusteredLights::chooseGlowLights(U32 max_lights)
         {
             continue; // no range, or wholly behind the camera
         }
+        bool outside = false;
+        for (U32 p = 0; p < 4 && !outside; ++p)
+        {
+            const F32 d = (planes[p].x * c.mV[VX] + planes[p].y * c.mV[VY] + planes[p].z * c.mV[VZ] + planes[p].w) * plane_scale[p];
+            outside = plane_scale[p] > 0.f && d < -size;
+        }
+        if (outside)
+        {
+            continue; // wholly beside, above or below the view
+        }
         const F32 lum = 0.2126f * col.mV[VX] + 0.7152f * col.mV[VY] + 0.0722f * col.mV[VZ];
         if (!(lum > 0.f))
         {
@@ -178,22 +234,38 @@ U32 FSClusteredLights::chooseGlowLights(U32 max_lights)
         const F32 d2 = c.mV[VX] * c.mV[VX] + c.mV[VY] * c.mV[VY] + c.mV[VZ] * c.mV[VZ];
         score.emplace_back(-lum * size2 / llmax(d2, size2, 0.01f), i); // negated: the strongest first
     }
-
-    const U32 chosen = llmin((U32)score.size(), max_lights);
-    if (chosen == 0)
+    if (score.empty())
     {
         return 0;
     }
-    F32 cut = 0.f; // the score of the first light left out, 0 when all fit
-    if (chosen < (U32)score.size())
+
+    // Strongest first; equal scores in list order, so the same lights win from frame to frame
+    const U32 total = (U32)score.size();
+    const U32 cap = llmin(total, glow_list_cap(max_lights));
+    std::partial_sort(score.begin(), score.begin() + llmin(total, cap + 1), score.end());
+
+    const F32 ref = -score[llmin(total, max_lights) - 1].first; // the last wanted light's score
+    F32 fade_end = ref * (1.f - GLOW_FADE);                      // weight 0 here
+    if (cap < total)
     {
-        std::partial_sort(score.begin(), score.begin() + chosen + 1, score.end());
-        cut = -score[chosen].first;
+        fade_end = llmax(fade_end, -score[cap].first);           // the band holds more than the cap
     }
-    for (U32 k = 0; k < chosen; ++k)
+    U32 chosen = 0;
+    for (U32 k = 0; k < cap; ++k)
     {
-        const F32 w = cut > 0.f ? llclamp((-score[k].first / cut - 1.f) / GLOW_FADE, 0.f, 1.f) : 1.f;
-        mGlowWeights[score[k].second] = (U16)llclamp(ll_round(w * 65535.f), 0, 65535);
+        const F32 s = -score[k].first;
+        F32 w = 1.f;
+        if (s < ref)
+        {
+            w = ref > fade_end ? llclamp((s - fade_end) / (ref - fade_end), 0.f, 1.f) : 0.f;
+        }
+        const U16 weight = (U16)llclamp(ll_round(w * 65535.f), 0, 65535);
+        if (weight == 0)
+        {
+            break; // sorted: the rest are weaker still
+        }
+        mGlowWeights[score[k].second] = weight;
+        ++chosen;
     }
     return chosen;
 }
@@ -659,6 +731,9 @@ bool FSClusteredLights::prepareScatter(S32 max_lights)
 bool FSClusteredLights::drawScatter(LLRenderTarget& depth_source, LLVertexBuffer* screen_tri, F32 strength_scale, F32 anisotropy, S32 max_lights)
 {
     static LLCachedControl<F32> density(gSavedSettings, "FSRenderPointLightScatterDensity", 0.02f);
+    static LLCachedControl<bool> classic(gSavedSettings, "FSRenderPointLightScatterClassic", false);
+    static LLCachedControl<F32> glow_anisotropy(gSavedSettings, "FSRenderPointLightScatterAnisotropy", 0.5f);
+    static LLCachedControl<F32> variation(gSavedSettings, "FSRenderPointLightScatterVariation", 0.35f);
 
     LLGLSLShader& shader = gFSPointLightScatterProgram;
     const S32 units = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS);
@@ -672,10 +747,47 @@ bool FSClusteredLights::drawScatter(LLRenderTarget& depth_source, LLVertexBuffer
     {
         shader.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &depth_source, true);
         bindBuffers(shader);
-        shader.uniform1i(s_scatter_max, llclamp(max_lights, 1, 64));
+        // the lists hold the chosen lights only, which may run a few past the setting (ties)
+        shader.uniform1i(s_scatter_max, (S32)glow_list_cap((U32)llclamp(max_lights, 1, (S32)GLOW_MAX_LIGHTS)));
         shader.uniform1f(s_scatter_strength, strength_scale);
         shader.uniform1f(s_scatter_density, llclamp((F32)density, 0.f, 1.f));
-        shader.uniform1f(s_anisotropy, llclamp(anisotropy, 0.f, 0.9f));
+        // The classic look keeps the projector cones' anisotropy, as it always had; the natural
+        // look has its own
+        shader.uniform1f(s_anisotropy, llclamp(classic ? anisotropy : (F32)glow_anisotropy, 0.f, 0.9f));
+        shader.uniform4f(s_scatter_look, classic ? 1.f : 0.f, llclamp((F32)variation, 0.f, 1.f), GLOW_ISOTROPIC, 0.f);
+        if (!classic && variation > 0.f)
+        {
+            // The air's noise is fixed in the world (it moves with the wind's drift when the wind
+            // effects are on): the camera in noise cells, wrapped where the noise repeats, and the
+            // world's axes in view space (the modelview's columns, the lights' own view space)
+            const FSWindField::State& wind = FSWindField::get();
+            LLVector3d camera = gAgent.getPosGlobalFromAgent(LLViewerCamera::getInstance()->getOrigin());
+            if (wind.mActive)
+            {
+                camera -= wind.mDrift;
+            }
+            F32 origin[3];
+            for (S32 i = 0; i < 3; ++i)
+            {
+                F64 c = fmod(camera.mdV[i] / GLOW_NOISE_CELL, GLOW_NOISE_PERIOD);
+                if (c < 0.0)
+                {
+                    c += GLOW_NOISE_PERIOD;
+                }
+                origin[i] = (F32)c;
+            }
+            const F32 cells = (F32)(1.0 / GLOW_NOISE_CELL);
+            F32 basis[9];
+            for (S32 axis = 0; axis < 3; ++axis)
+            {
+                for (S32 k = 0; k < 3; ++k)
+                {
+                    basis[axis * 3 + k] = mModelview[axis][k] * cells;
+                }
+            }
+            shader.uniform3fv(s_scatter_noise_origin, 1, origin);
+            shader.uniform3fv(s_scatter_noise_basis, 3, basis);
+        }
         setAirUniforms(shader, true);
         screen_tri->setBuffer();
         screen_tri->drawArrays(LLRender::TRIANGLES, 0, 3);

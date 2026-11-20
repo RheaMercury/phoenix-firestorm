@@ -93,8 +93,9 @@ public:
     bool prepareScatter(S32 max_lights);
     // Draws the glow into the bound target (the projector volumetric map, cleared, additive
     // blend), writing the distance each pixel sees into alpha as that map wants. strength_scale
-    // is the glow's strength over the strength the map's composite applies. False when nothing
-    // was drawn (no texture units left for the lists).
+    // is the glow's strength over the strength the map's composite applies; anisotropy the
+    // projector cones', which only the classic look (FSRenderPointLightScatterClassic) takes.
+    // False when nothing was drawn (no texture units left for the lists).
     bool drawScatter(LLRenderTarget& depth_source, LLVertexBuffer* screen_tri, F32 strength_scale, F32 anisotropy, S32 max_lights);
 
     // Air density uniforms of the volumetric shaders (fs_air_fog, fs_air_plane). With use_fog
