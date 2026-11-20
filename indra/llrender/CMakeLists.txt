@@ -14,6 +14,7 @@ set(llrender_SOURCE_FILES
     fsglstream.cpp # <FS:Trish/> FSRenderThread
     fsgputimers.cpp # <FS:Trish/> FSRenderGPUTimings
     fsreversez.cpp # <FS:Trish/> FSRenderReverseZ
+    fstaajitter.cpp # <FS:Trish/> FSRenderTAA
     fstextureupload.cpp # <FS:Trish/> FSPerfTextureUploadPBO
     llcubemap.cpp
     llcubemaparray.cpp
@@ -45,6 +46,7 @@ set(llrender_HEADER_FILES
     fsglstream.h # <FS:Trish/> FSRenderThread
     fsgputimers.h # <FS:Trish/> FSRenderGPUTimings
     fsreversez.h # <FS:Trish/> FSRenderReverseZ
+    fstaajitter.h # <FS:Trish/> FSRenderTAA
     fsglstream_funcs.inl # <FS:Trish/> FSRenderThread
     fstextureupload.h # <FS:Trish/> FSPerfTextureUploadPBO
     CMakeLists.txt

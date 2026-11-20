@@ -1613,6 +1613,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSRenderSpecularAA", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderMultiscatter", handleSetShaderChanged); // <FS:Trish/> FS_MULTISCATTER global define
     setting_setup_signal_listener(gSavedSettings, "FSRenderReverseZ", handleSetShaderChanged); // <FS:Trish/> REVERSE_Z global define, and the render targets' depth format
+    setting_setup_signal_listener(gSavedSettings, "FSRenderTAA", handleSetShaderChanged); // <FS:Trish/> FS_TAA_LOD_BIAS global define (FSRenderTAATextureBias)
     setting_setup_signal_listener(gSavedSettings, "FSRenderFadeIn", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderAlphaCoverage", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderSoftParticles", handleSetShaderChanged); // <FS:Trish/>

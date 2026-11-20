@@ -59,6 +59,7 @@
 #include "fsparticlerender.h" // <FS:Trish/> particle draws: cheap lighting, early-out, GPU timings
 #include "fsavataralpha.h" // <FS:Trish/> FSRenderCheapAvatarAlpha
 #include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
+#include "fstaa.h" // <FS:Trish/> FSRenderTAA: "Highlight Transparent" after the resolve
 #include <optional> // <FS:Trish/>
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
@@ -396,7 +397,20 @@ void LLDrawPoolAlpha::forwardRender(bool rigged, EWBOITPhase wboit_phase)
         // NOTE -- hacky call here protected by !rigged instead of alongside "forwardRender"
         // so renderDebugAlpha is executed while gls_pipeline_alpha and depth GL state
         // variables above are still in scope
-        renderDebugAlpha();
+        // <FS:Trish> FSRenderTAA: the main view draws it after the resolve, unjittered (fs_render_taa_overlays)
+        //renderDebugAlpha();
+        if (FSTAA::deferringOverlays() && !LLPipeline::sRenderingHUDs)
+        {
+            if (sShowDebugAlpha)
+            {
+                FSTAA::noteDebugAlphaDeferred();
+            }
+        }
+        else
+        {
+            renderDebugAlpha();
+        }
+        // </FS:Trish>
     }
 }
 

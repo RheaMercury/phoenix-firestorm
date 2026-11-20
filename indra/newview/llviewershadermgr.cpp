@@ -29,6 +29,8 @@
 
 #include <boost/lexical_cast.hpp>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
+#include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fstaajitter.h" // <FS:Trish/> FSRenderTAATextureBias
 
 #include "llfeaturemanager.h"
 #include "llviewershadermgr.h"
@@ -1567,6 +1569,16 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     }
     // </FS:Trish>
 
+    // <FS:Trish> FSRenderTAATextureBias: while TAA is on, the material shaders sample with its texture
+    // LOD bias (LLShaderMgr::loadShaderFile, fstaajitter.h). A uniform, 0 outside the jittered passes.
+    static LLCachedControl<bool> fs_taa(gSavedSettings, "FSRenderTAA", false);
+    if (fs_taa)
+    {
+        attribs["FS_TAA_LOD_BIAS"] = "1";
+    }
+    FSTAAJitter::setLodBiasCompiled(fs_taa);
+    // </FS:Trish>
+
     LLGLSLShader::sGlobalDefines = attribs;
     sRiggedLocalOrigin = attribs.count("RIGGED_LOCAL_ORIGIN") != 0; // <FS:Trish/>
 
@@ -2056,6 +2068,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSAvatarMatteProgram.unload();
         gFSDynResUpscaleProgram.unload(); // <FS:Trish/> Dynamic resolution
         gFSNISUpscaleProgram.unload(); // <FS:Trish/> NVIDIA Image Scaling
+        gFSTAAResolveProgram.unload(); // <FS:Trish/> FSRenderTAA
+        gFSTAASharpenProgram.unload(); // <FS:Trish/> FSRenderTAA
+        gFSTAAOverlayDepthProgram.unload(); // <FS:Trish/> FSRenderTAA
+        gFSTAADepthCopyProgram.unload(); // <FS:Trish/> FSRenderTAA
         // </FS:Trish>
         gFSSkinSSSProgram.unload(); // <FS:Trish/>
         gFSGTAOHalfProgram.unload(); // <FS:Trish/> Half-resolution GTAO
@@ -4013,6 +4029,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSLensEffectsProgram,      "FS Lens Effects",       "deferred/fsLensEffectsF.glsl",      false },
             { &gFSAvatarMatteProgram,      "FS Avatar Matte",       "deferred/fsAvatarMatteF.glsl",      false },
             { &gFSDynResUpscaleProgram,    "FS Dynamic Resolution Upscale", "deferred/fsDynResUpscaleF.glsl", false }, // <FS:Trish/>
+            { &gFSTAAResolveProgram,       "FS TAA Resolve",        "deferred/fsTAAResolveF.glsl",       false }, // <FS:Trish/> FSRenderTAA
+            { &gFSTAASharpenProgram,       "FS TAA Sharpen",        "deferred/fsTAASharpenF.glsl",       false }, // <FS:Trish/> FSRenderTAA
+            { &gFSTAAOverlayDepthProgram,  "FS TAA Overlay Depth",  "deferred/fsTAAOverlayDepthF.glsl",  false }, // <FS:Trish/> FSRenderTAA: depth for the overlays after the resolve
+            { &gFSTAADepthCopyProgram,     "FS TAA Depth Copy",     "deferred/fsTAADepthCopyF.glsl",     false }, // <FS:Trish/> FSRenderTAA: that depth for the outlines after the present
         };
         for (const FSPostShader& post : fs_post_shaders)
         {

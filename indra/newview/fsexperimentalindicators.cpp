@@ -351,6 +351,11 @@ namespace
         { "RenderRiggedLocalOrigin", CL, VN },
         { "RenderRiggedPreciseMath", CL, VN },
         { "FSRenderReverseZ", CL, VM },
+        { "FSRenderTAA", CM, VL },
+        { "FSRenderTAAHistory", CL, VM },
+        { "FSRenderTAAReactive", CL, VN },
+        { "FSRenderTAASharpness", CL, VN },
+        { "FSRenderTAATextureBias", CL, VM },
 
         // Shadows
         { "RenderShadowCullMode", CS, VN },

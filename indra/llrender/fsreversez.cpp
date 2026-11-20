@@ -28,6 +28,7 @@
 #include "linden_common.h"
 
 #include "fsreversez.h"
+#include "fstaajitter.h"
 
 #include "llgl.h"
 #include "llrender.h"
@@ -141,7 +142,9 @@ namespace FSReverseZ
 
     glm::mat4 rasterProjection(const glm::mat4& proj)
     {
-        return sActive ? reverse(proj) : proj;
+        // The temporal anti-aliasing jitter (FSRenderTAA) rides along: it is set only around the
+        // main camera's passes, and it moves x and y only, so the depth row stays as reversed here
+        return FSTAAJitter::apply(sActive ? reverse(proj) : proj);
     }
 
     glm::mat4 depthProjection(const glm::mat4& proj)

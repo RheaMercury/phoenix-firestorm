@@ -160,6 +160,7 @@
 #include "fsgpudrivenshadowalpha.h" // <FS:Trish/> FSPerfGPUDrivenShadowAlpha
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
+#include "fstaa.h" // <FS:Trish/> FSRenderTAA
 
 #if LL_CLANG
 #pragma clang diagnostic push
@@ -1725,6 +1726,7 @@ void LLPipeline::releaseGLBuffers()
     FSSSRHiZ::release(); // <FS:Trish/>
     FSShadowDepthFit::release(); // <FS:Trish/>
     FSShadowScreenFilter::release(); // <FS:Trish/>
+    FSTAA::release(); // <FS:Trish/> FSRenderTAA
 
     mWaterExclusionMask.release();
 
@@ -5371,7 +5373,13 @@ void render_hud_elements()
 
     if (!LLPipeline::sReflectionRender && gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
     {
-        gViewerWindow->renderSelections(false, false, false); // For HUD version in render_ui_3d()
+        // <FS:Trish> FSRenderTAA: the outlines tested against the conservative depth, not the jittered one
+        //gViewerWindow->renderSelections(false, false, false); // For HUD version in render_ui_3d()
+        {
+            FSTAA::PresentedDepthScope fs_taa_depth;
+            gViewerWindow->renderSelections(false, false, false); // For HUD version in render_ui_3d()
+        }
+        // </FS:Trish>
 
         // Draw the tracking overlays
         LLTracker::render3D();
@@ -5521,6 +5529,19 @@ void LLPipeline::renderHighlights()
 //debug use
 U32 LLPipeline::sCurRenderPoolType = 0 ;
 
+// <FS:Trish> FSRenderTAA: the main camera's own passes, the only ones drawn with the sub-pixel
+// jitter. Never reflection probes, mirrors, impostors, HUDs, shadow maps or avatars only passes.
+static bool fs_taa_main_view(const LLPipeline& pipe, const LLCamera& camera)
+{
+    return FSTAA::frameActive() && &camera == LLViewerCamera::getInstance() && pipe.mRT == &pipe.mMainRT &&
+           !gCubeSnapshot && !LLPipeline::sReflectionRender && !LLPipeline::sImpostorRender &&
+           !LLPipeline::sShadowRender && !LLPipeline::sRenderingHUDs && !LLPipeline::isAvatarOnlyRender();
+}
+
+// FSRenderTAA: the render type mask of the alpha pass that held the overlays back (fs_render_taa_overlays)
+static bool sFSTAAOverlayRenderTypes[LLPipeline::NUM_RENDER_TYPES] = {};
+// </FS:Trish>
+
 void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 {
     LLAppViewer::instance()->pingMainloopTimeout("Pipeline:RenderGeomDeferred");
@@ -5549,6 +5570,10 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
         gGLDeltaModelView = m;
         gGLInverseDeltaModelView = n;
     }
+
+    // <FS:Trish> FSRenderTAA: the G-buffer with this frame's sub-pixel jitter (GPU projection only)
+    FSTAA::JitterScope fs_taa_jitter(fs_taa_main_view(*this, camera));
+    // </FS:Trish>
 
     bool occlude = LLPipeline::sUseOcclusion > 1 && do_occlusion && !LLGLSLShader::sProfileEnabled;
 
@@ -5723,7 +5748,8 @@ static void fs_take_tag_depth(LLPipeline& pipe)
 {
     static LLCachedControl<bool> tag_ignore_alpha(gSavedSettings, "FSNameTagIgnoreAlpha", true);
     const bool soft_particles = FSSoftParticles::enabled();
-    if ((tag_ignore_alpha || soft_particles) && pipe.mRT == &pipe.mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender &&
+    const bool taa = FSTAA::wantsPreAlphaDepth(); // FSRenderTAA: the reactive mask finds what was drawn over it
+    if ((tag_ignore_alpha || soft_particles || taa) && pipe.mRT == &pipe.mMainRT && !gCubeSnapshot && !LLPipeline::sReflectionRender &&
         !LLPipeline::sRenderingHUDs && !LLPipeline::sImpostorRender && !pipe.isAvatarOnlyRender())
     {
         LLRenderTarget& src = pipe.mRT->deferredScreen;     // shares its depth with mRT->screen
@@ -5752,9 +5778,13 @@ static void fs_take_tag_depth(LLPipeline& pipe)
             {
                 FSSoftParticles::noteDepthTaken();
             }
+            if (taa)
+            {
+                FSTAA::notePreAlphaDepth();
+            }
         }
     }
-    else if (!tag_ignore_alpha && !soft_particles && pipe.mFSTagDepth.isComplete())
+    else if (!tag_ignore_alpha && !soft_particles && !taa && pipe.mFSTagDepth.isComplete())
     {
         pipe.mFSTagDepth.release();
     }
@@ -5802,6 +5832,21 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
     gGL.setSceneBlendType(LLRender::BT_ALPHA);
     gGL.setColorMask(true, false);
 
+    // <FS:Trish> FSRenderTAA: the highlights and debug displays wait for the resolve (fs_render_taa_overlays)
+    bool fs_taa_dropped_overlays = false;
+    const bool fs_taa_overlays = FSTAA::beginDeferOverlays(fs_taa_main_view(*this, camera), fs_taa_dropped_overlays);
+    if (fs_taa_dropped_overlays)
+    {
+        mHighlightFaces.clear(); // an earlier frame's may be among them, and their faces gone
+    }
+    if (fs_taa_overlays)
+    {
+        // the render types of this pass, which renderDebug picks the partitions it draws by
+        static_assert(sizeof(sFSTAAOverlayRenderTypes) == sizeof(mRenderTypeEnabled), "render type mask size");
+        memcpy(sFSTAAOverlayRenderTypes, mRenderTypeEnabled, sizeof(mRenderTypeEnabled));
+    }
+    // </FS:Trish>
+
     // <FS:Trish> Avatars only snapshot: the flat background goes in before any alpha is blended
     // over it. No haze either: it would fog the background differently over black and over white,
     // which the matte reads as coverage, and that is what left the old matte opaque.
@@ -5846,6 +5891,9 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
             FS_RECORD_BLOCK_TIME(FTM_FS_POST_HAZE); // <FS:Trish/>
             doAtmospherics();
             done_atmospherics = true;
+            // <FS:Trish> FSRenderTAA: the hazed scene before the blended alpha, for the reactive mask
+            FSTAA::capturePreAlpha(mRT->screen, fs_taa_main_view(*this, camera));
+            // </FS:Trish>
         }
 
         // <FS:Trish> FSNameTagIgnoreAlpha: the depth before any alpha, after the fullbright pools
@@ -5923,7 +5971,11 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
     gGL.matrixMode(LLRender::MM_MODELVIEW);
     gGL.loadMatrix(gGLModelView);
 
-    if (!gCubeSnapshot)
+    // <FS:Trish> FSRenderTAA: drawn after the resolve instead, unjittered
+    //if (!gCubeSnapshot)
+    FSTAA::endDeferOverlays();
+    if (!gCubeSnapshot && !fs_taa_overlays)
+    // </FS:Trish>
     {
         // debug displays
         renderHighlights();
@@ -5937,6 +5989,146 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 }
+
+// <FS:Trish> FSRenderTAA: whether anything drawn after the present will test against the conservative depth
+// (FSTAA::PresentedDepthScope): selection and hover outlines, beacons, physics shapes
+static bool fs_taa_presented_overlays_visible(LLPipeline& pipe)
+{
+    if (pipe.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_PHYSICS_SHAPES))
+    {
+        return true;
+    }
+    if (!pipe.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
+    {
+        return false;
+    }
+    LLSelectMgr* select_mgr = LLSelectMgr::getInstance();
+    return select_mgr->getSelection()->getObjectCount() > 0 || select_mgr->getHighlightedObjects()->getObjectCount() > 0 ||
+           select_mgr->getHoverObjects()->getObjectCount() > 0 || FSTAA::beaconsPending();
+}
+
+// FSRenderTAA: whether the held back overlays will draw anything that needs a depth test
+// (renderFinalize builds the conservative depth only then). renderDebug's list, roughly; what
+// it misses is still drawn, tested against the scene's own depth.
+static bool fs_taa_overlays_visible(LLPipeline& pipe, bool debug_alpha)
+{
+    if (debug_alpha)
+    {
+        return true;
+    }
+    if (pipe.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_SELECTED) &&
+        (!pipe.mHighlightFaces.empty() ||
+         (LLSelectMgr::getInstance()->getTEMode() && !LLSelectMgr::getInstance()->getSelection()->isEmpty())))
+    {
+        return true;
+    }
+    if (pipe.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_OCTREE | LLPipeline::RENDER_DEBUG_OCCLUSION | LLPipeline::RENDER_DEBUG_LIGHTS |
+                                LLPipeline::RENDER_DEBUG_BATCH_SIZE | LLPipeline::RENDER_DEBUG_UPDATE_TYPE | LLPipeline::RENDER_DEBUG_BBOXES |
+                                LLPipeline::RENDER_DEBUG_NORMALS | LLPipeline::RENDER_DEBUG_POINTS | LLPipeline::RENDER_DEBUG_TEXTURE_AREA |
+                                LLPipeline::RENDER_DEBUG_TEXTURE_ANIM | LLPipeline::RENDER_DEBUG_RAYCAST | LLPipeline::RENDER_DEBUG_AVATAR_VOLUME |
+                                LLPipeline::RENDER_DEBUG_AVATAR_JOINTS | LLPipeline::RENDER_DEBUG_AGENT_TARGET | LLPipeline::RENDER_DEBUG_SHADOW_FRUSTA |
+                                LLPipeline::RENDER_DEBUG_TEXEL_DENSITY | LLPipeline::RENDER_DEBUG_NODES | LLPipeline::RENDER_DEBUG_REFLECTION_PROBES |
+                                LLPipeline::RENDER_DEBUG_WIND_VECTORS | LLPipeline::RENDER_DEBUG_COMPOSITION))
+    {
+        return true;
+    }
+    if (LLPathingLib::getInstance())
+    {
+        LLHandle<LLFloaterPathfindingCharacters> characters = LLFloaterPathfindingCharacters::getInstanceHandle();
+        if (!characters.isDead() &&
+            (characters.get()->getVisible() || (gAgentCamera.cameraMouselook() && characters.get()->getLastVisible())))
+        {
+            return true;
+        }
+        LLHandle<LLFloaterPathfindingConsole> console = LLFloaterPathfindingConsole::getInstanceHandle();
+        if (!console.isDead() &&
+            (console.get()->getVisible() || (gAgentCamera.cameraMouselook() && console.get()->getLastVisible())))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// FSRenderTAA: the selection highlights (renderHighlights), "Highlight Transparent" and the debug displays
+// (renderDebug) of a frame TAA ran in. renderGeomPostDeferred held them back from the jittered alpha pass,
+// where they moved by up to a pixel every frame; renderFinalize calls this right after the resolve, so
+// they go into the resolved HDR scene with the plain projection, the matrices and the GL state they were
+// drawn with before. Selection silhouettes, hover outlines, beacons and the physics shapes are drawn after
+// the present, as before, never jittered.
+static void fs_render_taa_overlays(LLPipeline& pipe, bool debug_alpha)
+{
+    LL_PROFILE_GPU_ZONE("taa overlays");
+
+    LLVertexBuffer::unbind();
+    FSTAA::beginOverlays(pipe.mRT->screen);
+
+    gGL.matrixMode(LLRender::MM_PROJECTION);
+    gGL.pushMatrix();
+    gGL.loadMatrix(gGLProjection);
+    gGL.matrixMode(LLRender::MM_MODELVIEW);
+    gGL.pushMatrix();
+    gGLLastMatrix = NULL;
+    gGL.loadMatrix(gGLModelView);
+    {
+        // display()'s depth test, renderGeomPostDeferred's culling, blending and colour mask (no alpha:
+        // that is the glow source)
+        LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_LEQUAL);
+        LLGLEnable cull(GL_CULL_FACE);
+        gGL.setSceneBlendType(LLRender::BT_ALPHA);
+        gGL.setColorMask(true, false);
+        if (gUseWireframe)
+        {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
+
+        {
+            // These are faces drawn over their own surface. The conservative depth there can be nearer
+            // than the face by its slope over up to a pixel each way: moved toward the camera by that.
+            LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
+            FSReverseZ::polygonOffset(-3.f, -4.f);
+
+            LLDrawPoolAlpha* alpha_pool = debug_alpha ? (LLDrawPoolAlpha*)pipe.getPool(LLDrawPool::POOL_ALPHA_POST_WATER) : nullptr;
+            if (alpha_pool)
+            {
+                // the alpha pool's state at its call (forwardRender): blended, the alpha kept, no depth written
+                LLGLSPipelineAlpha gls_pipeline_alpha;
+                LLGLDepthTest alpha_depth(GL_TRUE, GL_FALSE);
+                gGL.blendFunc(LLRender::BF_SOURCE_ALPHA, LLRender::BF_ONE_MINUS_SOURCE_ALPHA,
+                              LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
+                alpha_pool->renderDebugAlpha();
+                gGL.setSceneBlendType(LLRender::BT_ALPHA);
+            }
+
+            pipe.renderHighlights();
+            pipe.mHighlightFaces.clear();
+
+            FSReverseZ::polygonOffset(0.f, 0.f);
+        }
+
+        gGLLastMatrix = NULL;
+        gGL.loadMatrix(gGLModelView);
+        pipe.renderDebug();
+        glClearColor(0.f, 0.f, 0.f, 0.f); // renderFinalize's, the pathfinding display may have changed it
+
+        if (gUseWireframe)
+        {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+    }
+    gGL.matrixMode(LLRender::MM_PROJECTION);
+    gGL.popMatrix();
+    gGL.matrixMode(LLRender::MM_MODELVIEW);
+    gGL.popMatrix();
+    gGLLastMatrix = NULL;
+    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gGL.setColorMask(true, true);
+    pipe.enableLightsFullbright(); // as renderFinalize left them
+    LLVertexBuffer::unbind();
+
+    FSTAA::endOverlays(pipe.mRT->screen, pipe.mRT->deferredScreen);
+}
+// </FS:Trish>
 
 // <FS:Trish> Weighted blended order-independent transparency (McGuire and Bavoil 2013), behind
 // FSRenderAlphaWBOIT. The alpha pools accumulate their source-over draws into mWBOITTarget and
@@ -9864,6 +10056,9 @@ extern LLPointer<LLImageGL> gEXRImage;
 // buffer itself and dithers. FSRenderVignetteInTonemap: the tone mapper applies the vignette.
 static bool sFSCASLate = false;
 static bool sFSTonemapVignette = false;
+// FSRenderTAA: the CAS sharpness of this frame when TAA set it (FSRenderTAASharpness), below 0 for
+// RenderCASSharpness
+static F32 sFSCASSharpness = -1.f;
 // </FS:Trish>
 
 // <FS:Trish> Debanding dither (fsDebandF.glsl). Only a pass that writes display encoded colour
@@ -10182,7 +10377,11 @@ void LLPipeline::generateGlow(LLRenderTarget* src)
 
 void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 {
-    static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
+    // <FS:Trish> FSRenderTAA: its own sharpness while it runs
+    //static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
+    static LLCachedControl<F32> cas_setting(gSavedSettings, "RenderCASSharpness", 0.4f);
+    const F32 cas_sharpness = sFSCASSharpness >= 0.f ? sFSCASSharpness : (F32)cas_setting;
+    // </FS:Trish>
     LL_PROFILE_GPU_ZONE("cas");
     if (cas_sharpness == 0.0f || !gCASProgram.isComplete() || !gCASLegacyGammaProgram.isComplete())
     {
@@ -10214,7 +10413,10 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
         varAU4(const0);
         varAU4(const1);
         CasSetup(const0, const1,
-            cas_sharpness(),             // Sharpness tuning knob (0.0 to 1.0).
+            // <FS:Trish> FSRenderTAA: a value now
+            //cas_sharpness(),             // Sharpness tuning knob (0.0 to 1.0).
+            cas_sharpness,               // Sharpness tuning knob (0.0 to 1.0).
+            // </FS:Trish>
             (AF1)src->getWidth(), (AF1)src->getHeight(),  // Input size.
             (AF1)dst->getWidth(), (AF1)dst->getHeight()); // Output size.
 
@@ -11073,6 +11275,7 @@ void LLPipeline::renderFinalize()
     // </FS:Trish>
 
     bool fs_cas_late = false; // <FS:Trish/> FSRenderCASAfterAA, decided with the tone mapping below
+    bool fs_taa_done = false; // <FS:Trish/> FSRenderTAA: it replaces FXAA and SMAA below
     sFSTonemapVignette = false; // <FS:Trish/> FSRenderVignetteInTonemap, the same
     if (hdr)
     {
@@ -11103,6 +11306,36 @@ void LLPipeline::renderFinalize()
         }
         else
         {
+        // <FS:Trish> FSRenderTAA: on the HDR scene, before anything reads it (the SSR copy, bloom,
+        // exposure, tone mapping); the rays and dust motes added below need no anti-aliasing
+        fs_taa_done = FSTAA::resolve(mRT->screen, mRT->deferredScreen, &mFSTagDepth, &mExposureMap, mScreenTriangleVB);
+        // The highlights and debug displays the alpha pass held back: into the resolved scene, so they
+        // are neither in the history nor counted as reactive, and go through bloom and tone mapping as before
+        // The conservative depth they test against is built only when something will use it, here or
+        // after the present (FSTAA::PresentedDepthScope)
+        bool fs_taa_debug_alpha = false;
+        const bool fs_taa_held = FSTAA::takeDeferredOverlays(fs_taa_debug_alpha);
+        if (fs_taa_held && fs_taa_overlays_visible(*this, fs_taa_debug_alpha))
+        {
+            FSTAA::prepareOverlayDepth(mRT->deferredScreen, mRT->screen.getWidth(), mRT->screen.getHeight(), mScreenTriangleVB);
+        }
+        if (FSTAA::frameActive() && fs_taa_presented_overlays_visible(*this))
+        {
+            // from the depth the present will write (the same test as there): the depth before alpha
+            // when name tags ignore alpha, what the outlines were tested against before
+            const bool fs_present_tag_depth = mFSTagDepth.isComplete() && mFSTagDepthFrame == LLFrameTimer::getFrameCount() &&
+                mFSTagDepth.getWidth() == mRT->deferredScreen.getWidth() && mFSTagDepth.getHeight() == mRT->deferredScreen.getHeight();
+            FSTAA::preparePresentedDepth(fs_present_tag_depth ? mFSTagDepth : mRT->deferredScreen,
+                                         mRT->screen.getWidth(), mRT->screen.getHeight(), mScreenTriangleVB);
+        }
+        if (fs_taa_held)
+        {
+            pushRenderTypeMask();
+            memcpy(mRenderTypeEnabled, sFSTAAOverlayRenderTypes, sizeof(mRenderTypeEnabled));
+            fs_render_taa_overlays(*this, fs_taa_debug_alpha);
+            popRenderTypeMask();
+        }
+        // </FS:Trish>
         copyScreenSpaceReflections(&mRT->screen, &mSceneMap);
         // </FS:Trish>
 
@@ -11135,7 +11368,12 @@ void LLPipeline::renderFinalize()
         generateExposure(&mLuminanceMap, &mExposureMap);
         } // <FS:Trish/> Avatars only snapshot
 
-        static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
+        // <FS:Trish> FSRenderTAA: CAS is TAA's sharpening, once, at FSRenderTAASharpness (applyCAS)
+        //static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
+        static LLCachedControl<F32> cas_setting(gSavedSettings, "RenderCASSharpness", 0.4f);
+        sFSCASSharpness = fs_taa_done ? FSTAA::casSharpness() : -1.f;
+        const F32 cas_sharpness = fs_taa_done ? sFSCASSharpness : (F32)cas_setting;
+        // </FS:Trish>
         // <FS:Trish> Avatars only snapshot: sharpening would ring against the black background
         //bool apply_cas = cas_sharpness != 0.0f && gCASProgram.isComplete() && gCASLegacyGammaProgram.isComplete();
         //tonemap(&mRT->screen, apply_cas ? &mRT->deferredLight : &mPostPingMap, !apply_cas);
@@ -11214,7 +11452,7 @@ void LLPipeline::renderFinalize()
 
     // <FS:Trish> Avatars only snapshot: anti-aliasing would blend the edges with the black background
     // if (RenderFSAAType == 1)
-    if (avatars_only)
+    if (avatars_only || fs_taa_done) // FSRenderTAA: anti-aliased already
     {
     }
     else if (RenderFSAAType == 1)
@@ -11378,6 +11616,7 @@ void LLPipeline::renderFinalize()
 
     if (hasRenderDebugMask(LLPipeline::RENDER_DEBUG_PHYSICS_SHAPES))
     {
+        FSTAA::PresentedDepthScope fs_taa_depth; // <FS:Trish/> FSRenderTAA: tested against the conservative depth
         renderPhysicsDisplay();
     }
 
@@ -13315,7 +13554,13 @@ void LLPipeline::renderDeferredLighting()
                           LLPipeline::RENDER_TYPE_WATEREXCLUSION,
                           END_RENDER_TYPES);
 
-        renderGeomPostDeferred(*LLViewerCamera::getInstance());
+        // <FS:Trish> FSRenderTAA: alpha and water with the G-buffer's jitter, or their depth tests would not line up
+        //renderGeomPostDeferred(*LLViewerCamera::getInstance());
+        {
+            FSTAA::JitterScope fs_taa_jitter(fs_taa_main_view(*this, *LLViewerCamera::getInstance()));
+            renderGeomPostDeferred(*LLViewerCamera::getInstance());
+        }
+        // </FS:Trish>
         popRenderTypeMask();
     }
 

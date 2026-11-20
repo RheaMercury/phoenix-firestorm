@@ -29,6 +29,7 @@
 #include "llrender.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
+#include "fstaajitter.h" // <FS:Trish/> FSRenderTAATextureBias
 
 #include "llvertexbuffer.h"
 #include "llcubemap.h"
@@ -1235,6 +1236,15 @@ void LLRender::syncMatrices()
 
             shader->uniformMatrix4fv(name[MM_PROJECTION], 1, GL_FALSE, glm::value_ptr(mat));
             shader->mMatHash[MM_PROJECTION] = mMatHash[MM_PROJECTION];
+
+            // <FS:Trish> FSRenderTAATextureBias: the material shaders' texture LOD bias follows the
+            // jitter, which reloads the projection whenever it is set or cleared (fstaajitter.h)
+            if (FSTAAJitter::lodBiasCompiled())
+            {
+                static LLStaticHashedString s_taa_lod_bias("fs_taa_lod_bias");
+                shader->uniform1f(s_taa_lod_bias, FSTAAJitter::lodBias());
+            }
+            // </FS:Trish>
 
             if (!mvp_done)
             {

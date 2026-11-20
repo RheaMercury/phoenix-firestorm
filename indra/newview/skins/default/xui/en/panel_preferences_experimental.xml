@@ -4675,7 +4675,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2170"
+                 height="2338"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -6135,6 +6135,146 @@
                      tool_tip="EXPERIMENTAL. Stores depth with the near plane at 1 and the far plane at 0 in a 32 bit floating point depth buffer, which keeps depth precise all the way to the draw distance. Removes the flickering where distant surfaces meet (mainland at 500 m and more) and sharpens what reads depth far away: screen-space reflections, ambient occlusion, contact shadows and fog. Shadow maps are unchanged. Needs OpenGL 4.5; stays off on older drivers. Almost no GPU cost. Changing it rebuilds the shaders."
                      top="2130"
                      width="475" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_taa"
+                     top="2166"
+                     width="340">
+                        Temporal anti-aliasing
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_taa"
+                     tool_tip="Set every option in &quot;Temporal anti-aliasing&quot; back to its default value."
+                     top="2165"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderTAA,FSRenderTAAHistory,FSRenderTAAReactive,FSRenderTAASharpness,FSRenderTAATextureBias" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderTAA"
+                     follows="left|top"
+                     height="20"
+                     label="Temporal anti-aliasing (TAA)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendertaa"
+                     tool_tip="EXPERIMENTAL. Moves the camera by a fraction of a pixel every frame and blends each frame with the ones before it, following the camera's movement and checking depth and the colours around each pixel. Smooths edges, thin geometry, foliage, hair and shimmering highlights far better than FXAA or SMAA, which it replaces while on. Snapshots keep the anti-aliasing chosen in Graphics. Needs HDR. Objects that move by themselves, such as walking avatars, can leave faint trails. About half a millisecond at 1440p. Switching it rebuilds the shaders."
+                     top="2192"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendertaahistory_label"
+                     tool_tip="EXPERIMENTAL. How much of the earlier frames is kept each frame. Higher is smoother and steadier but softer, and moving objects trail longer. 0.9 is a good balance."
+                     top="2220"
+                     width="285">
+                        History weight
+                    </text>
+                    <spinner
+                     control_name="FSRenderTAAHistory"
+                     decimal_digits="2"
+                     enabled_control="FSRenderTAA"
+                     follows="left|top"
+                     height="20"
+                     increment="0.01"
+                     layout="topleft"
+                     left="330"
+                     max_val="0.98"
+                     min_val="0.5"
+                     name="fs_fsrendertaahistory"
+                     tool_tip="EXPERIMENTAL. How much of the earlier frames is kept each frame. Higher is smoother and steadier but softer, and moving objects trail longer. 0.9 is a good balance."
+                     top="2218"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendertaareactive_label"
+                     tool_tip="EXPERIMENTAL. How strongly blended transparency, particles and water drop the earlier frames. Higher keeps them free of trails; lower keeps their edges smoother."
+                     top="2246"
+                     width="285">
+                        Transparency and water response
+                    </text>
+                    <spinner
+                     control_name="FSRenderTAAReactive"
+                     decimal_digits="2"
+                     enabled_control="FSRenderTAA"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1.0"
+                     min_val="0.0"
+                     name="fs_fsrendertaareactive"
+                     tool_tip="EXPERIMENTAL. How strongly blended transparency, particles and water drop the earlier frames. Higher keeps them free of trails; lower keeps their edges smoother."
+                     top="2244"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendertaasharpness_label"
+                     tool_tip="EXPERIMENTAL. Sharpens the anti-aliased image with CAS, to win back the softness of blending frames. While TAA runs it takes the place of the CAS sharpness setting, so the image is sharpened once. 0 turns sharpening off."
+                     top="2272"
+                     width="285">
+                        Sharpness
+                    </text>
+                    <spinner
+                     control_name="FSRenderTAASharpness"
+                     decimal_digits="2"
+                     enabled_control="FSRenderTAA"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1.0"
+                     min_val="0.0"
+                     name="fs_fsrendertaasharpness"
+                     tool_tip="EXPERIMENTAL. Sharpens the anti-aliased image with CAS, to win back the softness of blending frames. While TAA runs it takes the place of the CAS sharpness setting, so the image is sharpened once. 0 turns sharpening off."
+                     top="2270"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendertaatexturebias_label"
+                     tool_tip="EXPERIMENTAL. Objects, avatars and the classic terrain sample their textures this many mip levels sharper while TAA runs, since the blended frames resolve finer detail than a single frame. Lower is sharper but can shimmer on fine patterns. 0 turns it off. Shadows, reflections, HUDs and the UI are not affected."
+                     top="2298"
+                     width="285">
+                        Texture detail
+                    </text>
+                    <spinner
+                     control_name="FSRenderTAATextureBias"
+                     decimal_digits="2"
+                     enabled_control="FSRenderTAA"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="0.0"
+                     min_val="-1.5"
+                     name="fs_fsrendertaatexturebias"
+                     tool_tip="EXPERIMENTAL. Objects, avatars and the classic terrain sample their textures this many mip levels sharper while TAA runs, since the blended frames resolve finer detail than a single frame. Lower is sharper but can shimmer on fine patterns. 0 turns it off. Shadows, reflections, HUDs and the UI are not affected."
+                     top="2296"
+                     width="100" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

@@ -771,6 +771,38 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     }
     // </FS:Trish>
 
+    // <FS:Trish> FSRenderTAATextureBias: the material shaders sample their textures with the TAA
+    // texture LOD bias (fs_taa_lod_bias, which LLRender::syncMatrices sets: the bias while the TAA
+    // jitter is on, 0 for every other pass, see fstaajitter.h). Only these files: each samples only
+    // 2D textures and cube maps with texture(sampler, coord), which takes a bias in a fragment shader,
+    // so every call there can take it. Before the indexed diffuseLookup below, which takes it too.
+    if (type == GL_FRAGMENT_SHADER && LLGLSLShader::sGlobalDefines.count("FS_TAA_LOD_BIAS"))
+    {
+        static const char* const biased[] = {
+            "deferred/avatarF.glsl", "deferred/bumpF.glsl", "deferred/diffuseAlphaMaskF.glsl",
+            "deferred/diffuseAlphaMaskIndexedF.glsl", "deferred/diffuseAlphaMaskNoColorF.glsl", "deferred/diffuseF.glsl",
+            "deferred/diffuseIndexedF.glsl", "deferred/fullbrightF.glsl", "deferred/materialF.glsl", "deferred/pbropaqueF.glsl",
+            "deferred/pbralphaF.glsl", "deferred/terrainF.glsl", "deferred/treeF.glsl", "deferred/alphaF.glsl",
+            "gltf/pbrmetallicroughnessF.glsl" };
+        bool bias = false;
+        for (const char* name : biased)
+        {
+            const size_t len = strlen(name);
+            if (filename.size() >= len && filename.compare(filename.size() - len, len, name) == 0 &&
+                (filename.size() == len || filename[filename.size() - len - 1] == '/'))
+            {
+                bias = true;
+                break;
+            }
+        }
+        if (bias)
+        {
+            extra_code_text[extra_code_count++] = strdup("uniform float fs_taa_lod_bias;\n"
+                                                         "#define texture(s, c) texture((s), (c), fs_taa_lod_bias)\n");
+        }
+    }
+    // </FS:Trish>
+
     if( gGLManager.mIsAMD )
     {
         extra_code_text[extra_code_count++] = strdup( "#define IS_AMD_CARD 1\n" );

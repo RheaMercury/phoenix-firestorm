@@ -100,6 +100,7 @@
 
 #include "fsareasearch.h" // <FS:Cron> Added to provide the ability to update the impact costs in area search. </FS:Cron>
 #include "llavataractions.h"
+#include "fstaa.h" // <FS:Trish/> FSRenderTAA
 
 extern F32 gMinObjectDistance;
 extern bool gAnimateTextures;
@@ -2621,6 +2622,7 @@ void LLViewerObjectList::addDebugBeacon(const LLVector3 &pos_agent,
     beacon.mLineWidth = line_width;
 
     mDebugBeacons.push_back(beacon);
+    FSTAA::noteBeacon(); // <FS:Trish/> FSRenderTAA: the conservative depth is built for them
 }
 
 void LLViewerObjectList::resetObjectBeacons()

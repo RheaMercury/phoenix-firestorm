@@ -28,6 +28,7 @@
 
 #include "llviewerdisplay.h"
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
+#include "fstaa.h" // <FS:Trish/> FSRenderTAA
 
 #include "fsyspath.h"
 #include "hexdump.h"
@@ -991,6 +992,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             // each frame (a restored context starts from GL's defaults)
             FSReverseZ::applyState();
             // </FS:Trish>
+            FSTAA::beginFrame(gPipeline.mRT->screen); // <FS:Trish/> FSRenderTAA: whether it runs this frame, and its jitter
 
             LLGLState::checkStates();
 
@@ -1209,6 +1211,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             static LLCachedControl<bool> render_depth_pre_pass(gSavedSettings, "RenderDepthPrePass", false);
             if (render_depth_pre_pass)
             {
+                FSTAA::JitterScope fs_taa_jitter(true); // <FS:Trish/> FSRenderTAA: the same jitter as the G-buffer it lays depth for
                 gGL.setColorMask(false, false);
 
                 constexpr U32 types[] = {
@@ -2002,7 +2005,14 @@ void render_ui_3d()
     if (gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
     {
         // Render debugging beacons.
-        gObjectList.renderObjectBeacons();
+        // <FS:Trish> FSRenderTAA: tested against the conservative depth, not the jittered one
+        //gObjectList.renderObjectBeacons();
+        {
+            FSTAA::PresentedDepthScope fs_taa_depth;
+            gObjectList.renderObjectBeacons();
+        }
+        FSTAA::beaconsDrawn();
+        // </FS:Trish>
         gObjectList.resetObjectBeacons();
         gSky.addSunMoonBeacons();
     }
