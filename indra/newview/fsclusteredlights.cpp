@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsclusteredlights.h"
+#include "fswindfield.h"
 
 #include "lldrawpoolalpha.h"
 #include "llenvironment.h"
@@ -635,6 +636,7 @@ void FSClusteredLights::setAirUniforms(LLGLSLShader& shader, bool use_fog)
     {
         sigma *= llclamp(sqrtf(llmax(psky->getHazeDensity(), 0.f) / 0.7f), 0.5f, 2.f);
     }
+    sigma *= FSWindField::fogDensityScale(); // the wind's gusts (FSRenderWindEffects), 1 without
     F32 base = llclamp((F32)fog_base, -4096.f, 8192.f);
     if (fog_base_absolute)
     {

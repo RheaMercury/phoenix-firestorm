@@ -3,8 +3,9 @@
 //
 // The motes live in a world aligned grid of cells around the camera. A hash of each cell's global
 // index decides whether it holds a mote and where, so the pattern is fixed in the world and does
-// not swim as the camera moves. There is no shared wind: each mote drifts and wobbles on its own,
-// smoothly in time, but never leaves its cell.
+// not swim as the camera moves. Each mote drifts and wobbles on its own, smoothly in time, but
+// never leaves its cell; with FSRenderWindEffects the whole grid also moves with the region's wind
+// (the C++ side shifts the camera's place in it, dust_cam_cell and dust_cell_base).
 //
 // One point per cell: this vertex shader finds the cell's mote, culls it (no mote, beyond the
 // range, off screen, behind what the depth buffer holds, or unlit) by moving it outside the clip

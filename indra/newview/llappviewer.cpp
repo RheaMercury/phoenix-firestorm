@@ -255,6 +255,7 @@ namespace
 #include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
 #include "fsstallwatch.h" // <FS:Trish/>
 #include "fsasyncfilewriter.h" // <FS:Trish/>
+#include "fswindfield.h" // <FS:Trish/> FSRenderWindEffects
 #include "llimageworker.h"
 #include "llevents.h"
 
@@ -7189,6 +7190,7 @@ void LLAppViewer::idle()
     {
         gWindVec.setVec(0.0f, 0.0f, 0.0f);
     }
+    FSWindField::update(); // <FS:Trish/> the region wind, smoothed for the fog and dust effects (FSRenderWindEffects)
 
     //////////////////////////////////////
     //

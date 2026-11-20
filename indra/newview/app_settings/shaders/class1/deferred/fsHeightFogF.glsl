@@ -47,6 +47,15 @@ uniform vec2 fs_height_fog_scatter; // anisotropy (0 even, toward 1 around the l
 // light that sheltered air does not get. All zero: the plain fog.
 uniform vec4 fs_height_fog_interior;
 
+// The region's wind (FSRenderWindEffects, fswindfield.cpp), deferred haze pass only: a faint
+// patchy density that drifts with the wind. xy: the camera in noise cells, carried back against
+// the wind and wrapped where the noise repeats (256 cells); z: noise cells per meter; w: depth,
+// 0 for the plain fog (the forward alpha programs never set it). Gusts reach every program
+// through fs_height_fog.x.
+uniform vec4 fs_fog_wind;
+uniform vec3 fs_fog_wind_x;     // the world's east axis in view space
+uniform vec3 fs_fog_wind_y;     // the world's north axis in view space
+
 uniform vec4 waterPlane;
 uniform vec3 sun_dir;   // view space, toward the light
 uniform vec3 moon_dir;
@@ -80,10 +89,64 @@ float fsHeightFogPrimitive(float h, float k)
     return (x < 1e-4) ? h * (1.0 - 0.5 * x) : (1.0 - exp(-x)) / k;
 }
 
-// Opacity of the fog between heights h0 (camera) and h1 (end of the ray), dist meters apart.
+// Hash of a noise cell, wrapped by mask so the noise repeats, 0 to 1
+float fsFogWindHash(ivec2 cell, int mask)
+{
+    uvec2 c = uvec2(cell & ivec2(mask));
+    uint h = (c.x * 0x8da6b343u) ^ (c.y * 0xd8163841u);
+    h ^= h >> 16u;
+    h *= 0x7feb352du;
+    h ^= h >> 15u;
+    h *= 0x846ca68bu;
+    h ^= h >> 16u;
+    return float(h >> 8u) * (1.0 / 16777216.0);
+}
+
+// Smooth value noise, 0 to 1, repeating every mask + 1 cells
+float fsFogWindValue(vec2 p, int mask)
+{
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    vec2 w = f * f * (3.0 - 2.0 * f);
+    ivec2 c = ivec2(i);
+    float a = fsFogWindHash(c, mask);
+    float b = fsFogWindHash(c + ivec2(1, 0), mask);
+    float d = fsFogWindHash(c + ivec2(0, 1), mask);
+    float e = fsFogWindHash(c + ivec2(1, 1), mask);
+    return mix(mix(a, b, w.x), mix(d, e, w.x), w.y);
+}
+
+// Two octaves; the second repeats every 512 of its cells, the same 256 of the first
+float fsFogWindNoise(vec2 p)
+{
+    return 0.65 * fsFogWindValue(p, 255) + 0.35 * fsFogWindValue(p * 2.0 + vec2(17.0, 5.0), 511);
+}
+
+// Density factor along a ray: the noise at three points of its first six cells. A long ray
+// crosses many patches, so it sees their average: the swing shrinks with the distance.
+// Exactly 1 for the plain fog.
+float fsHeightFogWindScale(vec3 view_dir, float dist)
+{
+    if (fs_fog_wind.w <= 0.0)
+    {
+        return 1.0;
+    }
+    float cells_per_m = fs_fog_wind.z;
+    float reach = min(dist, 6.0 / cells_per_m);
+    vec2 span = vec2(dot(view_dir, fs_fog_wind_x), dot(view_dir, fs_fog_wind_y)) * (cells_per_m * reach);
+    float n = fsFogWindNoise(fs_fog_wind.xy + span * (1.0 / 6.0))
+            + fsFogWindNoise(fs_fog_wind.xy + span * 0.5)
+            + fsFogWindNoise(fs_fog_wind.xy + span * (5.0 / 6.0));
+    float swing = (2.0 / 3.0) * n - 1.0;
+    float average = inversesqrt(1.0 + dist * cells_per_m);
+    return max(1.0 + 2.0 * fs_fog_wind.w * average * swing, 0.0);
+}
+
+// Opacity of the fog between heights h0 (camera) and h1 (end of the ray), dist meters apart,
+// with the density scaled by density_scale (the wind's patches, 1 without).
 // The relative density averaged along a straight ray is the average over height, the integral
 // above divided by the rise. Rays that hardly rise take the density halfway along.
-float fsHeightFogOpacity(float h0, float h1, float dist)
+float fsHeightFogOpacity(float h0, float h1, float dist, float density_scale)
 {
     float k = max(fs_height_fog.y, 0.0);
     float dh = h1 - h0;
@@ -96,7 +159,7 @@ float fsHeightFogOpacity(float h0, float h1, float dist)
     {
         mean_density = (fsHeightFogPrimitive(h1, k) - fsHeightFogPrimitive(h0, k)) / dh;
     }
-    float optical_depth = fs_height_fog.x * dist * mean_density;
+    float optical_depth = fs_height_fog.x * density_scale * dist * mean_density;
     return min(1.0 - exp(-optical_depth), fs_height_fog.w);
 }
 
@@ -165,6 +228,7 @@ vec4 fsHeightFog(vec3 pos, bool sky)
 
     float h0 = eye_height - fs_height_fog.z;
     float rise = dot(view_dir, waterPlane.xyz);
+    float wind = fsHeightFogWindScale(view_dir, dist);
 
     if (fs_height_fog_interior.y > 0.0)
     {
@@ -175,8 +239,8 @@ vec4 fsHeightFog(vec3 pos, bool sky)
         float d1 = clamp(fs_height_fog_interior.y, d0, dist);
         float ha = h0 + rise * d0;
         float hb = h0 + rise * d1;
-        float near_opacity = fsHeightFogOpacity(ha, hb, d1 - d0);
-        float far_opacity = fsHeightFogOpacity(hb, h0 + rise * dist, dist - d1);
+        float near_opacity = fsHeightFogOpacity(ha, hb, d1 - d0, wind);
+        float far_opacity = fsHeightFogOpacity(hb, h0 + rise * dist, dist - d1, wind);
 
         vec3 near_color = fsHeightFogColor(view_dir, 1.0 - fs_height_fog_interior.z, 1.0 - fs_height_fog_interior.w);
         vec3 far_color = fsHeightFogColor(view_dir, 1.0, 1.0);
@@ -193,7 +257,7 @@ vec4 fsHeightFog(vec3 pos, bool sky)
     }
 
     float h1 = h0 + rise * dist;
-    float opacity = fsHeightFogOpacity(h0, h1, dist);
+    float opacity = fsHeightFogOpacity(h0, h1, dist, wind);
 
     return vec4(fsHeightFogColor(view_dir, 1.0, 1.0), opacity);
 }

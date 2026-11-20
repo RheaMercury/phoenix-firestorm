@@ -150,6 +150,7 @@
 #include "fsrepresentativefragment.h" // <FS:Trish/> Representative fragment test for occlusion queries
 #include "fstoolmeasure.h" // <FS:Trish/> Measuring tool
 #include "fsfoginterior.h" // <FS:Trish/> height fog kept out of interiors
+#include "fswindfield.h" // <FS:Trish/> FSRenderWindEffects
 #include "fssoftparticles.h" // <FS:Trish/> FSRenderSoftParticles
 #include "fsavatarocclusion.h" // <FS:Trish/> FSRenderAvatarOcclusion
 #include "fsparallelcull.h" // <FS:Trish/> FSPerfParallelShadowCull
@@ -13198,6 +13199,7 @@ void LLPipeline::doAtmospherics()
 
         haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
         FSFogInterior::uploadUniforms(haze_shader); // <FS:Trish/> height fog kept out of the rooms around the main camera
+        FSWindField::uploadHeightFogUniforms(haze_shader); // <FS:Trish/> height fog patches drifting with the wind (FSRenderWindEffects)
 
         LLGLDepthTest depth(GL_FALSE);
 
@@ -17288,13 +17290,15 @@ void LLPipeline::renderDustMotes()
         return;
     }
 
-    // Time, wrapped in double precision: no shared wind moves the grid, each mote drifts on its
-    // own, and all its motion runs on whole turns of the shader's 960 second cycle, so the wrap is
-    // seamless
+    // Time, wrapped in double precision: each mote drifts on its own, and all its motion runs on
+    // whole turns of the shader's 960 second cycle, so the wrap is seamless
     constexpr F64 DRIFT_CYCLE = 960.0;
     const F32 drift_time = (F32)fmod(LLFrameTimer::getElapsedSeconds(), DRIFT_CYCLE);
     LLViewerCamera* camera = LLViewerCamera::getInstance();
-    const LLVector3d cam_global = gAgent.getPosGlobalFromAgent(camera->getOrigin());
+    // With FSRenderWindEffects the whole grid is carried by the region's wind: the camera is placed
+    // in air that has moved by the wind's drift (zero without the option). Motes still enter and
+    // leave at the range's soft edge, so the moving grid never pops.
+    const LLVector3d cam_global = gAgent.getPosGlobalFromAgent(camera->getOrigin()) - FSWindField::dustDriftOffset();
     F32 cam_cell[3];
     F32 cell_base[3];
     for (S32 i = 0; i < 3; ++i)

@@ -51,6 +51,7 @@
 #include "llskinningutil.h"
 #include "fspointlightbatch.h" // <FS:Trish/>
 #include "fsclusteredlights.h" // <FS:Trish/>
+#include "fswindfield.h" // <FS:Trish/> FSRenderWindEffects
 #include "fsspotlightbatch.h" // <FS:Trish/>
 #include "fsskinpalettebuffer.h" // <FS:Trish/>
 #include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
@@ -5121,6 +5122,7 @@ static void fs_upload_height_fog_uniforms(LLGLSLShader& shader)
     {
         fog_density *= llclamp(sqrtf(llmax(psky->getHazeDensity(), 0.f) / 0.7f), 0.5f, 2.f);
     }
+    fog_density *= FSWindField::fogDensityScale(); // the wind's gusts (FSRenderWindEffects), 1 without
 
     // The shader measures heights from the water (waterPlane)
     F32 base = llclamp((F32)base_height, -4096.f, 8192.f);

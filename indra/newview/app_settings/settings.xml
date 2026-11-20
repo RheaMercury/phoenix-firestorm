@@ -29477,6 +29477,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderWindEffects</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Fog, haze and dust follow the region wind: the height fog (FSRenderHeightFog) gets faint patches that drift with the wind and slow gusts of density, and the dust motes (FSRenderDustMotes) are carried along by it. The region's coarse wind is averaged around the camera and eased over a few seconds. Off: both look and cost exactly as without it.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderWindEffectsStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. How strongly the fog and dust follow the region wind (FSRenderWindEffects), 0 to 2: scales how fast they drift, the depth of the fog's gusts and of its drifting patches. 1 is the default.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderWindEffectsStats</key>
+    <map>
+      <key>Comment</key>
+      <string>Debug: while FSRenderWindEffects is on, logs the smoothed region wind at the camera (speed and the compass bearing it blows toward), the raw wind, the gust value and the fog density factor every 10 seconds.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfGPUDrivenPBR</key>
     <map>
       <key>Comment</key>

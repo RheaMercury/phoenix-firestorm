@@ -234,6 +234,10 @@ namespace
         { "FSRenderHeightFogInteriorRange", CL, VM },
         { "FSRenderHeightFogInteriorStrength", CL, VM },
 
+        // Effects: wind
+        { "FSRenderWindEffects", CL, VM },
+        { "FSRenderWindEffectsStrength", CL, VM },
+
         // Effects: underwater light
         { "FSRenderUnderwaterRays", CM, VM },
         { "FSRenderUnderwaterRaysStrength", CL, VM },
