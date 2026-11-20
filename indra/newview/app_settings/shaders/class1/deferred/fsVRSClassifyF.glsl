@@ -61,7 +61,11 @@ float lum(ivec2 p)
 // Same as cofF.glsl calc_cof(), as a magnitude in pixels.
 float coc_pixels(float raw_depth)
 {
+#ifdef REVERSE_Z
+    float ndc_z = raw_depth; // the NDC depth itself (fs_vrs_proj is the reversed projection's)
+#else
     float ndc_z = raw_depth * 2.0 - 1.0;
+#endif
     float depth = fs_vrs_proj.y / (-ndc_z - fs_vrs_proj.x); // view space z, negative
     float sc = (depth - fs_vrs_dof_params.x) / -depth * fs_vrs_dof_params.y;
     sc /= fs_vrs_dof_params.z;
@@ -87,7 +91,12 @@ void main()
             float d = texelFetch(depthMap, p, 0).r;
             if (fs_vrs_dof != 0)
             {
-                min_coc = min(min_coc, d >= 1.0 ? fs_vrs_dof_max : coc_pixels(d));
+#ifdef REVERSE_Z
+                bool sky = d <= 0.0;
+#else
+                bool sky = d >= 1.0;
+#endif
+                min_coc = min(min_coc, sky ? fs_vrs_dof_max : coc_pixels(d));
             }
         }
     }

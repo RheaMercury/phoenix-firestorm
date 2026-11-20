@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "lldrawpoolbump.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llstl.h"
 #include "llviewercontrol.h"
@@ -524,7 +525,10 @@ void LLDrawPoolBump::renderBump(U32 pass)
     gGL.diffuseColor4f(1,1,1,1);
     /// Get rid of z-fighting with non-bump pass.
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.0f, -1.0f);
+    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+    //glPolygonOffset(-1.0f, -1.0f);
+    FSReverseZ::polygonOffset(-1.0f, -1.0f);
+    // </FS:Trish>
     pushBumpBatches(pass);
 }
 

@@ -57,7 +57,14 @@ vec2 generateProjectedPosition(vec3 pos)
 bool projectScreenRay(vec4 clip, out vec2 tc)
 {
     tc = vec2(0);
+    // <FS:Trish> FSRenderReverseZ: the clip volume's depth runs from 0 to w
+    //if (clip.w <= 0.0 || clip.z < -clip.w || clip.z > clip.w)
+#ifdef REVERSE_Z
+    if (clip.w <= 0.0 || clip.z < 0.0 || clip.z > clip.w)
+#else
     if (clip.w <= 0.0 || clip.z < -clip.w || clip.z > clip.w)
+#endif
+    // </FS:Trish>
     {
         return false;
     }

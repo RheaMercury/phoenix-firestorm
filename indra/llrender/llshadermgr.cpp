@@ -680,7 +680,10 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32 & shader_lev
     // Skinning helpers and their consumers are compiled as separate shader
     // objects. Supply the test defines to both without changing the scope of
     // the other global defines used to load basic shader dependencies.
-    for (const char* name : { "RIGGED_LOCAL_ORIGIN", "RIGGED_DIRECT_NORMALS", "RIGGED_PRECISE_MATH", "SKIN_PRECISE" })
+    // <FS:Trish> FSRenderReverseZ: the depth convention reaches every object too (fsreversez.h)
+    //for (const char* name : { "RIGGED_LOCAL_ORIGIN", "RIGGED_DIRECT_NORMALS", "RIGGED_PRECISE_MATH", "SKIN_PRECISE" })
+    for (const char* name : { "RIGGED_LOCAL_ORIGIN", "RIGGED_DIRECT_NORMALS", "RIGGED_PRECISE_MATH", "SKIN_PRECISE", "REVERSE_Z" })
+    // </FS:Trish>
     {
         auto global = LLGLSLShader::sGlobalDefines.find(name);
         if (global != LLGLSLShader::sGlobalDefines.end() && (!defines || defines->count(name) == 0))

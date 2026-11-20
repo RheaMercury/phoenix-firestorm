@@ -63,6 +63,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsgpudrivenshadowalpha.h"
+#include "fsreversez.h"
 
 #include "fsgddarena.h"
 #include "fsgddcommon.h"
@@ -674,7 +675,7 @@ namespace
         sSegments.clear();
         sTransformIndex.clear();
 
-        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 proj = FSReverseZ::rasterProjection(gGL.getProjectionMatrix()); // as LLRender::syncMatrices gives the shaders (FSRenderReverseZ)
         const glm::mat4 view = get_current_modelview();
         sMatrices.begin(proj, view, false, true);   // texture matrix 0: identity
         for (const Item& item : sItems)

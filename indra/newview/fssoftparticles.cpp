@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fssoftparticles.h"
+#include "fsreversez.h"
 
 #include "lldrawpool.h"
 #include "llframetimer.h"
@@ -93,7 +94,8 @@ bool FSSoftParticles::beginPass()
     sWaterInvDistance = water_drawn() ? sInvDistance : 0.f;
 
     // the camera's projection as the pass draws with it: [2][2] and [3][2] turn window depth into distance
-    const glm::mat4 proj = get_current_projection();
+    // (FSRenderReverseZ: the reversed depth row, which fsSoftParticlesF.glsl reads as such)
+    const glm::mat4 proj = FSReverseZ::depthProjection(get_current_projection());
     sParams.set(sInvDistance, proj[2][2], proj[3][2], 0.f);
     return true;
 }

@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "lldrawable.h" // lldrawable needs to be included before llface
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "llface.h"
 #include "llviewertextureanim.h"
 
@@ -568,7 +569,10 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
                 {
                     // called when selecting a face during edit of a mesh object
                     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(-1.f, -1.f);
+                    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                    //glPolygonOffset(-1.f, -1.f);
+                    FSReverseZ::polygonOffset(-1.f, -1.f);
+                    // </FS:Trish>
                     gGL.multMatrix((F32*) volume->getRelativeXform().mMatrix);
                     const LLVolumeFace& vol_face = rigged->getVolumeFace(getTEOffset());
                     // <FS:Ansariel> Use a vbo for the static LLVertexBuffer::drawArray/Element functions; by Drake Arconis/Shyotl Kuhr
@@ -671,7 +675,10 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
         LLGLDisable depth(wireframe_selection ? 0 : GL_BLEND);
 
         LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
-        glPolygonOffset(3.f, 3.f);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(3.f, 3.f);
+        FSReverseZ::polygonOffset(3.f, 3.f);
+        // </FS:Trish>
         gGL.setLineWidth(5.f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         renderFace(mDrawablep, this);

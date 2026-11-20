@@ -28,6 +28,7 @@
 
 #include "llrender.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llvertexbuffer.h"
 #include "llcubemap.h"
@@ -1196,7 +1197,10 @@ void LLRender::syncMatrices()
                 if (cached_mvp_mdv_hash != mMatHash[i] || cached_mvp_proj_hash != mMatHash[MM_PROJECTION])
                 {
                     cached_mvp = mat;
-                    cached_mvp = mMatrix[proj][mMatIdx[proj]] * cached_mvp;
+                    // <FS:Trish> FSRenderReverseZ: the shaders project with the reversed depth row
+                    //cached_mvp = mMatrix[proj][mMatIdx[proj]] * cached_mvp;
+                    cached_mvp = FSReverseZ::rasterProjection(mMatrix[proj][mMatIdx[proj]]) * cached_mvp;
+                    // </FS:Trish>
                     cached_mvp_mdv_hash = mMatHash[i];
                     cached_mvp_proj_hash = mMatHash[MM_PROJECTION];
                 }
@@ -1208,7 +1212,11 @@ void LLRender::syncMatrices()
         i = MM_PROJECTION;
         if (mMatHash[MM_PROJECTION] != shader->mMatHash[MM_PROJECTION])
         { //update projection matrix, normal, and MVP
-            const glm::mat4& mat = mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]];
+            // <FS:Trish> FSRenderReverseZ: the shaders project with the reversed depth row (inv_proj
+            // and the MVP below follow it); the C++ side keeps the standard matrix
+            //const glm::mat4& mat = mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]];
+            const glm::mat4 mat = FSReverseZ::rasterProjection(mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]]);
+            // </FS:Trish>
 
             // GZ: This was previously disabled seemingly due to a bug involving the deferred renderer's regular pushing and popping of mats.
             // We're reenabling this and cleaning up the code around that - that would've been the appropriate course initially.

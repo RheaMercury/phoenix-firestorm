@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include <boost/lexical_cast.hpp>
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llfeaturemanager.h"
 #include "llviewershadermgr.h"
@@ -1552,6 +1553,17 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     if (fs_multiscatter)
     {
         attribs["FS_MULTISCATTER"] = "1";
+    }
+    // </FS:Trish>
+
+    // <FS:Trish> Reverse-Z depth (FSRenderReverseZ, fsreversez.h): every shader object gets REVERSE_Z
+    // (LLShaderMgr::loadShaderFile). Decided here, while the shaders and the render targets are unloaded,
+    // so both are made again for it; without glClipControl it stays off.
+    static LLCachedControl<bool> fs_reverse_z(gSavedSettings, "FSRenderReverseZ", false);
+    FSReverseZ::setEnabled(fs_reverse_z && FSReverseZ::supported());
+    if (FSReverseZ::enabled())
+    {
+        attribs["REVERSE_Z"] = "1";
     }
     // </FS:Trish>
 

@@ -40,6 +40,7 @@ void calcAtmosphericVarsLinear(vec3 inPositionEye, vec3 norm, vec3 light_dir, ou
 // </FS:Trish>
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d); // <FS:Trish/> FSRenderReverseZ
 void calcAtmosphericVars(vec3 inPositionEye, vec3 light_dir, float ambFactor, out vec3 sunlit, out vec3 amblit, out vec3 additive, out vec3 atten); // <FS:Trish/>
 
 vec3 linear_to_srgb(vec3 c);
@@ -90,7 +91,10 @@ void main()
     vec3  irradiance = vec3(0);
     vec3  radiance  = vec3(0);
 
-    if (depth >= 1.0)
+    // <FS:Trish> FSRenderReverseZ: the far plane under either depth convention
+    //if (depth >= 1.0)
+    if (isFarDepth(depth))
+    // </FS:Trish>
     {
         //should only be true of sky, clouds, sun/moon, and stars
 #ifdef FS_HEIGHT_FOG

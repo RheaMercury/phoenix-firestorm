@@ -347,6 +347,7 @@ namespace
         { "RenderRiggedDirectNormals", CL, VN },
         { "RenderRiggedLocalOrigin", CL, VN },
         { "RenderRiggedPreciseMath", CL, VN },
+        { "FSRenderReverseZ", CL, VM },
 
         // Shadows
         { "RenderShadowCullMode", CS, VN },

@@ -60,6 +60,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsgpudrivendraws.h"
+#include "fsreversez.h"
 
 #include "fsgddarena.h"
 #include "fsgddcommon.h"
@@ -379,7 +380,7 @@ namespace
         sDraws = k.mDraws;
         sSegments = k.mSegments;
         sUploads = 0;
-        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 proj = FSReverseZ::rasterProjection(gGL.getProjectionMatrix()); // as LLRender::syncMatrices gives the shaders (FSRenderReverseZ)
         const glm::mat4 view = get_current_modelview();
         sMatrices.begin(proj, view, false, false);
         if (!sMatrices.replay(kept->mMatrices, proj, view, sRemap))
@@ -451,7 +452,7 @@ namespace
 
         const U32 frame = LLFrameTimer::getFrameCount();
         sArena.beginFrame(frame);
-        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 proj = FSReverseZ::rasterProjection(gGL.getProjectionMatrix()); // as LLRender::syncMatrices gives the shaders (FSRenderReverseZ)
         const glm::mat4 view = get_current_modelview();
         sMatrices.begin(proj, view, false, false);
         if (record)

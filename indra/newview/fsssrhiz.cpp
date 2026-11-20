@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsssrhiz.h"
+#include "fsreversez.h"
 
 #include "llframetimer.h"
 #include "llglslshader.h"
@@ -294,7 +295,7 @@ namespace
                 gGL.getTexUnit(channel)->bind(&depth_src, true);
             }
             // The sources were rendered with the current camera projection.
-            glm::mat4 inv_proj = glm::inverse(get_current_projection());
+            glm::mat4 inv_proj = glm::inverse(FSReverseZ::depthProjection(get_current_projection())); // FSRenderReverseZ
             sCopyProgram.uniformMatrix4fv(sInvProj, 1, GL_FALSE, glm::value_ptr(inv_proj));
             sCopyProgram.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (F32)width, (F32)height);
             drawLevel(0, screen_triangle);

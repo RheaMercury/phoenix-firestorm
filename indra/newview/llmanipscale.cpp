@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llmanipscale.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 // library includes
 #include "llmath.h"
@@ -309,7 +310,10 @@ void LLManipScale::render()
 
             {
                 LLGLEnable poly_offset(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset( -2.f, -2.f);
+                // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                //glPolygonOffset( -2.f, -2.f);
+                FSReverseZ::polygonOffset(-2.f, -2.f);
+                // </FS:Trish>
 
                 renderCorners( bbox );
                 renderFaces( bbox );
@@ -319,7 +323,10 @@ void LLManipScale::render()
                     renderGuidelinesPart( bbox );
                 }
 
-                glPolygonOffset( 0.f, 0.f);
+                // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                //glPolygonOffset( 0.f, 0.f);
+                FSReverseZ::polygonOffset(0.f, 0.f);
+                // </FS:Trish>
             }
         }
         gGL.popMatrix();

@@ -13,6 +13,7 @@ set(llrender_SOURCE_FILES
     fsglretire.cpp # <FS:Trish/> bindless handles released behind GPU fences
     fsglstream.cpp # <FS:Trish/> FSRenderThread
     fsgputimers.cpp # <FS:Trish/> FSRenderGPUTimings
+    fsreversez.cpp # <FS:Trish/> FSRenderReverseZ
     fstextureupload.cpp # <FS:Trish/> FSPerfTextureUploadPBO
     llcubemap.cpp
     llcubemaparray.cpp
@@ -43,6 +44,7 @@ set(llrender_HEADER_FILES
     fsglretire.h # <FS:Trish/> bindless handles released behind GPU fences
     fsglstream.h # <FS:Trish/> FSRenderThread
     fsgputimers.h # <FS:Trish/> FSRenderGPUTimings
+    fsreversez.h # <FS:Trish/> FSRenderReverseZ
     fsglstream_funcs.inl # <FS:Trish/> FSRenderThread
     fstextureupload.h # <FS:Trish/> FSPerfTextureUploadPBO
     CMakeLists.txt

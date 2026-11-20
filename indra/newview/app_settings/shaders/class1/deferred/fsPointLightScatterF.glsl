@@ -63,6 +63,7 @@ uniform vec4 fs_air_plane;              // view space up, camera height above th
 const float SKY_DIST = 65000.0;
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 
 // Henyey-Greenstein, scaled so that even scattering is 1 (as in fsSpotVolumetricF)
@@ -95,7 +96,7 @@ void main()
 {
     vec2 tc = vary_fragcoord.xy;
     float depth = getDepth(tc);
-    bool sky = depth >= 1.0;
+    bool sky = isFarDepth(depth);
 
     vec3 pos = getPositionWithDepth(tc, sky ? 0.5 : depth).xyz;
     vec3 view_dir = normalize(pos);

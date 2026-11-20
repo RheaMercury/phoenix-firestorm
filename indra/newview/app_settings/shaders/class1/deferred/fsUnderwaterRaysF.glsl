@@ -40,6 +40,7 @@ float fsCausticLayer(vec2 p, float t);
 const float SKY_DIST = 65000.0;
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 
 // Lit (1) or shadowed (0) at a view space position, as in fsSunRaysF
@@ -94,7 +95,7 @@ void main()
 {
     vec2 tc = vary_fragcoord.xy;
     float depth = getDepth(tc);
-    bool sky = depth >= 1.0;
+    bool sky = isFarDepth(depth);
 
     vec3 pos = getPositionWithDepth(tc, sky ? 0.5 : depth).xyz;
     vec3 view_dir = normalize(pos);

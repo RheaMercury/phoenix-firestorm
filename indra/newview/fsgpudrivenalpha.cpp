@@ -75,6 +75,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsgpudrivenalpha.h"
+#include "fsreversez.h"
 
 #include "fsgddarena.h"
 #include "fsgddcommon.h"
@@ -780,7 +781,7 @@ bool fsGDDAlphaBeginGroup(const std::vector<LLPointer<LLDrawInfo>>& draws, bool&
     sTextures.clear();
     sMaterials.clear();
     sStockRigged.clear();
-    const glm::mat4 proj = gGL.getProjectionMatrix();
+    const glm::mat4 proj = FSReverseZ::rasterProjection(gGL.getProjectionMatrix()); // as LLRender::syncMatrices gives the shaders (FSRenderReverseZ)
     const glm::mat4 view = get_current_modelview();
     sMatrices.begin(proj, view, true, true);   // texture matrix 0: identity
     for (size_t i = 0; i < draws.size(); ++i)

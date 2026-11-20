@@ -45,11 +45,19 @@ float fsWaterFoam(vec2 screen_tc, vec3 pos, vec3 up, vec2 view_offset)
     // Alpha-blended surfaces (invisible or see-through prims, glass) are not in this depth, so
     // they make no shoreline
     float depth = texture(fs_foam_depth, screen_tc).r;
+#ifdef REVERSE_Z
+    if (depth <= 0.0)
+    {
+        return 0.0; // sky behind the surface
+    }
+    vec4 scene = inv_proj * vec4(screen_tc * 2.0 - 1.0, depth, 1.0); // the depth is the NDC depth itself
+#else
     if (depth >= 1.0)
     {
         return 0.0; // sky behind the surface
     }
     vec4 scene = inv_proj * vec4(vec3(screen_tc, depth) * 2.0 - 1.0, 1.0);
+#endif
     scene.xyz /= scene.w;
 
     // Vertical gap between the surface and what lies behind it: the depth of the water from

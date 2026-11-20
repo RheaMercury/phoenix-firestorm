@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "lldrawpoolterrain.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llfasttimer.h"
 
@@ -648,7 +649,10 @@ void LLDrawPoolTerrain::hilightParcelOwners()
         sShader->bind();
         gGL.diffuseColor4f(1, 1, 1, 1);
         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(-1.0f, -1.0f);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(-1.0f, -1.0f);
+        FSReverseZ::polygonOffset(-1.0f, -1.0f);
+        // </FS:Trish>
         renderOwnership();
         sShader = old_shader;
         sShader->bind();

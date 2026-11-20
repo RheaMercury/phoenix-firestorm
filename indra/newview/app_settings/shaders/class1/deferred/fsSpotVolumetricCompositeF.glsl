@@ -19,6 +19,7 @@ uniform float vol_strength;
 const float SKY_DIST = 65000.0;
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 
 #ifdef FS_BICUBIC
@@ -34,7 +35,7 @@ void main()
 {
     vec2 tc = vary_fragcoord.xy;
     float depth = getDepth(tc);
-    float center_dist = depth >= 1.0 ? SKY_DIST : min(length(getPositionWithDepth(tc, depth).xyz), SKY_DIST);
+    float center_dist = isFarDepth(depth) ? SKY_DIST : min(length(getPositionWithDepth(tc, depth).xyz), SKY_DIST);
 
     ivec2 size = textureSize(diffuseRect, 0);
     vec2 low_pos = tc * vec2(size) - 0.5;   // in reduced resolution texel centres

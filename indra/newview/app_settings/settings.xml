@@ -29033,6 +29033,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderReverseZ</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Reverse-Z depth: the depth buffer holds 1 at the near plane and 0 at the far plane, in 32 bit floating point, which spreads its precision evenly over distance instead of spending it all in the first few metres. Removes z-fighting on distant surfaces and sharpens everything that reads depth far away (screen-space reflections, ambient occlusion, contact shadows, fog). The shadow maps keep the standard depth. Needs OpenGL 4.5 or GL_ARB_clip_control; stays off without it. Changing it rebuilds the shaders and render targets.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderMultiscatter</key>
     <map>
       <key>Comment</key>

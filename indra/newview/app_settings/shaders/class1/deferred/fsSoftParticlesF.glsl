@@ -22,7 +22,12 @@ uniform vec4 waterPlane;
 // distance from the camera of a window depth
 float fsSoftParticleDistance(float window_depth)
 {
+#ifdef REVERSE_Z
+    // the window depth is the NDC depth itself; y and z are the reversed projection's
+    return fs_soft_particle.z / (window_depth + fs_soft_particle.y);
+#else
     return fs_soft_particle.z / (window_depth * 2.0 - 1.0 + fs_soft_particle.y);
+#endif
 }
 
 // Fade from the opaque scene in front of which this fragment lies, 1 = no fade

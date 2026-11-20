@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "pipeline.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 // library includes
 #include "llimagepng.h"
@@ -1407,6 +1408,7 @@ inline U32 BlurHappySize(U32 x, F32 scale) { return U32( x * scale + 16.0f) & ~0
 bool LLPipeline::allocateShadowBuffer(U32 resX, U32 resY)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
+    FSReverseZ::StandardScope fs_standard_depth; // <FS:Trish/> FSRenderReverseZ: the shadow maps keep 24 bit standard depth
     S32 shadow_detail = RenderShadowDetail;
 
     // <FS:Trish> Fresh maps hold nothing the throttles or the caster cache can reuse
@@ -6758,7 +6760,10 @@ void LLPipeline::renderPhysicsDisplay()
     gDebugProgram.bind();
 
     LLGLEnable polygon_offset_line(GL_POLYGON_OFFSET_LINE);
-    glPolygonOffset(3.f, 3.f);
+    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+    //glPolygonOffset(3.f, 3.f);
+    FSReverseZ::polygonOffset(3.f, 3.f);
+    // </FS:Trish>
     gGL.setLineWidth(3.f);
     LLGLEnable blend(GL_BLEND);
     gGL.setSceneBlendType(LLRender::BT_ALPHA);
@@ -6980,7 +6985,10 @@ void LLPipeline::renderDebug()
 
                             //get rid of some z-fighting
                             LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-                            glPolygonOffset(1.0f, 1.0f);
+                            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                            //glPolygonOffset(1.0f, 1.0f);
+                            FSReverseZ::polygonOffset(1.0f, 1.0f);
+                            // </FS:Trish>
 
                             //render to depth first to avoid blending artifacts
                             gGL.setColorMask(false, false);
@@ -6988,7 +6996,10 @@ void LLPipeline::renderDebug()
                             gGL.setColorMask(true, false);
 
                             //get rid of some z-fighting
-                            glPolygonOffset(0.f, 0.f);
+                            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                            //glPolygonOffset(0.f, 0.f);
+                            FSReverseZ::polygonOffset(0.f, 0.f);
+                            // </FS:Trish>
 
                             LLGLEnable blend(GL_BLEND);
 
@@ -7013,7 +7024,10 @@ void LLPipeline::renderDebug()
                                     LLGLEnable blend(GL_BLEND);
                                     LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_GREATER);
 
-                                    glPolygonOffset(offset, -offset);
+                                    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                                    //glPolygonOffset(offset, -offset);
+                                    FSReverseZ::polygonOffset(offset, -offset);
+                                    // </FS:Trish>
 
                                     if (gSavedSettings.getBOOL("PathfindingXRayWireframe"))
                                     { //draw hidden wireframe as darker and less opaque
@@ -7030,7 +7044,10 @@ void LLPipeline::renderDebug()
                                 }
 
                                 { //draw visible wireframe as brighter, thicker and more opaque
-                                    glPolygonOffset(offset, offset);
+                                    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                                    //glPolygonOffset(offset, offset);
+                                    FSReverseZ::polygonOffset(offset, offset);
+                                    // </FS:Trish>
                                     gPathfindingProgram.uniform1f(sAmbiance, 1.f);
                                     gPathfindingProgram.uniform1f(sTint, 1.f);
                                     gPathfindingProgram.uniform1f(sAlphaScale, 1.f);
@@ -7047,7 +7064,10 @@ void LLPipeline::renderDebug()
                         }
                     }
 
-                    glPolygonOffset(0.f, 0.f);
+                    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                    //glPolygonOffset(0.f, 0.f);
+                    FSReverseZ::polygonOffset(0.f, 0.f);
+                    // </FS:Trish>
 
                     if ( pathfindingConsole->isRenderNavMesh() && pathfindingConsole->isRenderXRay() )
                     {   //render navmesh xray
@@ -7057,7 +7077,10 @@ void LLPipeline::renderDebug()
                         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
 
                         F32 offset = gSavedSettings.getF32("PathfindingLineOffset");
-                        glPolygonOffset(offset, -offset);
+                        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                        //glPolygonOffset(offset, -offset);
+                        FSReverseZ::polygonOffset(offset, -offset);
+                        // </FS:Trish>
 
                         LLGLEnable blend(GL_BLEND);
                         LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_GREATER);
@@ -7092,7 +7115,10 @@ void LLPipeline::renderDebug()
                         gGL.setLineWidth(1.0f);
                     }
 
-                    glPolygonOffset(0.f, 0.f);
+                    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                    //glPolygonOffset(0.f, 0.f);
+                    FSReverseZ::polygonOffset(0.f, 0.f);
+                    // </FS:Trish>
 
                     gGL.flush();
                     gPathfindingProgram.unbind();
@@ -17686,7 +17712,10 @@ void LLPipeline::renderDustMotes()
     shader.uniform4fv(s_spot_origin, FS_DUST_MAX_SPOTS, spot_origin);
     shader.uniform4fv(s_spot_color, FS_DUST_MAX_SPOTS, spot_color);
     shader.uniformMatrix4fv(s_view_to_world, 1, GL_FALSE, glm::value_ptr(view_to_world));
-    shader.uniformMatrix4fv(s_proj, 1, GL_FALSE, glm::value_ptr(get_current_projection()));
+    // <FS:Trish> FSRenderReverseZ: the motes are rasterised with it, like everything syncMatrices projects
+    //shader.uniformMatrix4fv(s_proj, 1, GL_FALSE, glm::value_ptr(get_current_projection()));
+    shader.uniformMatrix4fv(s_proj, 1, GL_FALSE, glm::value_ptr(FSReverseZ::rasterProjection(get_current_projection())));
+    // </FS:Trish>
     shader.uniform3fv(s_cam_cell, 1, cam_cell);
     shader.uniform3fv(s_cell_base, 1, cell_base);
     shader.uniform1f(s_cell_size, cell);
@@ -18656,6 +18685,12 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE; //LL_RECORD_BLOCK_TIME(FTM_GEN_SUN_SHADOW);
     LL_PROFILE_GPU_ZONE("generateSunShadow");
+    // <FS:Trish> FSRenderReverseZ: the shadow maps are drawn, cleared and compared with the standard depth
+    // convention (their orthographic depth is linear, a reversed float buffer gains them nothing), so the
+    // shadow lookups, biases and polygon offsets stay as they are. The camera's views go back to reverse-Z
+    // when this ends.
+    FSReverseZ::StandardScope fs_standard_depth;
+    // </FS:Trish>
 
     LLDisableOcclusionCulling no_occlusion;
 

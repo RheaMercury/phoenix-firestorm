@@ -320,7 +320,14 @@ void main()
 
     vertex_color = diffuse_color;
 #ifdef ALPHA_BLEND
+    // <FS:Trish> FSRenderReverseZ: the fragment shader divides by the standard clip z
+    //vary_fragcoord = vert.xyz;
+#ifdef REVERSE_Z
+    vary_fragcoord = vec3(vert.xy, vert.w - 2.0 * vert.z);
+#else
     vary_fragcoord = vert.xyz;
+#endif
+    // </FS:Trish>
 #endif
 }
 

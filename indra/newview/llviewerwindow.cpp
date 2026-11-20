@@ -26,6 +26,7 @@
 
 #include "llviewerprecompiledheaders.h"
 #include "llviewerwindow.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fsnativepopout.h"
 
 
@@ -4723,7 +4724,10 @@ void renderMeshBaseHullPhysics(LLVOVolume* volume, U32 data_mask, LLColor4& colo
 {
             LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glPolygonOffset(offset_factor, offset_units);
+            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+            //glPolygonOffset(offset_factor, offset_units);
+            FSReverseZ::polygonOffset(offset_factor, offset_units);
+            // </FS:Trish>
             gGL.diffuseColor4fv(color.mV);
             renderMeshBaseHullWithOutline(volume, data_mask, color, line_color);
 }
@@ -4733,7 +4737,10 @@ void renderHullPhysics(LLModel::PhysicsMesh& mesh, const LLColor4& color, const 
 {
     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    glPolygonOffset(offset_factor, offset_units);
+    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+    //glPolygonOffset(offset_factor, offset_units);
+    FSReverseZ::polygonOffset(offset_factor, offset_units);
+    // </FS:Trish>
     render_hull_with_outline(mesh, color, line_color);
 }
 
@@ -4762,7 +4769,10 @@ void renderMeshPhysicsTriangles(const LLColor4& color, const LLColor4& line_colo
         {
             {
                 LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset(offset_factor, offset_units);
+                // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                //glPolygonOffset(offset_factor, offset_units);
+                FSReverseZ::polygonOffset(offset_factor, offset_units);
+                // </FS:Trish>
                 gGL.diffuseColor4fv(color.mV);
                 //decomp has physics mesh, render that mesh
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -4771,7 +4781,10 @@ void renderMeshPhysicsTriangles(const LLColor4& color, const LLColor4& line_colo
             {
                 LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
                 glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-                glPolygonOffset(offset_factor, offset_units);
+                // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+                //glPolygonOffset(offset_factor, offset_units);
+                FSReverseZ::polygonOffset(offset_factor, offset_units);
+                // </FS:Trish>
                 gGL.diffuseColor4fv(line_color.mV);
                 LLVertexBuffer::drawArrays(LLRender::TRIANGLES, decomp->mPhysicsShapeMesh.mPositions);
             }
@@ -4799,7 +4812,10 @@ void renderMeshPhysicsTriangles(const LLColor4& color, const LLColor4& line_colo
             gGL.diffuseColor4fv(color.mV);
             LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glPolygonOffset(offset_factor, offset_units);
+            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+            //glPolygonOffset(offset_factor, offset_units);
+            FSReverseZ::polygonOffset(offset_factor, offset_units);
+            // </FS:Trish>
             gGL.setLineWidth(1.f); // <FS> Line width OGL core profile fix by Rye Mutt
             LLVertexBuffer::drawArrays(LLRender::TRIANGLES, decomp->mPhysicsShapeMesh.mPositions);
         }
@@ -4807,7 +4823,10 @@ void renderMeshPhysicsTriangles(const LLColor4& color, const LLColor4& line_colo
             gGL.diffuseColor4fv(line_color.mV);
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            glPolygonOffset(offset_factor, offset_units);
+            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+            //glPolygonOffset(offset_factor, offset_units);
+            FSReverseZ::polygonOffset(offset_factor, offset_units);
+            // </FS:Trish>
             gGL.setLineWidth(3.f); // <FS> Line width OGL core profile fix by Rye Mutt
             LLVertexBuffer::drawArrays(LLRender::TRIANGLES, decomp->mPhysicsShapeMesh.mPositions);
         }
@@ -5139,7 +5158,10 @@ void renderOnePhysicsShape(LLViewerObject* objectp)
     {
         LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glPolygonOffset(offset_factor, offset_units);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(offset_factor, offset_units);
+        FSReverseZ::polygonOffset(offset_factor, offset_units);
+        // </FS:Trish>
         LLVector3 center = physics_spec.getCenter();
         LLVector3 scale = physics_spec.getScale();
         LLVector3 vscale = vovolume->getScale()*2.f;
@@ -5152,7 +5174,10 @@ void renderOnePhysicsShape(LLViewerObject* objectp)
     {
         LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glPolygonOffset(offset_factor, offset_units);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(offset_factor, offset_units);
+        FSReverseZ::polygonOffset(offset_factor, offset_units);
+        // </FS:Trish>
 
         LLVolumeParams volume_params;
         volume_params.setType(LL_PCODE_PROFILE_CIRCLE_HALF, LL_PCODE_PATH_CIRCLE);
@@ -5170,7 +5195,10 @@ void renderOnePhysicsShape(LLViewerObject* objectp)
     {
         LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glPolygonOffset(offset_factor, offset_units);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(offset_factor, offset_units);
+        FSReverseZ::polygonOffset(offset_factor, offset_units);
+        // </FS:Trish>
 
         LLVolumeParams volume_params;
         volume_params.setType(LL_PCODE_PROFILE_CIRCLE, LL_PCODE_PATH_LINE);
@@ -5193,7 +5221,10 @@ void renderOnePhysicsShape(LLViewerObject* objectp)
         LLVolume* phys_volume = LLPrimitive::sVolumeManager->refVolume(volume_params, detail);
 
         // TODO: (BEQ) We ought to be able to use a common draw call here too?
-        glPolygonOffset(offset_factor, offset_units);
+        // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+        //glPolygonOffset(offset_factor, offset_units);
+        FSReverseZ::polygonOffset(offset_factor, offset_units);
+        // </FS:Trish>
 
         {
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
@@ -6760,7 +6791,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
 
                             for (S32 i = 0; i < (S32)read_width; i++)
                             {
-                                F32 depth_float = *(F32*)(depth_line_buffer->getData() + (i * sizeof(F32)));
+                                // <FS:Trish> FSRenderReverseZ: as the standard convention holds it, for the conversion below
+                                //F32 depth_float = *(F32*)(depth_line_buffer->getData() + (i * sizeof(F32)));
+                                F32 depth_float = FSReverseZ::toStandardDepth(*(F32*)(depth_line_buffer->getData() + (i * sizeof(F32))));
+                                // </FS:Trish>
 
                                 F32 linear_depth_float = 1.f / (depth_conversion_factor_1 - (depth_float * depth_conversion_factor_2));
                                 U32 RGB24 = F32_to_U32(linear_depth_float, LLViewerCamera::getInstance()->getNear(), LLViewerCamera::getInstance()->getFar());
@@ -6797,7 +6831,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
 
                             for (S32 i = 0; i < (S32)read_width; i++)
                             {
-                                F32 depth_float = *(F32*)(depth_line_buffer->getData() + (i * sizeof(F32)));
+                                // <FS:Trish> FSRenderReverseZ: as the standard convention holds it, for the conversion below
+                                //F32 depth_float = *(F32*)(depth_line_buffer->getData() + (i * sizeof(F32)));
+                                F32 depth_float = FSReverseZ::toStandardDepth(*(F32*)(depth_line_buffer->getData() + (i * sizeof(F32))));
+                                // </FS:Trish>
 
                                 F32 linear_depth_float = 1.f / (depth_conversion_factor_1 - (depth_float * depth_conversion_factor_2));
                                 U8 depth_byte = F32_to_U8(linear_depth_float, LLViewerCamera::getInstance()->getNear(), LLViewerCamera::getInstance()->getFar());

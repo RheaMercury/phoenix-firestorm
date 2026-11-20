@@ -44,7 +44,11 @@ uniform vec2 vignette_quantize;
 
 float viewDepth(vec2 tc)
 {
+#ifdef REVERSE_Z
+    float z = texture(depthMap, tc).r; // the NDC depth itself
+#else
     float z = texture(depthMap, tc).r * 2.0 - 1.0;
+#endif
     vec4 p = inv_proj * vec4(0.0, 0.0, z, 1.0);
     return p.z / p.w;
 }
@@ -97,7 +101,11 @@ float sunVisibility(vec2 sun)
             vec2 p = sun + dir * 0.006 * float(ring);
             if (p.x >= 0.0 && p.x <= 1.0 && p.y >= 0.0 && p.y <= 1.0)
             {
+#ifdef REVERSE_Z
+                visible += texture(depthMap, p).r <= 0.0 ? 1.0 : 0.0; // the far plane is 0
+#else
                 visible += texture(depthMap, p).r >= 1.0 ? 1.0 : 0.0;
+#endif
             }
         }
     }

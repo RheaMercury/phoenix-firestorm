@@ -40,6 +40,7 @@ uniform vec4 fs_air_plane;
 const float SKY_DIST = 65000.0;
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 float calcLegacyDistanceAttenuation(float distance, float falloff);
 vec3 getProjectedLightDiffuseColor(float light_distance, vec2 projected_uv);
@@ -71,7 +72,7 @@ void main()
 {
     vec2 tc = vary_fragcoord.xy;
     float depth = getDepth(tc);
-    bool sky = depth >= 1.0;
+    bool sky = isFarDepth(depth);
 
     vec3 pos = getPositionWithDepth(tc, sky ? 0.5 : depth).xyz;
     vec3 view_dir = normalize(pos);

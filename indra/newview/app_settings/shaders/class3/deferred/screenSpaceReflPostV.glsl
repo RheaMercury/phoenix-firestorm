@@ -42,7 +42,14 @@ void main()
 
     vary_fragcoord = pos.xy * 0.5 + 0.5;
 
+    // <FS:Trish> FSRenderReverseZ: the far plane is NDC depth 0
+    //vec4 rayOrig = inv_proj * vec4(pos.xy, 1, 1);
+#ifdef REVERSE_Z
+    vec4 rayOrig = inv_proj * vec4(pos.xy, 0, 1);
+#else
     vec4 rayOrig = inv_proj * vec4(pos.xy, 1, 1);
+#endif
+    // </FS:Trish>
     camera_ray = rayOrig.xyz / rayOrig.w;
 
 }

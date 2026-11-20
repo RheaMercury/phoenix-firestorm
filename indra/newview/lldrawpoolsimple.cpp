@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "lldrawpoolsimple.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llviewercamera.h"
 #include "lldrawable.h"
@@ -52,7 +53,10 @@ void LLDrawPoolGlow::renderPostDeferred(S32 pass)
     gGL.flush();
     /// Get rid of z-fighting with non-glow pass.
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.0f, -1.0f);
+    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+    //glPolygonOffset(-1.0f, -1.0f);
+    FSReverseZ::polygonOffset(-1.0f, -1.0f);
+    // </FS:Trish>
     gGL.setSceneBlendType(LLRender::BT_ADD);
 
     LLGLDepthTest depth(GL_TRUE, GL_FALSE);

@@ -46,7 +46,15 @@ void main()
 
     // smash to *almost* far clip plane -- behind clouds but in front of stars
     pos.z = pos.w*0.999999;
+    // <FS:Trish> FSRenderReverseZ: the same depth in the reversed convention, (1 - z) / 2 (pos keeps the
+    // standard one for calcAtmospherics below)
+    //gl_Position = pos;
+#ifdef REVERSE_Z
+    gl_Position = vec4(pos.xy, pos.w * (0.5 - 0.5 * 0.999999), pos.w);
+#else
     gl_Position = pos;
+#endif
+    // </FS:Trish>
 
     calcAtmospherics(pos.xyz);
 

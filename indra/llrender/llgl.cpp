@@ -35,6 +35,7 @@
 
 #include "llgl.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "llglstates.h"
 #include "llrender.h"
 
@@ -1794,6 +1795,16 @@ void LLGLManager::initExtensions()
     LL_INFOS("RenderInit") << "Bindless textures available: " << (mFSBindlessProcs[0] != nullptr) << LL_ENDL;
     // </FS:Trish>
 
+    // <FS:Trish> Reverse-Z depth (FSRenderReverseZ): glClipControl is core in OpenGL 4.5 (loaded with
+    // the rest below), and GL_ARB_clip_control gives older contexts the same entry point
+#if LL_GL_FUNC_POINTER
+    if (mGLVersion < 4.49f && mGLExtensions.contains("GL_ARB_clip_control"))
+    {
+        glClipControl = (PFNGLCLIPCONTROLPROC)LL_GET_PROC_ADDRESS("glClipControl");
+    }
+#endif
+    // </FS:Trish>
+
     mInited = true;
 
 #if LL_GL_FUNC_POINTER
@@ -3035,7 +3046,10 @@ LLGLDepthTest::LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled, G
     if (depth_func != sDepthFunc)
     {
         gGL.flush();
-        glDepthFunc(depth_func);
+        // <FS:Trish> FSRenderReverseZ: the function for the depth convention in effect
+        //glDepthFunc(depth_func);
+        FSReverseZ::depthFunc(depth_func);
+        // </FS:Trish>
         sDepthFunc = depth_func;
     }
     if (write_enabled != sWriteEnabled)
@@ -3060,7 +3074,10 @@ LLGLDepthTest::~LLGLDepthTest()
     if (sDepthFunc != mPrevDepthFunc)
     {
         gGL.flush();
-        glDepthFunc(mPrevDepthFunc);
+        // <FS:Trish> FSRenderReverseZ: the function for the depth convention in effect
+        //glDepthFunc(mPrevDepthFunc);
+        FSReverseZ::depthFunc(mPrevDepthFunc);
+        // </FS:Trish>
         sDepthFunc = mPrevDepthFunc;
     }
     if (sWriteEnabled != mPrevWriteEnabled )
@@ -3083,7 +3100,10 @@ void LLGLDepthTest::checkState()
 
         if (glIsEnabled(GL_DEPTH_TEST) != sDepthEnabled ||
             sWriteEnabled != mask ||
-            sDepthFunc != func)
+            // <FS:Trish> FSRenderReverseZ: GL holds the function for the depth convention in effect
+            //sDepthFunc != func)
+            FSReverseZ::glDepthFuncFor(sDepthFunc) != (GLenum)func)
+            // </FS:Trish>
         {
             if (gDebugSession)
             {

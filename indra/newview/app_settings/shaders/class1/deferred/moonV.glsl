@@ -41,7 +41,14 @@ void main()
     // smash to *almost* far clip plane -- stars are still behind
     // SL-19283 - finagle the moon position to be between clouds and stars.
     pos.z = pos.w*0.999991;
+    // <FS:Trish> FSRenderReverseZ: the same depth in the reversed convention, (1 - z) / 2
+    //gl_Position = pos;
+#ifdef REVERSE_Z
+    gl_Position = vec4(pos.xy, pos.w * (0.5 - 0.5 * 0.999991), pos.w);
+#else
     gl_Position = pos;
+#endif
+    // </FS:Trish>
 
     vary_texcoord0 = (texture_matrix0 * vec4(texcoord0,0,1)).xy;
 }

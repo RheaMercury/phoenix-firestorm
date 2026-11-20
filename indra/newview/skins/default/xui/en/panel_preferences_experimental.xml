@@ -4611,7 +4611,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2110"
+                 height="2170"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -6034,6 +6034,44 @@
                      tool_tip="Create textures on a background OpenGL context on NVIDIA GPUs, whatever threaded textures is set to; restart required"
                      top="2068"
                      width="475" />
+                    <!-- <FS:Trish> -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_depth"
+                     top="2104"
+                     width="340">
+                        Depth precision
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_depth"
+                     tool_tip="Set every option in &quot;Depth precision&quot; back to its default value."
+                     top="2103"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderReverseZ" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderReverseZ"
+                     follows="left|top"
+                     height="20"
+                     label="Reverse-Z depth (no z-fighting far away)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderreversez"
+                     tool_tip="EXPERIMENTAL. Stores depth with the near plane at 1 and the far plane at 0 in a 32 bit floating point depth buffer, which keeps depth precise all the way to the draw distance. Removes the flickering where distant surfaces meet (mainland at 500 m and more) and sharpens what reads depth far away: screen-space reflections, ambient occlusion, contact shadows and fog. Shadow maps are unchanged. Needs OpenGL 4.5; stays off on older drivers. Almost no GPU cost. Changing it rebuilds the shaders."
+                     top="2130"
+                     width="475" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>

@@ -84,7 +84,15 @@ void main()
 
     oPosition = modelViewProj * oPosition;
 
+    // <FS:Trish> FSRenderReverseZ: waterF and underWaterF divide by the standard clip z (about w, less
+    // twice the near distance), which the reversed depth row no longer gives: take it back from w
+    //refCoord.xyz = oPosition.xyz + vec3(0,0,0.2);
+#ifdef REVERSE_Z
+    refCoord.xyz = vec3(oPosition.xy, oPosition.w - 2.0 * oPosition.z) + vec3(0,0,0.2);
+#else
     refCoord.xyz = oPosition.xyz + vec3(0,0,0.2);
+#endif
+    // </FS:Trish>
 
     //get wave position parameter (create sweeping horizontal waves)
     vec3 v = pos.xyz;

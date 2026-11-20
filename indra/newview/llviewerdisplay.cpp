@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llviewerdisplay.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "fsyspath.h"
 #include "hexdump.h"
@@ -855,6 +856,11 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
     // Actually push all of our triangles to the screen.
     //
 
+    // <FS:Trish> FSRenderReverseZ: the clip convention, depth clear value and depth function before anything
+    // draws this frame (dynamic textures, mirrors), not only before the main view: after a context restore the
+    // mirror faces were drawn once with GL's defaults
+    FSReverseZ::applyState();
+    // </FS:Trish>
     // do render-to-texture stuff here
     if (gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_DYNAMIC_TEXTURES))
     {
@@ -980,6 +986,11 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
             gGL.setColorMask(true, true);
             glClearColor(0.f, 0.f, 0.f, 0.f);
+
+            // <FS:Trish> FSRenderReverseZ: the clip convention, depth clear value and depth function, set again
+            // each frame (a restored context starts from GL's defaults)
+            FSReverseZ::applyState();
+            // </FS:Trish>
 
             LLGLState::checkStates();
 

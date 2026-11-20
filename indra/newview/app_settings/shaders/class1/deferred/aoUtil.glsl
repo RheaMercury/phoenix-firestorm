@@ -50,7 +50,14 @@ vec4 getPositionAo(vec2 pos_screen)
 {
     float depth = getDepthAo(pos_screen);
     vec2 sc = getScreenCoordinateAo(pos_screen);
+    // <FS:Trish> FSRenderReverseZ: the stored depth is the NDC depth itself
+    //vec4 ndc = vec4(sc.x, sc.y, 2.0*depth-1.0, 1.0);
+#ifdef REVERSE_Z
+    vec4 ndc = vec4(sc.x, sc.y, depth, 1.0);
+#else
     vec4 ndc = vec4(sc.x, sc.y, 2.0*depth-1.0, 1.0);
+#endif
+    // </FS:Trish>
     vec4 pos = inv_proj * ndc;
     pos /= pos.w;
     pos.w = 1.0;

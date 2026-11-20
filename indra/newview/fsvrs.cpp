@@ -55,6 +55,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsvrs.h"
+#include "fsreversez.h"
 
 #include "fsglstream.h"
 
@@ -660,7 +661,7 @@ void FSVRS::buildRateImage(LLRenderTarget* color, LLRenderTarget* depth)
     const LLPipeline::LensDoF& dof = gPipeline.mLensDoF;
     const bool use_dof = dof.mActive && dof.mMaxCoF > 0.f && dof.mMagnification != 0.f &&
                          dof.mTanPixelAngle * -dof.mFocalDistance != 0.f;
-    const glm::mat4 proj = get_current_projection();
+    const glm::mat4 proj = FSReverseZ::depthProjection(get_current_projection()); // FSRenderReverseZ: as the depth was written
 
     static LLStaticHashedString s_src_size("fs_vrs_src_size");
     static LLStaticHashedString s_tile("fs_vrs_tile");

@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llspatialpartition.h"
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 
 #include "llappviewer.h"
 #include "lltexturecache.h"
@@ -3074,7 +3075,10 @@ void renderTextureAnim(LLDrawInfo* params)
 void renderBatchSize(LLDrawInfo* params)
 {
     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.f, 1.f);
+    // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+    //glPolygonOffset(-1.f, 1.f);
+    FSReverseZ::polygonOffset(-1.f, 1.f);
+    // </FS:Trish>
     LLGLSLShader* old_shader = LLGLSLShader::sCurBoundShaderPtr;
     bool bind = false;
     if (params->mAvatar)
@@ -3988,7 +3992,10 @@ void LLSpatialPartition::renderDebug()
             gGL.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
-            glPolygonOffset(-1.f, -1.f);
+            // <FS:Trish> FSRenderReverseZ: toward the camera under either depth convention
+            //glPolygonOffset(-1.f, -1.f);
+            FSReverseZ::polygonOffset(-1.f, -1.f);
+            // </FS:Trish>
 
             LLOctreeRenderXRay xray(camera);
             xray.traverse(mOctree);

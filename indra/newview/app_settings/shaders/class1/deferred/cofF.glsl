@@ -63,7 +63,9 @@ void main()
     vec2 tc = vary_fragcoord.xy;
 
     float z = texture(depthMap, tc).r;
+#ifndef REVERSE_Z // <FS:Trish/> FSRenderReverseZ: the stored depth is the NDC depth itself
     z = z*2.0-1.0;
+#endif // <FS:Trish/>
     vec4 ndc = vec4(0.0, 0.0, z, 1.0);
     vec4 p = inv_proj*ndc;
     float depth = p.z/p.w;

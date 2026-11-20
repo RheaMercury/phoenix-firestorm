@@ -31,6 +31,13 @@ out vec2 vary_texcoord0;
 
 void main()
 {
+    // <FS:Trish> FSRenderReverseZ: the near plane is depth 1 (-1 is outside the clip volume)
+    //gl_Position = vec4(position.x*2.0-1.0, position.y*2.0-1.0, -1.0, 1.0);
+#ifdef REVERSE_Z
+    gl_Position = vec4(position.x*2.0-1.0, position.y*2.0-1.0, 1.0, 1.0);
+#else
     gl_Position = vec4(position.x*2.0-1.0, position.y*2.0-1.0, -1.0, 1.0);
+#endif
+    // </FS:Trish>
     vary_texcoord0 = texcoord0;
 }

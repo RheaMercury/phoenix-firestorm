@@ -43,6 +43,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsshadowdepthfit.h"
+#include "fsreversez.h"
 
 #include "fsglstream.h"
 
@@ -420,7 +421,9 @@ void FSShadowDepthFit::reduce(LLRenderTarget& depth_target, LLVertexBuffer* scre
     {
         gGL.getTexUnit(channel)->bind(&depth_target, true);
     }
-    const glm::mat4 inv_proj = glm::inverse(get_current_projection());
+    // the inverse of the projection the depth was written with (FSRenderReverseZ: reversed even here,
+    // inside the shadow passes, which draw with the standard convention)
+    const glm::mat4 inv_proj = glm::inverse(FSReverseZ::depthProjection(get_current_projection()));
     sFirstProgram.uniformMatrix4fv(sInvProj, 1, GL_FALSE, glm::value_ptr(inv_proj));
     sFirstProgram.uniform2i(sSrcSize, (GLint)width, (GLint)height);
     sFirstProgram.uniform1i(sBlock, BLOCK);

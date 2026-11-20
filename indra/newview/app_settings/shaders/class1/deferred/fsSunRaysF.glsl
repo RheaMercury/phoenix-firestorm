@@ -35,6 +35,7 @@ uniform vec3 ray_up;                // world up, in view space
 const float SKY_DIST = 65000.0;
 
 float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 
 // Lit (1) or shadowed (0) at a view space position, one comparison tap in the nearest cascade
@@ -100,7 +101,7 @@ void main()
 {
     vec2 tc = vary_fragcoord.xy;
     float depth = getDepth(tc);
-    bool sky = depth >= 1.0;
+    bool sky = isFarDepth(depth);
 
     // The sky's far plane may be at infinity, so take the direction from a point in front of it
     vec3 pos = getPositionWithDepth(tc, sky ? 0.5 : depth).xyz;

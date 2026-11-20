@@ -189,6 +189,7 @@ protected:
     LLRenderTarget* mPreviousRT = nullptr;
 
     U32 mDepth;
+    U32 mFSDepthFormat = 0; // <FS:Trish/> FSRenderReverseZ: mDepth's internal format (float or 24 bit)
     bool mUseDepth;
     LLTexUnit::eTextureMipGeneration mGenerateMipMaps;
     U32 mMipLevels;

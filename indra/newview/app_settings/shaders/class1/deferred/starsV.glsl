@@ -44,7 +44,14 @@ void main()
 
     // smash to far clip plane to
     // avoid rendering on top of moon (do NOT write to gl_FragDepth, it's slow)
+    // <FS:Trish> FSRenderReverseZ: the far plane is depth 0
+    //pos.z = pos.w;
+#ifdef REVERSE_Z
+    pos.z = 0.0;
+#else
     pos.z = pos.w;
+#endif
+    // </FS:Trish>
 
     gl_Position = pos;
 

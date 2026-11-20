@@ -58,8 +58,17 @@ void main()
         // with depth testing against render targets that are bound for sampling in the same shader
         // so we do it manually here
 
+        // <FS:Trish> FSRenderReverseZ: the window depth is the NDC depth, and farther is smaller
+        //float cur_depth = vary_fragcoord.z/vary_fragcoord.w*0.5+0.5;
+        //if (cur_depth > depth)
+#ifdef REVERSE_Z
+        float cur_depth = vary_fragcoord.z/vary_fragcoord.w;
+        if (cur_depth < depth)
+#else
         float cur_depth = vary_fragcoord.z/vary_fragcoord.w*0.5+0.5;
         if (cur_depth > depth)
+#endif
+        // </FS:Trish>
         {
             discard;
         }

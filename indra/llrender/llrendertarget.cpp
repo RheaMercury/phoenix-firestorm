@@ -30,6 +30,7 @@
 #include "llrender.h"
 #include "llgl.h"
 #include "fsglstream.h" // <FS:Trish/> FSRenderThread
+#include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include <atomic> // <FS:Trish/>
 
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
@@ -131,7 +132,12 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
     {
         gGL.getTexUnit(0)->bindManual(mUsage, mDepth);
         U32 internal_type = LLTexUnit::getInternalType(mUsage);
-        LLImageGL::setManualImage(internal_type, 0, GL_DEPTH_COMPONENT24, mResX, mResY, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL, false);
+        // <FS:Trish> FSRenderReverseZ: the format it was made with
+        //LLImageGL::setManualImage(internal_type, 0, GL_DEPTH_COMPONENT24, mResX, mResY, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL, false);
+        const U32 depth_format = mFSDepthFormat ? mFSDepthFormat : (U32)GL_DEPTH_COMPONENT24;
+        LLImageGL::setManualImage(internal_type, 0, depth_format, mResX, mResY, GL_DEPTH_COMPONENT,
+                                  depth_format == GL_DEPTH_COMPONENT32F ? GL_FLOAT : GL_UNSIGNED_INT, NULL, false);
+        // </FS:Trish>
 
         sBytesAllocated += pix_diff*4;
     }
@@ -144,7 +150,11 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
     llassert(usage == LLTexUnit::TT_TEXTURE);
     llassert(!isBoundInStack());
 
-    if(mResX == resx && mResY == resy && mUsage == usage && depth == mUseDepth && mGenerateMipMaps == generateMipMaps)
+    // <FS:Trish> FSRenderReverseZ: and a depth buffer of the format the depth convention now wants
+    //if(mResX == resx && mResY == resy && mUsage == usage && depth == mUseDepth && mGenerateMipMaps == generateMipMaps)
+    if(mResX == resx && mResY == resy && mUsage == usage && depth == mUseDepth && mGenerateMipMaps == generateMipMaps &&
+       (!depth || !mDepth || mFSDepthFormat == (U32)FSReverseZ::depthFormat()))
+    // </FS:Trish>
     {
         return true;
     }
@@ -344,7 +354,13 @@ bool LLRenderTarget::allocateDepth()
     U32 internal_type = LLTexUnit::getInternalType(mUsage);
     stop_glerror();
     clear_glerror();
-    LLImageGL::setManualImage(internal_type, 0, GL_DEPTH_COMPONENT24, mResX, mResY, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL, false);
+    // <FS:Trish> FSRenderReverseZ: float depth under reverse-Z (where its precision is spread evenly
+    // in distance), 24 bit fixed point otherwise and for the shadow maps
+    //LLImageGL::setManualImage(internal_type, 0, GL_DEPTH_COMPONENT24, mResX, mResY, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, NULL, false);
+    mFSDepthFormat = (U32)FSReverseZ::depthFormat();
+    LLImageGL::setManualImage(internal_type, 0, mFSDepthFormat, mResX, mResY, GL_DEPTH_COMPONENT,
+                              mFSDepthFormat == GL_DEPTH_COMPONENT32F ? GL_FLOAT : GL_UNSIGNED_INT, NULL, false);
+    // </FS:Trish>
     gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
 
     sBytesAllocated += mResX*mResY*4;
@@ -404,6 +420,7 @@ void LLRenderTarget::release()
         LLImageGL::deleteTextures(1, &mDepth);
 
         mDepth = 0;
+        mFSDepthFormat = 0; // <FS:Trish/> FSRenderReverseZ
 
         sBytesAllocated -= mResX*mResY*4;
     }
@@ -619,6 +636,9 @@ void LLRenderTarget::copyContents(LLRenderTarget& source, S32 srcX0, S32 srcY0, 
     // Firestorm's render targets all allocate depth as
     // GL_DEPTH_COMPONENT24, so the newer Alchemy depth/stencil mismatch
     // fallback is unnecessary here.
+    // <FS:Trish> FSRenderReverseZ: or all as GL_DEPTH_COMPONENT32F, but the shadow maps and their
+    // caches, which only copy among themselves. A depth blit needs both formats alike.
+    // </FS:Trish>
     glBindFramebuffer(GL_READ_FRAMEBUFFER, source.mFBO);
     stop_glerror();
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mFBO);

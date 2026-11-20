@@ -90,6 +90,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "fsgpudrivenlegacy.h"
+#include "fsreversez.h"
 
 #include "fsgddarena.h"
 #include "fsgddcommon.h"
@@ -667,7 +668,7 @@ namespace
         const U32 frame = LLFrameTimer::getFrameCount();
         FSGDDArena& arena = *sPassArena;
         arena.beginFrame(frame);
-        const glm::mat4 proj = gGL.getProjectionMatrix();
+        const glm::mat4 proj = FSReverseZ::rasterProjection(gGL.getProjectionMatrix()); // as LLRender::syncMatrices gives the shaders (FSRenderReverseZ)
         const glm::mat4 view = get_current_modelview();
 
         U64 hash = 0;
