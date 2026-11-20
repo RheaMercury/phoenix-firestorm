@@ -209,6 +209,7 @@ namespace
         { "FSRenderWaterRipplesResolution", CL, VN },
         { "FSRenderWaterRippleFoam", CL, VM },
         { "FSRenderWaterRippleFoamStrength", CL, VM },
+        { "FSRenderWaterWindStrength", CL, VM },
         { "FSRenderSunGlints", CL, VM },
         { "FSRenderSunGlintsIntensity", CL, VM },
         { "FSRenderSunGlintsDensity", CL, VM },

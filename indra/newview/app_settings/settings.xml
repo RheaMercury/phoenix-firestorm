@@ -27614,6 +27614,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderWaterWindStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>How much the region wind moves the interactive water (0 to 2): gusty patches of fine ripples sweeping downwind, and wakes and wake foam carried downwind. Needs FSRenderWaterRipples and FSRenderWindEffects.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
     <key>FSRenderBloomLensDirt</key>
     <map>
       <key>Comment</key>

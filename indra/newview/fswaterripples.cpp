@@ -29,6 +29,7 @@
 
 #include "fswaterripples.h"
 
+#include "fswindfield.h"
 #include "llagent.h"
 #include "llcharacter.h"
 #include "lldrawable.h"
@@ -101,6 +102,34 @@ namespace
     // A grid that could not be allocated is not tried again every frame
     constexpr F64 FAILED_RETRY_SECONDS = 30.0;
 
+    // The region wind (FSRenderWindEffects), at FSRenderWaterWindStrength 1:
+    // - Catspaws: each step pushes a faint noise into the height, fine noise under slow, larger
+    //   gust patches, both world anchored and carried downwind by the wind's drift. The simulation
+    //   turns it into moving ripple texture that mixes with the wakes. No push below WIND_CALM,
+    //   full from WIND_FULL (m/s).
+    constexpr F32 WIND_CALM = 0.5f;
+    constexpr F32 WIND_FULL = 10.f;
+    // Size of the push with full cover (m). Each step pushes this times the share of height the
+    // damping takes per step, so the ripples level off where push and damping balance, about the
+    // same whatever the damping, and never build up (no damping: no push). At the defaults they
+    // settle near 2 mm rms with slopes of a few %, peaking near a walker's wake in gust patches.
+    constexpr F32 WIND_PUSH = 0.04f;
+    // Noise sizes in metres, and the share of the wind's drift each moves with. The fine layers
+    // creep (ripples hardly travel with the wind), the gust patches sweep across.
+    constexpr F64 WIND_FINE_1 = 1.0;
+    constexpr F64 WIND_FINE_2 = 0.5;
+    constexpr F64 WIND_PATCH = 14.0;
+    constexpr F64 WIND_FINE_1_DRIFT = 0.12;
+    constexpr F64 WIND_FINE_2_DRIFT = 0.25;
+    constexpr F64 WIND_PATCH_DRIFT = 0.7;
+    // The shader's noise repeats after this many noise cells (fsWaterRippleSimF.glsl, & 255)
+    constexpr F64 WIND_NOISE_PERIOD = 256.0;
+    // - Surface current: the top of the water moves with the wind at a few % of its speed and
+    //   carries the ripples and wakes with it; foam rides on top and goes a little faster.
+    constexpr F32 SURFACE_DRIFT = 0.03f;
+    constexpr F32 FOAM_DRIFT = 0.02f;           // on top of SURFACE_DRIFT
+    constexpr F32 MAX_SURFACE_SPEED = 0.6f;     // m/s, at the strongest settings
+
     LLGLSLShader sSimProgram;
 
     // Two maps in turn: r height (m), g height a step earlier, b foam. Never destroyed at exit:
@@ -113,6 +142,12 @@ namespace
     S64 sOriginX = 0;      // grid corner, in whole cells of global coordinates
     S64 sOriginY = 0;
     F64 sFailedAt = -1.0;
+
+    // How far the surface current has carried the water (global metres, x east, y north). The
+    // grid lives in the water's frame, world position minus this, so the current moves its
+    // content smoothly, without resampling it: the whole-cell grid shift does the rest. Zero
+    // while the wind is off.
+    LLVector3d sCurrentOffset;
 
     F64 sLastTime = -1.0;      // when update last ran for the main view
     F64 sLastStepTime = -1.0;  // when the simulation last stepped
@@ -390,6 +425,68 @@ namespace
         return settings;
     }
 
+    // What the region wind does to the water this frame (all off unless both FSRenderWindEffects
+    // and the ripples are on, and FSRenderWaterWindStrength is above 0)
+    struct Wind
+    {
+        bool mOn = false;
+        F32 mCover = 0.f;           // catspaw amount: 0 in still air, the strengths at WIND_FULL
+        F32 mGust = 0.f;            // FSWindField's gusts, 0 to 1
+        LLVector3 mCurrent;         // surface current, m/s, x east, y north
+        LLVector3 mFoamCurrent;     // the foam's extra speed on top of it
+        LLVector3d mDrift;          // FSWindField's drift, metres
+    };
+
+    Wind readWind()
+    {
+        static LLCachedControl<F32> water_wind(gSavedSettings, "FSRenderWaterWindStrength", 1.f);
+        Wind wind;
+        const FSWindField::State& state = FSWindField::get();
+        const F32 amount = llclamp(state.mStrength * llclamp((F32)water_wind, 0.f, 2.f), 0.f, 2.f);
+        LLVector3 velocity = state.mVelocity;
+        velocity.mV[VZ] = 0.f;
+        const F32 speed = velocity.length();
+        if (!state.mActive || !(amount > 0.f) || !std::isfinite(speed) || !state.mDrift.isFinite())
+        {
+            return wind;
+        }
+        const F32 t = llclamp((speed - WIND_CALM) / (WIND_FULL - WIND_CALM), 0.f, 1.f);
+        wind.mOn = true;
+        wind.mCover = t * t * (3.f - 2.f * t) * amount;
+        wind.mGust = llclamp(state.mGust, 0.f, 1.f);
+        wind.mDrift = state.mDrift;
+        wind.mCurrent = velocity * (SURFACE_DRIFT * amount);
+        wind.mFoamCurrent = velocity * (FOAM_DRIFT * amount);
+        const F32 current = wind.mCurrent.length();
+        if (current > MAX_SURFACE_SPEED)
+        {
+            const F32 scale = MAX_SURFACE_SPEED / current;
+            wind.mCurrent *= scale;
+            wind.mFoamCurrent *= scale;
+        }
+        return wind;
+    }
+
+    // Wraps a noise coordinate into [0, WIND_NOISE_PERIOD): the shader's noise repeats there, so
+    // the pattern never jumps, and the float the shader gets keeps its precision
+    F32 wrapNoise(F64 v)
+    {
+        F64 w = fmod(v, WIND_NOISE_PERIOD);
+        if (w < 0.0)
+        {
+            w += WIND_NOISE_PERIOD;
+        }
+        return (F32)w;
+    }
+
+    // A noise layer of 'size' metres is left out when it would be under a few cells (it could
+    // only alias), and fades in above
+    F32 noiseWeight(F64 size)
+    {
+        const F32 t = llclamp((F32)((size / sCell - 2.5) / 2.5), 0.f, 1.f);
+        return t * t * (3.f - 2.f * t);
+    }
+
     void gridSettings(S32& res, F64& cell)
     {
         static LLCachedControl<F32> grid_size(gSavedSettings, "FSRenderWaterRipplesGridSize", 64.f);
@@ -400,8 +497,12 @@ namespace
 
     // Runs 'steps' simulation steps: the grid shift and the sources go into the first
     void simulate(LLVertexBuffer* screen_triangle, S32 steps, S32 shift_x, S32 shift_y, const std::vector<Source>& sources,
-                  const Settings& settings)
+                  const Settings& settings, const Wind& wind)
     {
+        static LLStaticHashedString s_wind("fs_ripple_wind");
+        static LLStaticHashedString s_wind_o1("fs_ripple_wind_o1");
+        static LLStaticHashedString s_wind_o2("fs_ripple_wind_o2");
+        static LLStaticHashedString s_wind_s("fs_ripple_wind_s");
         static LLStaticHashedString s_prev("fs_ripple_prev");
         static LLStaticHashedString s_shift("fs_ripple_shift");
         static LLStaticHashedString s_sim("fs_ripple_sim");
@@ -419,12 +520,55 @@ namespace
         const F32 foam_keep = (F32)pow(0.05, STEP / FOAM_SECONDS);
         const F32 foam_gain = settings.mFoam ? FOAM_GAIN * settings.mFoamStrength : 0.f;
 
+        // Wind: catspaw push per step and the noise it is shaped by, and the foam's extra drift
+        // in cells per step (the bilinear read it needs is under a cell)
+        GLfloat wind_params[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat wind_o1[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat wind_o2[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat wind_s[3] = { 0.f, 0.f, 0.f };
+        if (wind.mOn)
+        {
+            // The share of the height the damping takes away per step (see WIND_PUSH)
+            const F32 damped = 1.f - (F32)pow(1.0 - (F64)settings.mDamping, STEP);
+            const F32 weight_1 = noiseWeight(WIND_FINE_1);
+            const F32 weight_2 = noiseWeight(WIND_FINE_2);
+            const F32 push = WIND_PUSH * damped * wind.mCover;
+            if (push > 0.f && std::isfinite(push) && weight_1 + weight_2 > 0.f)
+            {
+                // World position of the grid's corner, then each layer's noise coordinate there
+                const F64 world_x = (F64)sOriginX * sCell + sCurrentOffset.mdV[VX];
+                const F64 world_y = (F64)sOriginY * sCell + sCurrentOffset.mdV[VY];
+                const F64 drift_x = wind.mDrift.mdV[VX];
+                const F64 drift_y = wind.mDrift.mdV[VY];
+                wind_params[0] = push;
+                wind_params[1] = wind.mGust;
+                // The layers' lattices are offset, so they don't line up at the corner
+                wind_o1[0] = wrapNoise((world_x - drift_x * WIND_FINE_1_DRIFT) / WIND_FINE_1);
+                wind_o1[1] = wrapNoise((world_y - drift_y * WIND_FINE_1_DRIFT) / WIND_FINE_1);
+                wind_o1[2] = wrapNoise((world_x - drift_x * WIND_FINE_2_DRIFT) / WIND_FINE_2 + 101.0);
+                wind_o1[3] = wrapNoise((world_y - drift_y * WIND_FINE_2_DRIFT) / WIND_FINE_2 + 37.0);
+                wind_o2[0] = wrapNoise((world_x - drift_x * WIND_PATCH_DRIFT) / WIND_PATCH + 59.0);
+                wind_o2[1] = wrapNoise((world_y - drift_y * WIND_PATCH_DRIFT) / WIND_PATCH + 173.0);
+                wind_o2[2] = weight_1;
+                wind_o2[3] = weight_2;
+                wind_s[0] = (GLfloat)(sCell / WIND_FINE_1);
+                wind_s[1] = (GLfloat)(sCell / WIND_FINE_2);
+                wind_s[2] = (GLfloat)(sCell / WIND_PATCH);
+            }
+            if (foam_gain > 0.f)
+            {
+                wind_params[2] = (GLfloat)llclamp((F64)wind.mFoamCurrent.mV[VX] * STEP / sCell, -0.5, 0.5);
+                wind_params[3] = (GLfloat)llclamp((F64)wind.mFoamCurrent.mV[VY] * STEP / sCell, -0.5, 0.5);
+            }
+        }
+
         // Sources in cells of the grid as it is after this frame's shift
         GLfloat seg[MAX_SOURCES * 4];
         GLfloat src[MAX_SOURCES * 4];
+        // In the water's frame: minus what the surface current carried away (zero without wind)
         const S32 count = llmin((S32)sources.size(), MAX_SOURCES);
-        const F64 corner_x = (F64)sOriginX;
-        const F64 corner_y = (F64)sOriginY;
+        const F64 corner_x = (F64)sOriginX + sCurrentOffset.mdV[VX] / sCell;
+        const F64 corner_y = (F64)sOriginY + sCurrentOffset.mdV[VY] / sCell;
         for (S32 i = 0; i < count; ++i)
         {
             const Source& source = sources[i];
@@ -449,6 +593,10 @@ namespace
         sSimProgram.uniform1i(s_prev, 0);
         sSimProgram.uniform4f(s_sim, k, keep, foam_keep, foam_gain);
         sSimProgram.uniform2f(s_cell, (F32)sCell, (F32)sRes);
+        sSimProgram.uniform4fv(s_wind, 1, wind_params);
+        sSimProgram.uniform4fv(s_wind_o1, 1, wind_o1);
+        sSimProgram.uniform4fv(s_wind_o2, 1, wind_o2);
+        sSimProgram.uniform3fv(s_wind_s, 1, wind_s);
         if (count > 0)
         {
             sSimProgram.uniform4fv(s_seg, count, seg);
@@ -588,18 +736,38 @@ void FSWaterRipples::update(LLVertexBuffer* screen_triangle)
         return; // faster than the step rate: the sources wait for the next step, their wakes join up
     }
 
-    // The grid follows the camera in whole cells, so what is in it stays put in the world. Global
-    // coordinates, so crossing into another region moves nothing.
+    // The wind carries the water: the surface current moves the grid's frame, in the time
+    // simulated this frame
+    const Wind wind = readWind();
+    if (!sValid)
+    {
+        sCurrentOffset.setZero();
+    }
+    else if (wind.mOn && steps > 0)
+    {
+        sCurrentOffset += LLVector3d(wind.mCurrent) * ((F64)steps * STEP);
+    }
+
+    // The grid follows the camera in whole cells, so what is in it stays put in the world (or
+    // moves with the surface current). Global coordinates, so crossing into another region
+    // moves nothing.
     const LLVector3d camera = gAgent.getPosGlobalFromAgent(LLViewerCamera::getInstance()->getOrigin());
-    const S64 origin_x = (S64)floor(camera.mdV[VX] / sCell) - res / 2;
-    const S64 origin_y = (S64)floor(camera.mdV[VY] / sCell) - res / 2;
+    S64 origin_x = (S64)floor((camera.mdV[VX] - sCurrentOffset.mdV[VX]) / sCell) - res / 2;
+    S64 origin_y = (S64)floor((camera.mdV[VY] - sCurrentOffset.mdV[VY]) / sCell) - res / 2;
     S64 shift_x = origin_x - sOriginX;
     S64 shift_y = origin_y - sOriginY;
     if (!sValid || llabs(shift_x) >= res / 2 || llabs(shift_y) >= res / 2)
     {
-        // Starting, or a jump (teleport, a camera far away): flat water and fresh sources
+        // Starting, or a jump (teleport, a camera far away): flat water and fresh sources, and
+        // nothing left for the current to have carried
         clearMaps();
         sTracks.clear();
+        if (sCurrentOffset != LLVector3d::zero)
+        {
+            sCurrentOffset.setZero();
+            origin_x = (S64)floor(camera.mdV[VX] / sCell) - res / 2;
+            origin_y = (S64)floor(camera.mdV[VY] / sCell) - res / 2;
+        }
         shift_x = 0;
         shift_y = 0;
         sValid = true;
@@ -617,7 +785,7 @@ void FSWaterRipples::update(LLVertexBuffer* screen_triangle)
     gatherSources(sources, camera, 0.5 * sCell * res, (F32)(steps * STEP), now, settings);
 
     LL_PROFILE_GPU_ZONE("water ripples sim");
-    simulate(screen_triangle, steps, (S32)shift_x, (S32)shift_y, sources, settings);
+    simulate(screen_triangle, steps, (S32)shift_x, (S32)shift_y, sources, settings, wind);
 }
 
 S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
@@ -645,7 +813,9 @@ S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
 
     sMaps[sCurrent]->bindTexture(0, unit, LLTexUnit::TFO_BILINEAR);
 
-    const LLVector3 corner = gAgent.getPosAgentFromGlobal(LLVector3d((F64)sOriginX * sCell, (F64)sOriginY * sCell, 0.0));
+    // The grid is in the water's frame: where the surface current has carried it
+    const LLVector3 corner = gAgent.getPosAgentFromGlobal(LLVector3d((F64)sOriginX * sCell + sCurrentOffset.mdV[VX],
+                                                                     (F64)sOriginY * sCell + sCurrentOffset.mdV[VY], 0.0));
     const F32 size = (F32)(sCell * sRes);
     shader.uniform4f(s_grid, corner.mV[VX], corner.mV[VY], 1.f / size, 1.f / (F32)sRes);
 
@@ -662,6 +832,7 @@ void FSWaterRipples::release()
     sTracks.clear();
     sRes = 0;
     sCell = 0.0;
+    sCurrentOffset.setZero();
     sAccum = 0.0;
     sLastTime = -1.0;
     sLastStepTime = -1.0;
