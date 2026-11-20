@@ -1546,6 +1546,15 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     }
     // </FS:Trish>
 
+    // <FS:Trish> Multiple-scattering energy compensation (deferredUtil.glsl pbrIbl and pbrPunctual): a
+    // global define because the shared deferredUtil.glsl reads it
+    static LLCachedControl<bool> fs_multiscatter(gSavedSettings, "FSRenderMultiscatter", false);
+    if (fs_multiscatter)
+    {
+        attribs["FS_MULTISCATTER"] = "1";
+    }
+    // </FS:Trish>
+
     LLGLSLShader::sGlobalDefines = attribs;
     sRiggedLocalOrigin = attribs.count("RIGGED_LOCAL_ORIGIN") != 0; // <FS:Trish/>
 

@@ -650,6 +650,57 @@ float fsMicroShadow(float nl, float ao)
     return mix(1.0, micro, min(fs_micro_shadow, 1.0));
 }
 
+// <FS:Trish> FSRenderMultiscatter (off by default): multiple-scattering energy compensation.
+//
+// Single-scatter GGX returns only the light that leaves the microsurface after one bounce; the
+// rest is lost, up to about 40 % on rough metal, which therefore reads too dark under probes and
+// lamps. Fdez-Aguera 2019 ("A Multiple-Scattering Microfacet Model for Real-Time Image-based
+// Lighting") for the probes, from the same split-sum LUT (A = brdf.x, B = brdf.y):
+//   Ess = A + B (directional albedo at F0 = 1), Ems = 1 - Ess
+//   FssEss = F0 A + B, Favg = F0 + (1 - F0) / 21, Fms = FssEss Favg / (1 - Ems Favg)
+//   specular = FssEss radiance + Fms Ems irradiance
+// The multiple-scatter lobe is near diffuse, so it takes the irradiance. The diffuse layer keeps
+// what the dielectric (F0 = 0.04) single and multiple scattering leave, relative to the 0.96
+// calcDiffuseSpecular already took off, so it is unchanged at normal incidence on a smooth surface.
+//
+// White furnace: a metal with F0 = 1 under uniform white light (radiance = irradiance = 1) gets
+// FssEss = Ess, Favg = 1, Fms = Ess / (1 - Ems) = 1, so specular = Ess + Ems = 1 at every
+// roughness, where single scattering alone gives Ess (about 0.6 at roughness 1).
+//
+// What made an earlier attempt look self-lit, avoided here: Ess is A + B, not F0 A + B (whose
+// reciprocal explodes on dielectrics); the single-scatter term is not boosted by 1 / Ess on top of
+// the Fms term, and the diffuse gives up what the specular gains; under a legacy sky the classic
+// branch decodes the irradiance as sRGB, so the multiple-scatter term does the same; and nothing is
+// added while a probe is captured (cube_snapshot), or each capture would brighten the next.
+#ifdef FS_MULTISCATTER
+uniform int cube_snapshot;
+
+void fsMultiscatterIbl(vec3 specularColor, vec2 brdf, vec3 irradiance, out vec3 ms, out float kd)
+{
+    ms = vec3(0.0);
+    kd = 1.0;
+    if (cube_snapshot != 0)
+    {
+        return;
+    }
+    float Ess = clamp(brdf.x + brdf.y, 0.0, 1.0);
+    float Ems = 1.0 - Ess;
+
+    vec3 FssEss = specularColor * brdf.x + brdf.y;
+    vec3 Favg = specularColor + (1.0 - specularColor) / 21.0;
+    vec3 Fms = FssEss * Favg / (1.0 - Ems * Favg);
+    vec3 irr = classic_mode > 0 ? srgb_to_linear(irradiance * 0.9) : irradiance;
+    ms = Fms * Ems * irr;
+
+    const float F0d = 0.04;
+    float FssEss_d = F0d * brdf.x + brdf.y;
+    float Favg_d = F0d + (1.0 - F0d) / 21.0;
+    float Fms_d = FssEss_d * Favg_d / (1.0 - Ems * Favg_d);
+    kd = clamp((1.0 - FssEss_d - Fms_d * Ems) / (1.0 - F0d), 0.0, 1.0);
+}
+#endif
+// </FS:Trish>
+
 // set colorDiffuse and colorSpec to the results of GLTF PBR style IBL
 void pbrIbl(vec3 diffuseColor,
             vec3 specularColor,
@@ -666,9 +717,20 @@ void pbrIbl(vec3 diffuseColor,
     // Keep Firestorm's established single-scatter response. The added multiple-scattering
     // compensation raised rough reflective materials enough to look self-lit under probes.
     vec2 brdf = BRDF(clamp(nv, 0.0, 1.0), 1.0-perceptualRough);
+    // <FS:Trish> FSRenderMultiscatter: the energy single scattering loses, added back
+    //// Multi-bounce (see gtaoMultiBounce), as the classic branch of pbrBaseLight applies it
+    //diffuseOut = irradiance * diffuseColor * gtaoMultiBounce(ao, diffuseColor);
+    //specularOut = radiance * (specularColor * brdf.x + brdf.y) * fsSpecularOcclusion(ao, nv, perceptualRough);
+    vec3 FssEss = specularColor * brdf.x + brdf.y;
+    vec3 ms = vec3(0.0);
+    float kd = 1.0;
+#ifdef FS_MULTISCATTER
+    fsMultiscatterIbl(specularColor, brdf, irradiance, ms, kd);
+#endif
     // Multi-bounce (see gtaoMultiBounce), as the classic branch of pbrBaseLight applies it
-    diffuseOut = irradiance * diffuseColor * gtaoMultiBounce(ao, diffuseColor);
-    specularOut = radiance * (specularColor * brdf.x + brdf.y) * fsSpecularOcclusion(ao, nv, perceptualRough);
+    diffuseOut = irradiance * diffuseColor * (gtaoMultiBounce(ao, diffuseColor) * kd);
+    specularOut = (radiance * FssEss + ms) * fsSpecularOcclusion(ao, nv, perceptualRough);
+    // </FS:Trish>
 }
 
 
@@ -741,6 +803,16 @@ float microfacetDistribution(PBRInfo pbrInputs)
     return roughnessSq / (M_PI * f * f);
 }
 
+// <FS:Trish> FSRenderMultiscatter: the compensation for the surface pbrPunctual saw last. Every light
+// of a pixel shades the same surface, so the LUT is read once a pixel instead of once a light; the
+// inputs are compared, so a different surface gets its own factor (the same result as before).
+#ifdef FS_MULTISCATTER
+vec3 fs_ms_factor = vec3(1.0);
+vec4 fs_ms_key = vec4(-1.0);    // specularColor, perceptualRoughness
+float fs_ms_nv = -1.0;          // NdotV
+#endif
+// </FS:Trish>
+
 void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
                     float perceptualRoughness,
                     float metallic,
@@ -804,6 +876,25 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
 
     diff = diffuseContrib;
     spec = specContrib;
+    // <FS:Trish> FSRenderMultiscatter: Turquin 2019 for the punctual lobe, F0 (1 / Ess - 1) more,
+    // see fsMultiscatterIbl. Per light, as each light pass sums its own; the factor is the same for
+    // every light of a pixel, so this equals applying it once to the summed specular. Not while a
+    // probe is captured, as for the probes.
+#ifdef FS_MULTISCATTER
+    if (cube_snapshot == 0)
+    {
+        //spec *= pbrEnergyCompensation(specularColor, perceptualRoughness, NdotV);
+        vec4 fs_key = vec4(specularColor, perceptualRoughness);
+        if (any(notEqual(fs_key, fs_ms_key)) || NdotV != fs_ms_nv)
+        {
+            fs_ms_factor = pbrEnergyCompensation(specularColor, perceptualRoughness, NdotV);
+            fs_ms_key = fs_key;
+            fs_ms_nv = NdotV;
+        }
+        spec *= fs_ms_factor;
+    }
+#endif
+    // </FS:Trish>
 }
 
 vec3 pbrCalcPointLightOrSpotLight(vec3 diffuseColor, vec3 specularColor,

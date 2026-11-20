@@ -336,6 +336,7 @@ namespace
         { "FSRenderMicroShadows", CL, VM },
         { "FSRenderSpecularOcclusionStrength", CL, VM },
         { "FSRenderMicroShadowsStrength", CL, VM },
+        { "FSRenderMultiscatter", CL, VM },
         { "RenderAlphaBlendShadows", CM, VM },
         { "RLVaDebugSphereUseOpaqueDepth", CL, VN },
         { "RenderAMDDisableShaderCache", CL, VN },
