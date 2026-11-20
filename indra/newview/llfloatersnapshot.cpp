@@ -144,6 +144,26 @@ LLSnapshotLivePreview* LLFloaterSnapshotBase::ImplBase::getPreviewView()
     return previewp;
 }
 
+// <FS:Trish> Avatars only snapshot: its include options, usable while it is the chosen layer
+static const char* const FS_AVATARS_ONLY_OPTIONS[] =
+{
+    "avatars_only_animesh_check",
+    "avatars_only_sit_check",
+    "avatars_only_particles_check",
+    "avatars_only_selected_check",
+};
+
+static void fs_update_avatars_only_options(LLFloaterSnapshotBase* floater)
+{
+    const bool enabled = floater->getChildView("layer_types")->getEnabled() &&
+                         floater->getChild<LLUICtrl>("layer_types")->getValue().asString() == "avatars_alpha";
+    for (const char* name : FS_AVATARS_ONLY_OPTIONS)
+    {
+        floater->getChildView(name)->setEnabled(enabled);
+    }
+}
+// </FS:Trish>
+
 // virtual
 LLSnapshotModel::ESnapshotLayerType LLFloaterSnapshot::Impl::getLayerType(LLFloaterSnapshotBase* floater)
 {
@@ -481,6 +501,7 @@ void LLFloaterSnapshot::Impl::updateControls(LLFloaterSnapshotBase* floater)
       default:
         break;
     }
+    fs_update_avatars_only_options(floater); // <FS:Trish/> Avatars only snapshot
     // <FS:Ansariel> FIRE-16885: Aspect ratio checkbox enabled state sometimes is wrong
     //setAspectRatioCheckboxValue(floater, !floater->impl->mAspectRatioCheckOff && gSavedSettings.getBOOL("KeepAspectForSnapshot"));
     setAspectRatioCheckboxValue(floater, gSavedSettings.getBOOL("KeepAspectForSnapshot"));
@@ -943,11 +964,27 @@ void LLFloaterSnapshot::Impl::onCommitLayerTypes(LLUICtrl* ctrl, void*data)
             gSavedSettings.setS32("SnapshotFormat", LLSnapshotModel::SNAPSHOT_FORMAT_PNG);
             view->impl->updateControls(view);
         }
+        fs_update_avatars_only_options(view); // the include options follow the layer
         // </FS:Trish>
         view->impl->checkAutoSnapshot(previewp, true);
         previewp->updateSnapshot(true, true);
     }
 }
+
+// <FS:Trish> Avatars only snapshot: an include option changed (its checkbox saved the setting),
+// take the preview again with it
+// static
+void LLFloaterSnapshot::Impl::onCommitAvatarsOnlyOption(LLUICtrl* ctrl, void* data)
+{
+    LLFloaterSnapshot* view = (LLFloaterSnapshot*)data;
+    LLSnapshotLivePreview* previewp = view ? view->getPreviewView() : nullptr;
+    if (previewp)
+    {
+        view->impl->checkAutoSnapshot(previewp, true);
+        previewp->updateSnapshot(true, true);
+    }
+}
+// </FS:Trish>
 
 void LLFloaterSnapshot::Impl::onImageQualityChange(LLFloaterSnapshotBase* view, S32 quality_val)
 {
@@ -1171,6 +1208,13 @@ bool LLFloaterSnapshot::postBuild()
     childSetCommitCallback("layer_types", Impl::onCommitLayerTypes, this);
     getChild<LLUICtrl>("layer_types")->setValue("colors");
     getChildView("layer_types")->setEnabled(false);
+    // <FS:Trish> Avatars only snapshot: the include options
+    for (const char* name : FS_AVATARS_ONLY_OPTIONS)
+    {
+        childSetCommitCallback(name, Impl::onCommitAvatarsOnlyOption, this);
+    }
+    fs_update_avatars_only_options(this);
+    // </FS:Trish>
 
     mFreezeFrameCheck = getChild<LLUICtrl>("freeze_frame_check");
     mFreezeFrameCheck->setValue(gSavedSettings.getBOOL("UseFreezeFrame"));

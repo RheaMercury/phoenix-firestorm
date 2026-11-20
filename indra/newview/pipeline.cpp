@@ -90,6 +90,7 @@
 #include "llviewerregion.h" // for audio debugging.
 #include "llviewerwindow.h" // For getSpinAxis
 #include "llvoavatarself.h"
+#include "llcontrolavatar.h" // <FS:Trish/> Avatars only snapshot
 #include "llvocache.h"
 #include "llvosky.h"
 #include "llvowlsky.h"
@@ -481,6 +482,15 @@ S32     LLPipeline::sReflectionProbeLevel = (S32)LLReflectionMap::ProbeLevel::NO
 S32     LLPipeline::sVisibleLightCount = 0;
 bool    LLPipeline::sRenderingHUDs;
 S32     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF; // <FS:Trish/>
+// <FS:Trish> Avatars only snapshot: include options
+bool    LLPipeline::sAvatarOnlyAnimesh = true;
+bool    LLPipeline::sAvatarOnlySitObjects = false;
+bool    LLPipeline::sAvatarOnlyParticles = false;
+bool    LLPipeline::sAvatarOnlySelectedObjects = false;
+std::set<const LLViewerObject*> LLPipeline::sAvatarOnlySelectedRoots;
+static void fs_check_avatar_only_session();
+static void fs_end_avatar_only_session(bool restore);
+// </FS:Trish>
 F32     LLPipeline::sDistortionWaterClipPlaneMargin = 1.0125f;
 LLVector3 LLPipeline::sLastFocusPoint={};// <FS:Beq/> FIRE-16728 focus point lock & free focus DoF 
 bool    LLPipeline::sDoFEnabled = false;
@@ -880,6 +890,7 @@ void LLPipeline::cleanup()
     assertInitialized();
 
     FSParallelCull::shutdown(); // <FS:Trish/> FSPerfParallelShadowCull workers
+    fs_end_avatar_only_session(false); // <FS:Trish/> avatars only snapshot preview: let go of the drawables it kept
 
     mGroupQ1.clear() ;
 
@@ -3075,10 +3086,11 @@ void LLPipeline::updateCull(LLCamera& camera, LLCullResult& result, bool hud_att
         {
             // <FS:Trish> Avatars only snapshot: avatars, animesh, and the bridges attachments live in
             // (LLSpatialBridge::setVisible drops the bridges that belong to neither)
-            if (avatars_only &&
-                i != LLViewerRegion::PARTITION_BRIDGE &&
-                i != LLViewerRegion::PARTITION_AVATAR &&
-                i != LLViewerRegion::PARTITION_CONTROL_AV)
+            //if (avatars_only &&
+            //    i != LLViewerRegion::PARTITION_BRIDGE &&
+            //    i != LLViewerRegion::PARTITION_AVATAR &&
+            //    i != LLViewerRegion::PARTITION_CONTROL_AV)
+            if (avatars_only && !isAvatarOnlyPartition(i))
             {
                 continue;
             }
@@ -3409,6 +3421,14 @@ static F32 sFSGroupRebuildMs = 0.f;
 // Drawables that must be updated this frame even when the rebuild queue is over its time budget.
 static bool fs_is_priority_drawable_rebuild(LLDrawable* drawablep)
 {
+    // A snapshot's passes must all see the same geometry: an avatars only snapshot compares its
+    // black and white passes, and a selected static linkset made active for it gets the bridge it
+    // is drawn from in the first pass's rebuild (LLPipeline::beginAvatarOnlySnapshot), its root and
+    // unselected parts too. Nothing waits during a snapshot.
+    if (gSnapshot)
+    {
+        return true;
+    }
     LLViewerObject* vobj = drawablep->getVObj();
     if (!vobj || vobj->isAvatar() || vobj->isSelected() || vobj->isHUDAttachment())
     {
@@ -3490,6 +3510,14 @@ void LLPipeline::updateGeom(F32 max_dtime)
     }
 
     assertInitialized();
+
+    // <FS:Trish> Avatars only snapshot: the preview session's selected linksets go back to static
+    // once it is over, before this frame's rebuilds
+    if (!gSnapshot && !mAvatarOnlyActivated.empty())
+    {
+        fs_check_avatar_only_session();
+    }
+    // </FS:Trish>
 
     // notify various object types to reset internal cost metrics, etc.
     // for now, only LLVOVolume does this to throttle LOD changes
@@ -4097,6 +4125,14 @@ void LLPipeline::stateSort(LLDrawable* drawablep, LLCamera& camera)
         {
             return;
         }
+
+        // <FS:Trish> Avatars only snapshot: an animesh the include options leave out doesn't draw
+        // its impostor either (its rigged meshes are dropped with its bridge)
+        if (isAvatarOnlyRender() && !isAvatarOnlyObject(avatarp))
+        {
+            return;
+        }
+        // </FS:Trish>
     }
 
     assertInitialized();
@@ -20633,8 +20669,9 @@ void LLPipeline::initDeferredVB()
 // <FS:Trish> Avatars only snapshot.
 // LLViewerWindow::rawSnapshot renders each tile four times: the full scene, which sets the
 // exposure and the SSR history and keeps shadow maps and reflection probes up to date, then the
-// main camera with only avatars, their attachments and animesh, first over a black background,
-// then over a white one, and finally the coverage mask. Shadow maps, reflection probes, water
+// main camera with only avatars, their attachments and what the include options add (animesh by
+// default, see isAvatarOnlyObject), first over a black background, then over a white one, and
+// finally the coverage mask. Shadow maps, reflection probes, water
 // reflections and HUDs still see the whole scene, so the avatars keep the lighting they have in
 // the world.
 //
@@ -20699,6 +20736,267 @@ bool LLPipeline::canRenderAvatarOnly()
            gFSAvatarMatteProgram.isComplete() &&
            // The vision sphere is a restriction, a cut-out of the avatars would get around it
            !RlvActions::hasBehaviour(RLV_BHVR_SETSPHERE);
+}
+
+// The include options. Options inspired by secondlife/viewer#6074 (shadoskill), built into the
+// black and white passes here: whatever isAvatarOnlyObject keeps is drawn exactly like an
+// attachment, over black and then over white, so the matte gives it the same soft coverage as hair
+// and other blended edges. Its alpha comes from comparing the two renders, so unlike that PR no
+// extra pass has to stamp a silhouette into the alpha channel, and nothing else changes in how the
+// passes draw.
+
+// The partitions the avatars only passes cull: the bridges attachments, seats and the selection
+// live in, avatars and animesh, and with attachment particles on the world's particles, whose groups
+// are then built with the attachments' particles only (LLParticlePartition::addGeometryCount).
+//static
+bool LLPipeline::isAvatarOnlyPartition(U32 partition)
+{
+    return partition == LLViewerRegion::PARTITION_BRIDGE ||
+           partition == LLViewerRegion::PARTITION_AVATAR ||
+           partition == LLViewerRegion::PARTITION_CONTROL_AV ||
+           (sAvatarOnlyParticles && partition == LLViewerRegion::PARTITION_PARTICLE);
+}
+
+// root is the root object of a spatial bridge (LLSpatialBridge::setVisible, also on the parallel
+// cull's worker threads: it only reads object state and what beginAvatarOnlySnapshot gathered
+// before the passes) or an avatar (stateSort, where an animesh's impostor is drawn from).
+//static
+bool LLPipeline::isAvatarOnlyObject(const LLViewerObject* root)
+{
+    if (!root || root->isDead())
+    {
+        return false;
+    }
+
+    if (root->isAvatar())
+    {
+        const LLVOAvatar* avatarp = static_cast<const LLVOAvatar*>(root);
+        if (!avatarp->isControlAvatar())
+        {
+            return true;
+        }
+        // An animesh is judged by its linkset
+        root = static_cast<const LLControlAvatar*>(avatarp)->mRootVolp;
+        if (!root || root->isDead())
+        {
+            return false;
+        }
+    }
+
+    // Attachments, worn animesh included
+    if (root->isAttachment())
+    {
+        return true;
+    }
+
+    if (sAvatarOnlyAnimesh && root->isAnimatedObject())
+    {
+        return true;
+    }
+
+    // A sitting avatar is a child of the root of the linkset it sits on, and that already gave the
+    // linkset a bridge of its own (LLViewerObject::setDrawableParent makes the parent of an active
+    // drawable active), so seats pass this filter without being touched.
+    if (sAvatarOnlySitObjects && root->isSeat())
+    {
+        return true;
+    }
+
+    return sAvatarOnlySelectedObjects && sAvatarOnlySelectedRoots.count(root) > 0;
+}
+
+// Switches the avatars only pass. With attachment particles on, the world's particle groups are
+// rebuilt when the passes start and when they end, so they hold the attachments' particles only
+// while the passes run. The black and white passes share that build: nothing moves particles
+// between them, so the matte compares the same particles.
+//static
+void LLPipeline::setAvatarOnlyPass(S32 pass)
+{
+    const bool was_on = sAvatarOnlyPass != AVATAR_ONLY_OFF;
+    const bool is_on = pass != AVATAR_ONLY_OFF;
+    sAvatarOnlyPass = pass;
+    if (was_on != is_on && sAvatarOnlyParticles)
+    {
+        gPipeline.dirtyAvatarOnlyParticles();
+    }
+}
+
+namespace
+{
+    class FSAvatarOnlyDirtyParticles : public OctreeTraveler
+    {
+    public:
+        void visit(const OctreeNode* branch) override
+        {
+            LLSpatialGroup* group = (LLSpatialGroup*)branch->getListener(0);
+            if (group && !group->isDead())
+            {
+                group->dirtyGeom();
+                gPipeline.markRebuild(group);
+            }
+        }
+    };
+}
+
+void LLPipeline::dirtyAvatarOnlyParticles()
+{
+    FSAvatarOnlyDirtyParticles dirty;
+    for (LLViewerRegion* region : LLWorld::getInstance()->getRegionList())
+    {
+        LLSpatialPartition* part = region->getSpatialPartition(LLViewerRegion::PARTITION_PARTICLE);
+        if (part && part->mOctree)
+        {
+            dirty.traverse(part->mOctree);
+        }
+    }
+}
+
+namespace
+{
+    // The avatars only snapshot preview session (see fs_check_avatar_only_session)
+    constexpr F64 FS_AVATAR_ONLY_SESSION_SECONDS = 60.0;
+    std::set<const LLViewerObject*> sFSAvatarOnlySessionRoots; // compared only, never dereferenced
+    F64 sFSAvatarOnlyLastSnapshot = 0.0;
+    bool sFSAvatarOnlySelectionChanged = false;
+    boost::signals2::connection sFSAvatarOnlySelectionConnection;
+
+    // Whole linksets, also when single prims are selected. Whatever can be selected is already in
+    // view; RLVa's edit restrictions keep the rest out of the selection.
+    void fs_avatar_only_selected_roots(std::set<const LLViewerObject*>& roots)
+    {
+        roots.clear();
+        LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
+        for (LLObjectSelection::iterator iter = selection->begin(); iter != selection->end(); ++iter)
+        {
+            LLViewerObject* object = (*iter)->getObject();
+            LLViewerObject* root = object ? object->getRootEdit() : nullptr;
+            if (!root || root->isDead() || root->isAvatar() || root->isAttachment())
+            {
+                continue; // attachments are in already, HUDs never
+            }
+            roots.insert(root);
+        }
+    }
+
+    // Whether nothing but the session keeps this linkset active
+    bool fs_avatar_only_can_restore(LLDrawable* drawable)
+    {
+        LLViewerObject* root = drawable->getVObj();
+        if (!root || root->isDead() || root->isAttachment() || root->isFlexible() || root->isAnimatedObject() ||
+            root->getVelocity().lengthSquared() > 0.f || root->getAngularVelocity().lengthSquared() > 0.f)
+        {
+            return false;
+        }
+        for (LLViewerObject* child : root->getChildren())
+        {
+            if (child && (child->isAvatar() || child->isFlexible() || child->getVelocity().lengthSquared() > 0.f))
+            {
+                return false; // a sitting avatar, or a part that moves on its own
+            }
+        }
+        return true;
+    }
+}
+
+// Reads the include options once for the whole snapshot and gathers the selection
+void LLPipeline::beginAvatarOnlySnapshot()
+{
+    static LLCachedControl<bool> animesh(gSavedSettings, "FSSnapshotAvatarsOnlyAnimesh", true);
+    static LLCachedControl<bool> sit_objects(gSavedSettings, "FSSnapshotAvatarsOnlySitObjects", false);
+    static LLCachedControl<bool> particles(gSavedSettings, "FSSnapshotAvatarsOnlyParticles", false);
+    static LLCachedControl<bool> selected_objects(gSavedSettings, "FSSnapshotAvatarsOnlySelectedObjects", false);
+    sAvatarOnlyAnimesh = animesh;
+    sAvatarOnlySitObjects = sit_objects;
+    sAvatarOnlyParticles = particles;
+    sAvatarOnlySelectedObjects = selected_objects;
+    sAvatarOnlySelectedRoots.clear();
+
+    if (!sAvatarOnlySelectedObjects)
+    {
+        fs_end_avatar_only_session(true);
+        return;
+    }
+
+    fs_avatar_only_selected_roots(sAvatarOnlySelectedRoots);
+    if (sAvatarOnlySelectedRoots != sFSAvatarOnlySessionRoots)
+    {
+        fs_end_avatar_only_session(true); // another selection: what the last one made active goes back
+    }
+    sFSAvatarOnlySessionRoots = sAvatarOnlySelectedRoots;
+    sFSAvatarOnlyLastSnapshot = LLFrameTimer::getElapsedSeconds();
+    sFSAvatarOnlySelectionChanged = false;
+
+    for (const LLViewerObject* root : sAvatarOnlySelectedRoots)
+    {
+        // A static linkset shares its octree groups, and their batched geometry, with whatever is
+        // near it, so it can't be drawn on its own. makeActive() gives it a bridge of its own, as
+        // happens when an object starts to move. The snapshot's first, full scene pass rebuilds its
+        // geometry. It stays active for the rest of the preview session (fs_check_avatar_only_session):
+        // making it active and static again for each preview refresh rebuilt it and the groups
+        // around it twice a refresh.
+        LLDrawable* drawable = root->mDrawable;
+        if (drawable && !drawable->isDead() && drawable->isStatic() && drawable->getVOVolume())
+        {
+            drawable->makeActive();
+            mAvatarOnlyActivated.push_back(drawable);
+        }
+    }
+    if (!mAvatarOnlyActivated.empty() && !sFSAvatarOnlySelectionConnection.connected())
+    {
+        sFSAvatarOnlySelectionConnection =
+            LLSelectMgr::getInstance()->mUpdateSignal.connect([]() { sFSAvatarOnlySelectionChanged = true; });
+    }
+}
+
+void LLPipeline::endAvatarOnlySnapshot()
+{
+    setAvatarOnlyPass(AVATAR_ONLY_OFF);
+    sAvatarOnlySelectedRoots.clear();
+    // The linksets made active stay so until the preview session ends (fs_check_avatar_only_session)
+}
+
+// Once a frame while the preview session holds linksets it made active. It ends when the snapshot
+// floater closes, the selected objects option is turned off, the selection changes, or no avatars
+// only snapshot was taken for a minute (the floater left open on another layer).
+static void fs_check_avatar_only_session()
+{
+    static LLCachedControl<bool> selected_objects(gSavedSettings, "FSSnapshotAvatarsOnlySelectedObjects", false);
+    bool over = !selected_objects || !LLFloaterReg::instanceVisible("snapshot") ||
+                LLFrameTimer::getElapsedSeconds() - sFSAvatarOnlyLastSnapshot > FS_AVATAR_ONLY_SESSION_SECONDS;
+    if (!over && sFSAvatarOnlySelectionChanged)
+    {
+        // The signal also fires when the selection's properties arrive: only another set of
+        // linksets ends the session
+        sFSAvatarOnlySelectionChanged = false;
+        std::set<const LLViewerObject*> roots;
+        fs_avatar_only_selected_roots(roots);
+        over = roots != sFSAvatarOnlySessionRoots;
+    }
+    if (over)
+    {
+        fs_end_avatar_only_session(true);
+    }
+}
+
+// Makes the linksets the session made active static again (restore), or only lets go of them
+// (shutdown). Not one that has since become active for a reason of its own (it moves, an avatar
+// sits on it, it turned flexible or animated): the viewer keeps those active, as it would have.
+static void fs_end_avatar_only_session(bool restore)
+{
+    if (restore)
+    {
+        for (LLPointer<LLDrawable>& drawable : gPipeline.mAvatarOnlyActivated)
+        {
+            if (drawable.notNull() && !drawable->isDead() && drawable->isActive() && fs_avatar_only_can_restore(drawable))
+            {
+                drawable->makeStatic(false);
+            }
+        }
+    }
+    gPipeline.mAvatarOnlyActivated.clear();
+    sFSAvatarOnlySessionRoots.clear();
+    sFSAvatarOnlySelectionChanged = false;
+    sFSAvatarOnlySelectionConnection.disconnect();
 }
 
 // Fill every pixel no geometry was drawn to with the background level. The point sits just in
@@ -20769,6 +21067,8 @@ bool LLPipeline::renderAvatarOnlyMatte()
 
     static LLStaticHashedString s_output_alpha("output_alpha");
     static LLStaticHashedString s_bg_level("bg_level");
+    static LLStaticHashedString s_exposure("exposure");
+    static LLCachedControl<F32> exposure(gSavedSettings, "RenderExposure", 1.f);
 
     LLGLDepthTest depth(GL_FALSE, GL_FALSE);
     LLGLDisable blend(GL_BLEND);
@@ -20782,6 +21082,9 @@ bool LLPipeline::renderAvatarOnlyMatte()
         gFSAvatarMatteProgram.bindTexture(LLShaderMgr::ALTERNATE_DIFFUSE_MAP, &mRT->screen, false, LLTexUnit::TFO_POINT);
         gFSAvatarMatteProgram.uniform1f(s_bg_level, FS_AVATAR_ONLY_WHITE_LEVEL);
         gFSAvatarMatteProgram.uniform1i(s_output_alpha, output_alpha);
+        // Where white is after exposure, for additive light (attachment particles)
+        gFSAvatarMatteProgram.bindTexture(LLShaderMgr::EXPOSURE_MAP, &mExposureMap);
+        gFSAvatarMatteProgram.uniform1f(s_exposure, llclamp((F32)exposure, 0.5f, 4.f)); // as the tone mapper clamps it
         fs_draw_screen_triangle(mScreenTriangleVB);
         gFSAvatarMatteProgram.unbind();
         dst.flush();

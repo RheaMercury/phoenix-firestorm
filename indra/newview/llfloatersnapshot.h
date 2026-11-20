@@ -198,6 +198,7 @@ public:
     void applyKeepAspectCheck(LLFloaterSnapshotBase* view, bool checked);
     void updateResolution(LLUICtrl* ctrl, void* data, bool do_update = true);
     static void onCommitLayerTypes(LLUICtrl* ctrl, void*data);
+    static void onCommitAvatarsOnlyOption(LLUICtrl* ctrl, void* data); // <FS:Trish/> Avatars only snapshot
     void onImageQualityChange(LLFloaterSnapshotBase* view, S32 quality_val);
     void onImageFormatChange(LLFloaterSnapshotBase* view);
     void applyCustomResolution(LLFloaterSnapshotBase* view, S32 w, S32 h);

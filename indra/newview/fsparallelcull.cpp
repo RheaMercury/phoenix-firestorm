@@ -836,10 +836,7 @@ namespace
     // updateCull's partition filter for a world camera or probe face (not the HUD)
     bool fs_main_cull_partition(LLPipeline& pipeline, LLSpatialPartition* part, U32 i, bool avatars_only)
     {
-        if (avatars_only &&
-            i != LLViewerRegion::PARTITION_BRIDGE &&
-            i != LLViewerRegion::PARTITION_AVATAR &&
-            i != LLViewerRegion::PARTITION_CONTROL_AV)
+        if (avatars_only && !LLPipeline::isAvatarOnlyPartition(i))
         {
             return false;
         }

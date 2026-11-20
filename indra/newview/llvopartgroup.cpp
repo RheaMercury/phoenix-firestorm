@@ -202,6 +202,32 @@ LLDrawable* LLVOPartGroup::createDrawable(LLPipeline *pipeline)
  }
 
 
+// <FS:Trish> Avatars only snapshot: particles a script in a worn attachment emits. Beams, spirals
+// and the other viewer effects are left out, as is anything rezzed in world.
+bool LLVOPartGroup::isAttachmentPart(S32 idx) const
+{
+    if (idx < 0 || idx >= (S32)mViewerPartGroupp->mParticles.size())
+    {
+        return false;
+    }
+
+    const LLViewerPart* part = mViewerPartGroupp->mParticles[idx];
+    if (!part || part->mPartSourcep.isNull() || part->mPartSourcep->getType() != LLViewerPartSource::LL_PART_SOURCE_SCRIPT)
+    {
+        return false;
+    }
+
+    const LLViewerObject* source = part->mPartSourcep->mSourceObjectp;
+    if (!source || source->isDead())
+    {
+        return false;
+    }
+
+    const LLViewerObject* root = source->getRootEdit();
+    return root && root->isAttachment() && !root->isHUDAttachment();
+}
+// </FS:Trish>
+
 F32 LLVOPartGroup::getPartSize(S32 idx)
 {
     if (idx < (S32) mViewerPartGroupp->mParticles.size())
@@ -757,6 +783,14 @@ void LLParticlePartition::addGeometryCount(LLSpatialGroup* group, U32& vertex_co
     mFaceList.clear();
 
     LLViewerCamera* camera = LLViewerCamera::getInstance();
+    // <FS:Trish> Avatars only snapshot with attachment particles: while its passes run, the world's
+    // particle groups are built with the particles from attachments only. Groups mix particles from
+    // any source that happen to be close together, so the filter is per particle rather than per
+    // group. LLPipeline::setAvatarOnlyPass rebuilds them on the way in and out.
+    const bool attachment_parts_only = LLPipeline::sAvatarOnlyPass != LLPipeline::AVATAR_ONLY_OFF &&
+                                       LLPipeline::sAvatarOnlyParticles &&
+                                       mPartitionType == LLViewerRegion::PARTITION_PARTICLE;
+    // </FS:Trish>
     for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
     {
         LLDrawable* drawablep = (LLDrawable*)(*i)->getDrawable();
@@ -779,6 +813,13 @@ void LLParticlePartition::addGeometryCount(LLSpatialGroup* group, U32& vertex_co
             {
                 continue;
             }
+
+            // <FS:Trish> Avatars only snapshot
+            if (attachment_parts_only && !((LLVOPartGroup*)obj)->isAttachmentPart(facep->getTEOffset()))
+            {
+                continue;
+            }
+            // </FS:Trish>
 
             vertex_count += facep->getGeomCount();
             index_count += facep->getIndicesCount();

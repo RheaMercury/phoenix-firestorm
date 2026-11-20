@@ -6604,6 +6604,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
             avatars_only = false;
         }
     }
+    if (avatars_only)
+    {
+        gPipeline.beginAvatarOnlySnapshot(); // the include options, read once for every tile
+    }
     // </FS:Trish>
 
     bool high_res = scale_factor >= 2.f; // Font scaling is slow, only do so if rez is much higher
@@ -6658,17 +6662,17 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                 // back buffer that was just swapped. The flag is cleared before each of them.
                 if (avatars_only)
                 {
-                    LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
+                    LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_OFF);
                     LLPipeline::sUseOcclusion = avatars_only_old_occlusion;
                     display(do_rebuild, scale_factor, subfield, true);
 
                     // Occlusion results from an almost empty frame would leak into the next normal ones
                     LLPipeline::sUseOcclusion = 0;
-                    LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_BLACK;
+                    LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_BLACK);
                     gDisplaySwapBuffers = false;
                     display(do_rebuild, scale_factor, subfield, true);
 
-                    LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_WHITE;
+                    LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_WHITE);
                     gDisplaySwapBuffers = false;
                 }
                 // </FS:Trish>
@@ -6811,10 +6815,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                 // into avatar_alpha at the same place
                 if (avatars_only)
                 {
-                    LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_ALPHA;
+                    LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_ALPHA);
                     gDisplaySwapBuffers = false; // or the coverage would be put on screen
                     display(do_rebuild, scale_factor, subfield, true);
-                    LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
+                    LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_OFF);
                     LLPipeline::sUseOcclusion = avatars_only_old_occlusion;
 
                     // one read for the tile, as the colour above
@@ -6846,7 +6850,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
     // <FS:Trish> Avatars only snapshot
     if (avatars_only)
     {
-        LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
+        gPipeline.endAvatarOnlySnapshot(); // ends the passes; the selection goes static again when the preview session ends
         LLPipeline::sUseOcclusion = avatars_only_old_occlusion;
         gPipeline.releaseAvatarOnlyTargets();
 

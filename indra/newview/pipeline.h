@@ -1008,6 +1008,22 @@ public:
     void presentAvatarOnlyAlpha();
     void releaseAvatarOnlyTargets();
 
+    // <FS:Trish> What an avatars only snapshot includes besides avatars and attachments, read from
+    // the settings by beginAvatarOnlySnapshot(). Options inspired by secondlife/viewer#6074 (shadoskill).
+    static bool             sAvatarOnlyAnimesh;         // FSSnapshotAvatarsOnlyAnimesh: animesh that is not worn
+    static bool             sAvatarOnlySitObjects;      // FSSnapshotAvatarsOnlySitObjects: the linksets avatars sit on
+    static bool             sAvatarOnlyParticles;       // FSSnapshotAvatarsOnlyParticles: particles scripts in attachments emit
+    static bool             sAvatarOnlySelectedObjects; // FSSnapshotAvatarsOnlySelectedObjects: the linksets in the selection
+    static std::set<const LLViewerObject*> sAvatarOnlySelectedRoots;
+    static void             setAvatarOnlyPass(S32 pass);
+    static bool             isAvatarOnlyPartition(U32 partition);           // culled by the avatars only passes
+    static bool             isAvatarOnlyObject(const LLViewerObject* root); // kept by the avatars only passes
+    void beginAvatarOnlySnapshot();
+    void endAvatarOnlySnapshot();
+    void dirtyAvatarOnlyParticles();
+    std::vector<LLPointer<LLDrawable> > mAvatarOnlyActivated; // static selected roots given a bridge for the snapshot
+    // </FS:Trish>
+
     // <FS:Trish> Weighted blended order-independent transparency (FSRenderAlphaWBOIT). One target,
     // two colour attachments: RGBA16F rgb = sum(colour * alpha * weight), a = product(1 - alpha),
     // and R16F sum(alpha * weight). Shares the main camera's depth buffer, never written.

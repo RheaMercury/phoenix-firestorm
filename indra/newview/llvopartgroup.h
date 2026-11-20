@@ -95,6 +95,7 @@ public:
     void getBlendFunc(S32 idx, LLRender::eBlendFactor& src, LLRender::eBlendFactor& dst);
     LLUUID getPartOwner(S32 idx);
     LLUUID getPartSource(S32 idx);
+    bool isAttachmentPart(S32 idx) const; // <FS:Trish/> Avatars only snapshot: emitted by a script in a worn, non-HUD attachment
 
     void setViewerPartGroup(LLViewerPartGroup *part_groupp)     { mViewerPartGroupp = part_groupp; }
     LLViewerPartGroup* getViewerPartGroup() { return mViewerPartGroupp; }
