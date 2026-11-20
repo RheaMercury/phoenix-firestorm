@@ -6649,6 +6649,13 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                 // <FS:Trish> Avatars only snapshot: the full scene first, for the exposure, the
                 // reflections, shadows and probes the avatar passes reuse, then the avatars over
                 // black. The display() below is the pass over white, whose colour is read as usual.
+                //
+                // Under deferred rendering display() drops for_snapshot and ends with swap(), which
+                // swaps only when gDisplaySwapBuffers is set and then sets it. A plain snapshot runs
+                // one display() per tile after the reset above, so it never swaps. Every pass after the
+                // first would put its own frame on screen -- the avatars over black, over white, then
+                // the white-on-black coverage -- and the colour and coverage would then be read from a
+                // back buffer that was just swapped. The flag is cleared before each of them.
                 if (avatars_only)
                 {
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
@@ -6658,9 +6665,11 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                     // Occlusion results from an almost empty frame would leak into the next normal ones
                     LLPipeline::sUseOcclusion = 0;
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_BLACK;
+                    gDisplaySwapBuffers = false;
                     display(do_rebuild, scale_factor, subfield, true);
 
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_WHITE;
+                    gDisplaySwapBuffers = false;
                 }
                 // </FS:Trish>
                 display(do_rebuild, scale_factor, subfield, true);
@@ -6766,6 +6775,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                 if (avatars_only)
                 {
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_ALPHA;
+                    gDisplaySwapBuffers = false; // or the coverage would be put on screen
                     display(do_rebuild, scale_factor, subfield, true);
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
                     LLPipeline::sUseOcclusion = avatars_only_old_occlusion;
