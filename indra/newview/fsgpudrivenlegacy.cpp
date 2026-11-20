@@ -140,10 +140,13 @@ namespace
                       "FSPerfGPUDrivenLegacyArenaMB", 512, 8, LLVertexBuffer::MAP_NORMAL);
     // FSPerfGPUDrivenRigged: the same plus the joint weights, for the rigged passes, so rigged buffers neither
     // crowd the static ones out nor make every vertex of the first arena carry weights. The same size limit, its own.
+    // Most rigged meshes are PBR or have materials now, so this one usually holds a few MB: with
+    // FSAutoSizeResources and no peak remembered it starts at an eighth of the usual first size (its 66 MB
+    // first allocation held 1 MB in a busy scene).
     FSGDDArena sRiggedArena("FSPerfGPUDrivenRigged legacy arena",
                             { LLVertexBuffer::TYPE_VERTEX, LLVertexBuffer::TYPE_NORMAL, LLVertexBuffer::TYPE_TEXCOORD0,
                               LLVertexBuffer::TYPE_COLOR, LLVertexBuffer::TYPE_WEIGHT4 },
-                            "FSPerfGPUDrivenLegacyArenaMB", 512, 8, LLVertexBuffer::MAP_NORMAL);
+                            "FSPerfGPUDrivenLegacyArenaMB", 512, 8, LLVertexBuffer::MAP_NORMAL, 8);
 
     struct Record       // fs_gdd_draw
     {

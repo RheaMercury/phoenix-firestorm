@@ -29,6 +29,7 @@
 
 #include "fsgddarena.h"
 
+#include "llagent.h" // FSAutoSizeResources: no shrink to fit during a teleport
 #include "llframetimer.h" // shrink interval
 #include "llgl.h"
 #include "fsglstream.h"
@@ -71,6 +72,69 @@ namespace
     // its first allocation would be dropped and refilled to the same size at every sweep.
     constexpr U32 FS_GDD_FIRST_VERTS = 1u << 20;
     constexpr U32 FS_GDD_FIRST_INDICES = 3u << 20;
+
+    // FSAutoSizeResources. The fixed sizes above suit the big arenas, but in a busy scene the arenas held about
+    // 1 GB of video memory for about 560 MB in use, and the rigged legacy one 66 MB (its first size) for 1 MB.
+    //  - First size: a quarter more than the arena's peak use in the last session (FSGDDArenaPeaks), between
+    //    FS_GDD_FIRST_*_MIN and the fixed first size: a first size only saves the first growths' copies, and
+    //    the fixed one stays the most any arena starts with. Without history an arena that usually holds
+    //    little starts at a share of it (the constructor's first_share).
+    //  - Growth: doubling while the arena holds less than FS_GDD_SLOW_GROWTH_BYTES, so start-up isn't many
+    //    copies; past that by half, so a growth leaves a third of the arena free rather than half.
+    //  - Shrink to fit: when the use has stayed within a tenth for FS_GDD_FIT_STABLE_SECONDS, video memory is
+    //    tight (the texture bias is up, or less than FS_GDD_FIT_TIGHT_FREE_MB is free), and the arena holds at
+    //    least FS_GDD_FIT_TRIGGER_TENTHS / 10 of what it uses and FS_GDD_FIT_MIN_GAIN more, it is dropped and
+    //    refills (as after any drop: copies on the GPU over a few frames, the stock path drawing what isn't back
+    //    yet) at FS_GDD_FIT_REFILL_TENTHS / 10 of its use. A refill at 1.3 is below the 1.6 that drops it, and
+    //    a growth by half from there (1.95 for 1.3 used, 1.5) is too, so it can't drop again without the use
+    //    falling. At most once every FS_GDD_FIT_INTERVAL seconds, never during a teleport or in the first
+    //    FS_GDD_FIT_REGION_SETTLE seconds in a region, when the scene is still coming in.
+    constexpr U32 FS_GDD_FIRST_VERTS_MIN = 64u << 10;
+    constexpr U32 FS_GDD_FIRST_INDICES_MIN = 192u << 10;
+    constexpr U64 FS_GDD_SLOW_GROWTH_BYTES = 128ull << 20;
+    constexpr F64 FS_GDD_FIT_STABLE_SECONDS = 180.0;
+    constexpr F32 FS_GDD_FIT_TIGHT_FREE_MB = 1024.f;
+    constexpr U64 FS_GDD_FIT_TRIGGER_TENTHS = 16;
+    constexpr U64 FS_GDD_FIT_REFILL_TENTHS = 13;
+    constexpr U64 FS_GDD_FIT_MIN_GAIN = 32ull << 20;
+    constexpr F64 FS_GDD_FIT_INTERVAL = 300.0;
+    constexpr F64 FS_GDD_FIT_REGION_SETTLE = 180.0;
+    // After a shrink to fit the refill waits this long for room (the memory it gave back shows as free a frame
+    // or so later) before it falls back to growing from the first size
+    constexpr F64 FS_GDD_FIT_REFILL_WAIT = 30.0;
+    // A session's peak is remembered once the arena has been in use this long (a short visit says little),
+    // and written again whenever it grew by a tenth
+    constexpr F64 FS_GDD_PEAK_SAVE_AFTER = 300.0;
+    // Before growing, an arena first drops the copies no pass drew for this many frames (a couple of seconds).
+    // Its use counts every copy until the sweep forgets it (FS_GDD_EVICT_AFTER frames unused), and a rebuild
+    // makes a new vertex buffer, so after the camera moved, the draw distance changed or avatars rezzed, much of
+    // a full arena was copies of buffers already freed or out of view. It grew over them, and then at the limit
+    // step (allocate) dropped everything not drawn in the last two frames, so the growth landed with the arena
+    // mostly empty (432 MB allocated for 53 MB drawn), the sweep then dropped the whole arena as over four times
+    // its use, and the refills grew it again. While a growth that covers what is short is waiting for its check,
+    // that limit step waits for it too, rather than emptying the arena it is about to enlarge.
+    constexpr U32 FS_GDD_STALE_EVICT_AFTER = 120;
+
+    bool fs_auto_size()
+    {
+        static LLCachedControl<bool> auto_size(gSavedSettings, "FSAutoSizeResources", true);
+        return auto_size;
+    }
+
+    // Seconds since the agent arrived in its region or was last teleporting. The region pointer is only
+    // compared, never followed.
+    F64 fs_since_region_change(F64 now)
+    {
+        static const LLViewerRegion* s_region = nullptr;
+        static F64 s_changed = 0.0;
+        const LLViewerRegion* region = gAgent.getRegion();
+        if (region != s_region || gAgent.getTeleportState() != LLAgent::TELEPORT_NONE)
+        {
+            s_region = region;
+            s_changed = now;
+        }
+        return now - s_changed;
+    }
 
     // A growth that isn't checked at once (FS_GDD_GROW_CHECK_FREE_MB) is checked in stream order instead,
     // without waiting: the render thread (or the main thread, without one) reads the new buffer's size and
@@ -216,12 +280,13 @@ const char* FSGDDArena::failName(U32 reason)
 }
 
 FSGDDArena::FSGDDArena(const char* name, const std::vector<U32>& types, const char* budget_setting, S32 default_mb, U32 index_share,
-                       U32 optional_mask)
+                       U32 optional_mask, U32 first_share)
     : mName(name)
     , mTypes(types)
     , mBudgetSetting(budget_setting)
     , mDefaultMB(default_mb)
     , mIndexShare(llmax(index_share, 2u))
+    , mFirstShare(llmax(first_share, 1u))
 {
     static U32 s_next_slot = 0;
     mSlot = s_next_slot++; // past LLVertexBuffer::FS_ARENA_SLOTS: no cache, the map alone
@@ -535,11 +600,13 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
     U32 max_indices = 0;
     limits(frame, max_verts, max_indices);
 
-    for (U32 attempt = 0; attempt < 3; ++attempt)
+    // both tried, so a failure grows only the allocator that is short
+    bool verts_fit = false;
+    bool indices_fit = false;
+    auto fit = [&]()
     {
-        // both tried, so a failure grows only the allocator that is short
-        const bool verts_fit = mVerts.allocate(verts, vertex_offset);
-        const bool indices_fit = mIndices.allocate(indices, index_offset);
+        verts_fit = mVerts.allocate(verts, vertex_offset);
+        indices_fit = mIndices.allocate(indices, index_offset);
         if (verts_fit && indices_fit)
         {
             return true;
@@ -552,12 +619,42 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
         {
             mIndices.release(index_offset, indices);
         }
+        return false;
+    };
+    for (U32 attempt = 0; attempt < 3; ++attempt)
+    {
+        if (fit())
+        {
+            return true;
+        }
 
         if (attempt == 0)
-        {   // grow, doubling, up to the limit; every attribute buffer by the same number of vertices
+        {
+            // FSAutoSizeResources: room from copies no pass drew for a while first (FS_GDD_STALE_EVICT_AFTER)
+            U64 stale_bytes = 0;
+            const bool auto_size = fs_auto_size();
+            if (auto_size && mStaleEvictFrame != frame)
+            {
+                mStaleEvictFrame = frame;
+                const U64 before = usedBytes();
+                evict(frame, FS_GDD_STALE_EVICT_AFTER);
+                stale_bytes = before - usedBytes();
+                if (stale_bytes && fit())
+                {
+                    return true;
+                }
+            }
+            // grow, doubling, up to the limit; every attribute buffer by the same number of vertices
             // and after a drop, straight back to the size it had in use (mRefillVerts)
-            const U32 want_verts = llmin(max_verts, llmax(llmax(mVerts.capacity() * 2, mRefillVerts), llmax(verts * 4, FS_GDD_FIRST_VERTS)));
-            const U32 want_indices = llmin(max_indices, llmax(llmax(mIndices.capacity() * 2, mRefillIndices), llmax(indices * 4, FS_GDD_FIRST_INDICES)));
+            // FSAutoSizeResources: the first size from history, and growth by half once the arena is big
+            U32 first_verts = FS_GDD_FIRST_VERTS;
+            U32 first_indices = FS_GDD_FIRST_INDICES;
+            firstSize(first_verts, first_indices);
+            const bool slow_growth = fs_auto_size() && mGLBytes >= FS_GDD_SLOW_GROWTH_BYTES;
+            const U32 grown_verts = slow_growth ? mVerts.capacity() + mVerts.capacity() / 2 : mVerts.capacity() * 2;
+            const U32 grown_indices = slow_growth ? mIndices.capacity() + mIndices.capacity() / 2 : mIndices.capacity() * 2;
+            const U32 want_verts = llmin(max_verts, llmax(llmax(grown_verts, mRefillVerts), llmax(verts * 4, first_verts)));
+            const U32 want_indices = llmin(max_indices, llmax(llmax(grown_indices, mRefillIndices), llmax(indices * 4, first_indices)));
             // Growing allocates the bigger buffer beside the old one and copies into it, and
             // the arenas are not part of the texture budget. With video memory already at its target the
             // driver has to evict to make room: on Linux NVIDIA that blocked inside the allocation for
@@ -574,28 +671,69 @@ bool FSGDDArena::allocate(U32 verts, U32 indices, U32 frame, U32& vertex_offset,
                 }
             }
             constexpr F32 GROW_HEADROOM_MB = 256.f;
-            const bool room = (F32)(grow_bytes >> 20) + GROW_HEADROOM_MB <= LLViewerTexture::sFreeVRAMMegabytes &&
-                              LLFrameTimer::getElapsedSeconds() >= mGrowBlockedUntil; // nor after a growth failed
-            if (!room)
+            // FSAutoSizeResources: the refill after a shrink to fit takes less than the arena just gave back, so
+            // it needs no headroom beyond its size, and waits for that room (the memory given back shows as free
+            // a frame or so later) instead of giving up on the refill size
+            const F64 grow_now = LLFrameTimer::getElapsedSeconds();
+            const bool fit_refill = grow_now < mFitRefillUntil && (mRefillVerts || mRefillIndices);
+            const bool room = (F32)(grow_bytes >> 20) + (fit_refill ? 0.f : GROW_HEADROOM_MB) <= LLViewerTexture::sFreeVRAMMegabytes &&
+                              grow_now >= mGrowBlockedUntil; // nor after a growth failed
+            if (!room && !fit_refill)
             {   // no room to refill in one step: grow by doubling from here, as far as there is room
                 mRefillVerts = 0;
                 mRefillIndices = 0;
             }
+            // FSAutoSizeResources: why each growth happened, measured when it is decided (see FS_GDD_STALE_EVICT_AFTER)
+            auto log_growth = [&](bool grew_verts, U32 want, U32 capacity_before, U32 largest_before, U64 bytes_before)
+            {
+                const FSGDDRangeAllocator& range = grew_verts ? mVerts : mIndices;
+                const U32 request = grew_verts ? verts : indices;
+                LL_INFOS("FSGPUDriven") << mName << ": its " << (grew_verts ? "vertices" : "indices") << " grow from "
+                                        << capacity_before << " to " << want << " (" << (U32)(bytes_before >> 20) << " MB allocated, "
+                                        << (U32)(usedBytes() >> 20) << " MB in use, " << (U32)(usedBytes() * 100 / llmax(bytes_before, (U64)1))
+                                        << "%): a copy of " << request << " found no free range (largest " << largest_before
+                                        << ", " << (capacity_before - range.used()) << " free in all) after dropping "
+                                        << (U32)(stale_bytes >> 20) << " MB of copies not drawn for " << FS_GDD_STALE_EVICT_AFTER
+                                        << " frames (FSAutoSizeResources)" << LL_ENDL;
+            };
             // A growth that has to wait for its check goes on drawing from the old buffers meanwhile; the
             // other one (vertices or indices) starts after it
             if (grow_verts && room)
             {
+                const bool idle = mGrowBuffers.empty();
+                const U32 capacity_before = mVerts.capacity();
+                const U32 largest_before = mVerts.largestFree();
+                const U64 bytes_before = mGLBytes;
                 startGrowth(true, want_verts);
+                if (auto_size && idle && (!mGrowBuffers.empty() || mVerts.capacity() > capacity_before))
+                {
+                    log_growth(true, want_verts, capacity_before, largest_before, bytes_before);
+                }
             }
             if (grow_indices && room && LLFrameTimer::getElapsedSeconds() >= mGrowBlockedUntil)
             {
+                const bool idle = mGrowBuffers.empty();
+                const U32 capacity_before = mIndices.capacity();
+                const U32 largest_before = mIndices.largestFree();
+                const U64 bytes_before = mGLBytes;
                 startGrowth(false, want_indices);
+                if (auto_size && idle && (!mGrowBuffers.empty() || mIndices.capacity() > capacity_before))
+                {
+                    log_growth(false, want_indices, capacity_before, largest_before, bytes_before);
+                }
             }
         }
         else if (attempt == 1)
         {   // at the limit: drop what no pass used in this frame or the last one (entries used this frame are
             // still referenced by commands not yet drawn). Once per frame: a second walk this frame would
             // find nothing new to drop
+            // FSAutoSizeResources: not while a growth that gives room to what is short waits for its check (a
+            // frame or two): what doesn't fit meanwhile is drawn the old way, and the arena keeps the copies
+            // it is growing for (FS_GDD_STALE_EVICT_AFTER)
+            if (fs_auto_size() && !mGrowBuffers.empty() && (verts_fit || mGrowVerts) && (indices_fit || !mGrowVerts))
+            {
+                break;
+            }
             if (mEvictFrame == frame)
             {
                 break;
@@ -637,7 +775,10 @@ void FSGDDArena::beginFrame(U32 frame)
         // and give back what the arena grew to but no longer uses. Here, before this frame's first
         // lookup: no command of this frame refers to it yet, and the driver keeps the buffers the last
         // frame's commands read alive until they are drawn.
-        const U64 first_bytes = (U64)FS_GDD_FIRST_VERTS * mStride + (U64)FS_GDD_FIRST_INDICES * sizeof(U16);
+        U32 first_verts = FS_GDD_FIRST_VERTS;
+        U32 first_indices = FS_GDD_FIRST_INDICES;
+        firstSize(first_verts, first_indices); // FSAutoSizeResources: this arena's first size
+        const U64 first_bytes = (U64)first_verts * mStride + (U64)first_indices * sizeof(U16);
         const F64 now = LLFrameTimer::getElapsedSeconds();
         if (mGLBytes >= FS_GDD_SHRINK_MIN_BYTES && mGLBytes >= 2 * first_bytes &&
             usedBytes() * FS_GDD_SHRINK_USED_SHARE < mGLBytes && now - mLastShrink >= FS_GDD_SHRINK_INTERVAL &&
@@ -665,7 +806,154 @@ void FSGDDArena::beginFrame(U32 frame)
                 mRefillIndices = (U32)llmin((U64)used_indices * 2, (U64)U32_MAX / 4);
             }
         }
+        if (fs_auto_size())
+        {
+            notePeak(now);
+            fitWhenTight(now);
+        }
     }
+}
+
+// FSAutoSizeResources: the first allocation's size (verts, indices); the fixed one with the setting off
+void FSGDDArena::firstSize(U32& verts, U32& indices)
+{
+    verts = FS_GDD_FIRST_VERTS;
+    indices = FS_GDD_FIRST_INDICES;
+    if (!fs_auto_size())
+    {
+        return;
+    }
+    if (!mHistoryLoaded)
+    {
+        loadHistory();
+    }
+    if (mHistoryVerts || mHistoryIndices)
+    {
+        verts = (U32)llclamp((U64)mHistoryVerts + mHistoryVerts / 4, (U64)FS_GDD_FIRST_VERTS_MIN, (U64)FS_GDD_FIRST_VERTS);
+        indices = (U32)llclamp((U64)mHistoryIndices + mHistoryIndices / 4, (U64)FS_GDD_FIRST_INDICES_MIN, (U64)FS_GDD_FIRST_INDICES);
+    }
+    else
+    {
+        verts = llmax(FS_GDD_FIRST_VERTS / mFirstShare, FS_GDD_FIRST_VERTS_MIN);
+        indices = llmax(FS_GDD_FIRST_INDICES / mFirstShare, FS_GDD_FIRST_INDICES_MIN);
+    }
+}
+
+// The last session's peak use of this arena, from FSGDDArenaPeaks (a map of arena name to [vertices, indices]).
+// Read once, before this session writes its own.
+void FSGDDArena::loadHistory()
+{
+    mHistoryLoaded = true;
+    const LLSD peaks = gSavedSettings.getLLSD("FSGDDArenaPeaks");
+    if (peaks.isMap() && peaks.has(mName))
+    {
+        const LLSD& entry = peaks[mName];
+        if (entry.isArray() && entry.size() == 2)
+        {
+            mHistoryVerts = (U32)llclamp(entry[0].asInteger(), 0, S32_MAX / 64);
+            mHistoryIndices = (U32)llclamp(entry[1].asInteger(), 0, S32_MAX / 4);
+        }
+    }
+    U32 verts = 0;
+    U32 indices = 0;
+    firstSize(verts, indices);
+    const U64 first_mb = ((U64)verts * mStride + (U64)indices * sizeof(U16)) >> 20;
+    if (mHistoryVerts || mHistoryIndices)
+    {
+        LL_INFOS("FSGPUDriven") << mName << ": first size " << verts << " vertices, " << indices << " indices (" << first_mb
+                                << " MB), a quarter over the last session's peak use of " << mHistoryVerts << " and "
+                                << mHistoryIndices << " (FSAutoSizeResources)" << LL_ENDL;
+    }
+    else if (mFirstShare > 1)
+    {
+        LL_INFOS("FSGPUDriven") << mName << ": first size " << verts << " vertices, " << indices << " indices (" << first_mb
+                                << " MB), no peak remembered and this arena usually holds little (FSAutoSizeResources)" << LL_ENDL;
+    }
+}
+
+// This session's peak use, remembered for the next once the arena has been in use for a while. Written to
+// the setting only when it grew by a tenth, so a handful of times a session; saved with the settings at exit.
+void FSGDDArena::notePeak(F64 now)
+{
+    mPeakVerts = llmax(mPeakVerts, mVerts.used());
+    mPeakIndices = llmax(mPeakIndices, mIndices.used());
+    if (!mPeakVerts && !mPeakIndices)
+    {
+        return;
+    }
+    if (mActiveSince < 0.0)
+    {
+        mActiveSince = now;
+    }
+    if (now - mActiveSince < FS_GDD_PEAK_SAVE_AFTER ||
+        (mSavedPeakVerts && mPeakVerts <= mSavedPeakVerts + mSavedPeakVerts / 10 &&
+         mPeakIndices <= mSavedPeakIndices + mSavedPeakIndices / 10))
+    {
+        return;
+    }
+    if (!mHistoryLoaded)
+    {
+        loadHistory(); // the last session's peak is read before this one replaces it
+    }
+    mSavedPeakVerts = mPeakVerts;
+    mSavedPeakIndices = mPeakIndices;
+    LLSD peaks = gSavedSettings.getLLSD("FSGDDArenaPeaks");
+    if (!peaks.isMap())
+    {
+        peaks = LLSD::emptyMap();
+    }
+    LLSD entry = LLSD::emptyArray();
+    entry.append((LLSD::Integer)llmin(mPeakVerts, (U32)S32_MAX));
+    entry.append((LLSD::Integer)llmin(mPeakIndices, (U32)S32_MAX));
+    peaks[mName] = entry;
+    gSavedSettings.setLLSD("FSGDDArenaPeaks", peaks);
+}
+
+// Gives back what the arena holds beyond its use while video memory is tight and the use has settled (see the
+// FSAutoSizeResources constants at the top). Here, at a sweep before this frame's first lookup, like the drop above.
+void FSGDDArena::fitWhenTight(F64 now)
+{
+    const U64 used = usedBytes();
+    if (used > mStableRef + mStableRef / 10 || used + mStableRef / 10 < mStableRef)
+    {   // the use moved: the clock starts again
+        mStableRef = used;
+        mStableSince = now;
+        return;
+    }
+    if (!mGLBytes || !mGrowBuffers.empty() || now - mStableSince < FS_GDD_FIT_STABLE_SECONDS ||
+        now - mLastShrink < FS_GDD_FIT_INTERVAL)
+    {
+        return;
+    }
+    const bool tight = LLViewerTexture::sDesiredDiscardBias > 1.f || LLViewerTexture::sFreeVRAMMegabytes < FS_GDD_FIT_TIGHT_FREE_MB;
+    if (!tight || fs_since_region_change(now) < FS_GDD_FIT_REGION_SETTLE)
+    {
+        return;
+    }
+    // the refill never takes less than the first size (allocate)
+    U32 first_verts = 0;
+    U32 first_indices = 0;
+    firstSize(first_verts, first_indices);
+    const U32 used_verts = mVerts.used();
+    const U32 used_indices = mIndices.used();
+    const U32 refill_verts = (U32)llmin((U64)used_verts * FS_GDD_FIT_REFILL_TENTHS / 10, (U64)U32_MAX / 64);
+    const U32 refill_indices = (U32)llmin((U64)used_indices * FS_GDD_FIT_REFILL_TENTHS / 10, (U64)U32_MAX / 4);
+    const U64 refill_bytes = (U64)llmax(refill_verts, first_verts) * mStride + (U64)llmax(refill_indices, first_indices) * sizeof(U16);
+    if (mGLBytes * 10 < used * FS_GDD_FIT_TRIGGER_TENTHS || mGLBytes < refill_bytes + FS_GDD_FIT_MIN_GAIN)
+    {
+        return;
+    }
+    LL_INFOS("FSGPUDriven") << mName << ": " << allocatedMB() << " MB allocated, " << (U32)(used >> 20) << " MB in use, steady for "
+                            << (S32)(now - mStableSince) << " s while video memory is tight (texture bias "
+                            << llformat("%.2f", LLViewerTexture::sDesiredDiscardBias) << ", " << (S32)LLViewerTexture::sFreeVRAMMegabytes
+                            << " MB free); dropped, it refills at " << (U32)(refill_bytes >> 20) << " MB (FSAutoSizeResources)" << LL_ENDL;
+    releaseGL();
+    mLastShrink = now;
+    mRefillVerts = refill_verts;
+    mRefillIndices = refill_indices;
+    mFitRefillUntil = now + FS_GDD_FIT_REFILL_WAIT;
+    mStableRef = 0;
+    mStableSince = now;
 }
 
 FSGDDArenaEntry* FSGDDArena::peek(const LLVertexBuffer* vb)

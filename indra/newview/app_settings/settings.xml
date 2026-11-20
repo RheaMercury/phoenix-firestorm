@@ -31024,7 +31024,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSTextureBiasSoftZone</key>
     <map>
       <key>Comment</key>
-      <string>Fraction of the texture memory target below it where the discard bias starts rising gently, so usage levels off before reaching the target instead of overflowing and dropping texture detail all at once. The bias comes back down once usage is 5% below this zone. 0 disables (0-0.5).</string>
+      <string>Fraction of the texture memory target below it where the discard bias starts rising gently, so usage levels off before reaching the target instead of overflowing and dropping texture detail all at once. The bias comes back down once usage is below this zone, to the level it last ran out of memory at, and further once usage is 15% of the target below the zone. 0 disables (0-0.5). With FSTextureUseLiveVRAM the zone is on top of FSTextureVRAMReserveMB, and also leaves room for the GPU-driven draw arenas to grow without pushing textures over the target.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -31046,13 +31046,35 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSTextureVRAMReserveMB</key>
     <map>
       <key>Comment</key>
-      <string>With FSTextureUseLiveVRAM, video memory in MB kept free on the GPU. Textures are reduced when less than this is left. Keep it above what the driver holds back for itself: when the GPU fills up, the driver moves memory out to system RAM to keep roughly 1-1.5 GB free, so a smaller reserve is never reached.</string>
+      <string>With FSTextureUseLiveVRAM, video memory in MB kept free on the GPU. Textures are reduced when less than this is left. Keep it above what the driver holds back for itself: when the GPU fills up, the driver moves memory out to system RAM to keep roughly 1-1.5 GB free, so a smaller reserve is never reached. 0 (the default): with FSAutoSizeResources, 12% of the card's video memory, between 1536 and 3072 MB (8 GB card 1536, 16 GB 1966, 24 GB 2949); without it, 2048.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>2048</integer>
+      <integer>0</integer>
+    </map>
+    <key>FSAutoSizeResources</key>
+    <map>
+      <key>Comment</key>
+      <string>Size internal memory to the graphics card and to what the scene actually uses, instead of fixed sizes: the GPU-driven draw arenas start at about their peak use of the last session, drop copies no pass drew for 120 frames before growing, grow by half rather than doubling once over 128 MB, and give back what they hold beyond their use when it has been steady for a few minutes while video memory is tight; the GPU-driven upload ring is sized for the most a frame needed in the last minute; and FSTextureVRAMReserveMB left at 0 is sized from the card. Nothing here changes what is drawn. Off: the fixed sizes as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>FSGDDArenaPeaks</key>
+    <map>
+      <key>Comment</key>
+      <string>Written by the viewer (FSAutoSizeResources): the peak use, in vertices and indices, of each GPU-driven draw arena in the last session, for the size of its first allocation in the next.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <map />
     </map>
     <key>FSShowAutorespondInNametag</key>
     <map>

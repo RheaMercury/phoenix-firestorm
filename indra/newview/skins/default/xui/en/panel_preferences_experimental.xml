@@ -8093,7 +8093,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2489"
+                 height="2545"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -9446,6 +9446,30 @@
                      tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
                      top="2451"
                      width="100" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> FSAutoSizeResources -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="perf_heading_resources"
+                     top="2487"
+                     width="340">
+                        Memory sizes
+                    </text>
+                    <check_box
+                     control_name="FSAutoSizeResources"
+                     follows="left|top"
+                     height="20"
+                     label="Size internal memory to the graphics card and the scene"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsautosizeresources"
+                     tool_tip="Sizes that used to be fixed follow the graphics card and what the scene actually uses. The GPU-driven draw arenas start at about what they held at most in your last session, make room by dropping copies not drawn for a couple of seconds before they grow, grow in smaller steps once they are large, and give back memory they no longer use after it has been steady for a few minutes while video memory is short. The GPU-driven upload ring is sized for the most a frame needed in the last minute. With live video memory on, the memory kept free for the system (when left at 0) is 12% of the card, between 1.5 and 3 GB. Nothing here changes what is drawn. Off: the fixed sizes as before."
+                     top="2511"
+                     width="475" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

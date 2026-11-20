@@ -610,7 +610,11 @@ void LLViewerTexture::updateClass()
     // doesn't grow with our textures, so it is kept as an amount rather than a ratio, which
     // would shrink the target by the same factor and leave too little room after a teleport.
     static LLCachedControl<bool> use_live_vram(gSavedSettings, "FSTextureUseLiveVRAM", false);
-    static LLCachedControl<U32> live_vram_reserve(gSavedSettings, "FSTextureVRAMReserveMB", 2048);
+    // <FS:Trish> FSAutoSizeResources: 0 (the default) sizes the reserve from the card, see below
+    //static LLCachedControl<U32> live_vram_reserve(gSavedSettings, "FSTextureVRAMReserveMB", 2048);
+    static LLCachedControl<U32> live_vram_reserve(gSavedSettings, "FSTextureVRAMReserveMB", 0);
+    static LLCachedControl<bool> fs_auto_size(gSavedSettings, "FSAutoSizeResources", true);
+    // </FS:Trish>
     //
     // The driver hands freed memory back late. Right after the bias drops textures, what we
     // track has already shrunk but the free figure hasn't grown yet, so for a moment it looks as
@@ -638,8 +642,31 @@ void LLViewerTexture::updateClass()
             if (live_vram_free >= 0)
             {
                 const F64 now = LLTimer::getTotalSeconds();
-                const F32 reserve = (F32)live_vram_reserve();
+                // <FS:Trish> FSAutoSizeResources. A fixed 2 GB reserve was a quarter of an 8 GB card and a
+                // twelfth of a 24 GB one. Left at 0 the reserve is 12% of the card with the
+                // setting on, between 1.5 and 3 GB: 8 GB -> 1.5 GB, 12 GB -> 1.5 GB, 16 GB -> 1.9 GB,
+                // 24 GB -> 2.9 GB. Not below 1.5 GB: when the GPU fills up the driver moves memory out to
+                // keep about 1-1.5 GB free (see FSTextureVRAMReserveMB), so a smaller reserve is never
+                // reached and paging starts first. Not above 3 GB: what else runs beside the viewer (the
+                // desktop, a browser, a stream) doesn't grow with the card. With the setting off, 0 is 2048
+                // as before; any other value is the user's and is used as it is.
+                //const F32 reserve = (F32)live_vram_reserve();
                 const F32 total = (F32)(gGLManager.mVRAMDetected > 0 ? gGLManager.mVRAMDetected : (S32)gGLManager.mVRAM);
+                F32 reserve = (F32)live_vram_reserve();
+                if (reserve <= 0.f)
+                {
+                    reserve = fs_auto_size && total > 0.f ? llclamp(total * 0.12f, 1536.f, 3072.f) : 2048.f;
+                }
+                static F32 s_logged_reserve = -1.f;
+                if (reserve != s_logged_reserve)
+                {
+                    s_logged_reserve = reserve;
+                    LL_INFOS("FSTextureBias") << "Live video memory: keeping " << (S32)reserve << " MB free of " << (S32)total << " MB"
+                                              << (live_vram_reserve() > 0 ? " (FSTextureVRAMReserveMB)"
+                                                  : fs_auto_size ? " (sized from the card, FSAutoSizeResources)" : " (the fixed default)")
+                                              << LL_ENDL;
+                }
+                // </FS:Trish>
                 if ((F32)live_vram_free > 2.f * reserve && total > (F32)live_vram_free)
                 {
                     live_untracked_samples.emplace_back(now, llmax(total - (F32)live_vram_free - tracked, 0.f));

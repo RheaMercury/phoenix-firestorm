@@ -294,6 +294,13 @@ FSGDDBuildScope::~FSGDDBuildScope()
 //    GL thread found, so nothing waits for the render thread.
 // A slot that runs out of room mid frame gets a buffer twice the size; the old one stays (its slices are still read
 // by the frame's draws, and may still be written by writeAt) until the slot comes round again.
+// FSAutoSizeResources: rather than a fixed 4 MB first size (a 5 slot ring held 20 MB for frames that took about
+// 0.5-1.5 MB, with peaks of 4-8 MB while a scene loads), each slot is sized, when it comes round, for the most a
+// frame took in the last minute (RING_PEAK_BUCKETS of RING_PEAK_BUCKET_SECONDS) and a quarter more, in whole MB.
+// It gets a new buffer at that size when it is smaller (so a peak finds room at the start of the frame rather
+// than growing mid frame) or at least twice as big and RING_SHRINK_MIN_GAIN more (the gap keeps a slot from
+// going back and forth). A new buffer is new storage as an orphaned one is, so the fence rules above hold: a
+// slot the GPU may still read is never written in place, and in persistent mode its fence was waited on first.
 namespace
 {
     constexpr U32 RING_SLOTS_PERSISTENT = 3;
@@ -301,6 +308,12 @@ namespace
     constexpr U32 RING_SLOTS_MAX = 5;
     constexpr size_t RING_FIRST_BYTES = 4u << 20;
     constexpr size_t RING_MAX_BYTES = 256u << 20;
+    // FSAutoSizeResources
+    constexpr U32 RING_PEAK_BUCKETS = 6;
+    constexpr F64 RING_PEAK_BUCKET_SECONDS = 10.0;
+    constexpr size_t RING_SIZE_STEP = 1u << 20;
+    constexpr size_t RING_SHRINK_MIN_GAIN = 2u << 20;
+    constexpr F64 RING_SHRINK_AFTER = 30.0;     // seconds of measurements before a slot is made smaller
 
     enum ERingMode
     {
@@ -351,6 +364,61 @@ namespace
     U64 sStatGrowths = 0;
     U64 sStatFenceWaits = 0;
     U64 sStatSlotsBusy = 0;     // sub data: slots the GPU wasn't known to be done with, given new storage
+    U64 sStatResized = 0;       // FSAutoSizeResources: slots given a buffer of the measured size
+
+    // FSAutoSizeResources: the bytes the ring gave out this frame (all its slices, aligned), and the most in a
+    // frame per bucket of RING_PEAK_BUCKET_SECONDS, the current one at sPeakBucket
+    size_t sFrameBytes = 0;
+    size_t sPeakBytes[RING_PEAK_BUCKETS] = {};
+    U32 sPeakBucket = 0;
+    F64 sPeakBucketStart = -1.0;
+    F64 sPeakFirst = -1.0;      // when measuring started (seconds)
+
+    bool ring_auto_size()
+    {
+        static LLCachedControl<bool> auto_size(gSavedSettings, "FSAutoSizeResources", true);
+        return auto_size;
+    }
+
+    // The frame that just ended took sFrameBytes
+    void ring_note_frame(F64 now)
+    {
+        if (sPeakBucketStart < 0.0)
+        {
+            sPeakBucketStart = now;
+            sPeakFirst = now;
+        }
+        else if (now - sPeakBucketStart >= RING_PEAK_BUCKET_SECONDS)
+        {
+            sPeakBucket = (sPeakBucket + 1) % RING_PEAK_BUCKETS;
+            sPeakBytes[sPeakBucket] = 0;
+            sPeakBucketStart = now;
+        }
+        sPeakBytes[sPeakBucket] = llmax(sPeakBytes[sPeakBucket], sFrameBytes);
+        sFrameBytes = 0;
+    }
+
+    size_t ring_peak_bytes()
+    {
+        size_t peak = 0;
+        for (size_t bytes : sPeakBytes)
+        {
+            peak = llmax(peak, bytes);
+        }
+        return peak;
+    }
+
+    // The size a slot should have, 0 while nothing is measured
+    size_t ring_wanted_bytes()
+    {
+        const size_t peak = ring_peak_bytes();
+        if (!peak)
+        {
+            return 0;
+        }
+        const size_t want = (peak + peak / 4 + RING_SIZE_STEP - 1) & ~(RING_SIZE_STEP - 1);
+        return llclamp(want, RING_SIZE_STEP, RING_MAX_BYTES);
+    }
 
     // Sub data mode's fences. The main thread numbers them; the GL thread (the render thread, or the main
     // thread without it) makes and tests them in stream order and stores the highest one passed.
@@ -539,6 +607,7 @@ namespace
         }
         if (sRingStarted)
         {
+            ring_note_frame(LLFrameTimer::getElapsedSeconds()); // FSAutoSizeResources
             RingSlot& done = sSlots[sSlot];
             if (sRingMode == RING_PERSISTENT)
             {   // after every command that reads the slot's slices
@@ -569,6 +638,21 @@ namespace
             wait_fence(slot.mFence);
             glDeleteSync(slot.mFence);
             slot.mFence = nullptr;
+        }
+        // FSAutoSizeResources: a buffer of the measured size instead (see the top). Dropped here, the next
+        // ring_alloc makes it; the driver keeps the old storage for the draws that still read it.
+        if (slot.mBuffer.mName && ring_auto_size())
+        {
+            const size_t want = ring_wanted_bytes();
+            const bool grow = want > slot.mCapacity;
+            const bool shrink = want && slot.mCapacity >= 2 * want && slot.mCapacity >= want + RING_SHRINK_MIN_GAIN &&
+                                LLFrameTimer::getElapsedSeconds() - sPeakFirst >= RING_SHRINK_AFTER;
+            if (grow || shrink)
+            {
+                free_ring_buffer(slot.mBuffer);
+                slot.mCapacity = 0;
+                ++sStatResized;
+            }
         }
         if (slot.mSerial)
         {
@@ -611,7 +695,10 @@ namespace
         size_t offset = (slot.mUsed + sAlign - 1) & ~(sAlign - 1);
         if (!slot.mBuffer.mName || offset + size > slot.mCapacity)
         {
-            size_t capacity = llmax(RING_FIRST_BYTES, slot.mCapacity * 2);
+            // FSAutoSizeResources: a new slot buffer at the measured size, a full one still doubles
+            //size_t capacity = llmax(RING_FIRST_BYTES, slot.mCapacity * 2);
+            const size_t want = !slot.mBuffer.mName && ring_auto_size() ? ring_wanted_bytes() : 0;
+            size_t capacity = want ? want : llmax(RING_FIRST_BYTES, slot.mCapacity * 2);
             while (capacity < size && capacity <= RING_MAX_BYTES)
             {
                 capacity *= 2;
@@ -635,6 +722,7 @@ namespace
             offset = 0;
         }
         slot.mUsed = offset + size;
+        sFrameBytes += size; // FSAutoSizeResources
         out.mName = slot.mBuffer.mName;
         out.mOffset = offset;
         out.mSize = size;
@@ -669,11 +757,15 @@ namespace
         LL_INFOS("FSGPUDrivenUpload") << "GPU-driven uploads, last 10 s: ring (" << mode << ", " << (ring_bytes >> 10) << " KB in "
                                       << ring_slots() << " slots) " << sStatRingSlices << " slices, " << (sStatRingBytes >> 10)
                                       << " KB, " << sStatGrowths << " growths, " << sStatFenceWaits << " fence waits, "
-                                      << sStatSlotsBusy << " slots still in use renewed; own buffers "
+                                      << sStatSlotsBusy << " slots still in use renewed"
+                                      << (ring_auto_size() ? llformat(", slots sized from the most a frame took in the last minute (%u KB), %u resized",
+                                                                      (U32)(ring_peak_bytes() >> 10), (U32)sStatResized)
+                                                           : std::string())
+                                      << "; own buffers "
                                       << sStatOwnUploads << " uploads, " << (sStatOwnBytes >> 10) << " KB; matrix tables: "
                                       << gFSGDDStatModelsComputed << " models computed, " << gFSGDDStatModelsFound
                                       << " found already there, " << sStatTailWrites << " shared table appends" << LL_ENDL;
-        sStatRingSlices = sStatRingBytes = sStatOwnUploads = sStatOwnBytes = sStatTailWrites = sStatGrowths = sStatFenceWaits = sStatSlotsBusy = 0;
+        sStatRingSlices = sStatRingBytes = sStatOwnUploads = sStatOwnBytes = sStatTailWrites = sStatGrowths = sStatFenceWaits = sStatSlotsBusy = sStatResized = 0;
         gFSGDDStatModelsComputed = gFSGDDStatModelsFound = 0;
     }
 }

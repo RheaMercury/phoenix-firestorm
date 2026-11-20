@@ -505,6 +505,7 @@ namespace
         { "FSPerfThreadedGeometry", CS, VN },
         { "FSPerfTextureUpdateSlice", CS, VN },
         { "FSPerfTextureUpdateSlicePasses", CS, VN },
+        { "FSAutoSizeResources", CS, VN },
         { "RenderReflectionProbeSharedShadows", CS, VN },
         { "RenderReflectionProbeRefreshFrameInterval", CS, VN },
         { "RenderReflectionProbeMinRefresh", CS, VN },

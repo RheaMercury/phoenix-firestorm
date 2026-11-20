@@ -46,6 +46,7 @@ public:
     void release(U32 offset, U32 size);
     U32 capacity() const    { return mCapacity; }
     U32 used() const        { return mUsed; }
+    U32 largestFree() const { return mFreeBySize.empty() ? 0 : mFreeBySize.rbegin()->first; }
 
 private:
     void insertFree(U32 offset, U32 size);
@@ -96,8 +97,10 @@ public:
     // limit in MB; index_share: the part of it for indices is 1 / index_share until the arena holds enough
     // to split it as its copies do (limits). optional_mask: held types
     // (1 << type) a buffer may lack; they are copied when it has them (FSGDDArenaEntry::mTypeMask says which).
+    // first_share: with FSAutoSizeResources and no peak remembered from an earlier session, the first
+    // allocation is the usual first size divided by this (for arenas that usually hold little).
     FSGDDArena(const char* name, const std::vector<U32>& types, const char* budget_setting, S32 default_mb, U32 index_share,
-               U32 optional_mask = 0);
+               U32 optional_mask = 0, U32 first_share = 1);
 
     // The entry of vb, copied in now if needed and possible; nullptr (and why in reason) otherwise.
     FSGDDArenaEntry* find(LLVertexBuffer* vb, U32 frame, U32* reason = nullptr);
@@ -173,6 +176,13 @@ private:
     void setBufferBytes(U64& buffer_bytes, U64 bytes);
     void fail(U32 reason, U32* out);
     void noteFull(U32 frame);
+    // FSAutoSizeResources (fsgddarena.cpp): the size of the first allocation, from the peak use remembered
+    // from the last session; this session's peak, remembered for the next; and the shrink to fit while video
+    // memory is tight
+    void firstSize(U32& verts, U32& indices);
+    void loadHistory();
+    void notePeak(F64 now);
+    void fitWhenTight(F64 now);
 
     std::string mName;
     std::vector<U32> mTypes;
@@ -198,6 +208,20 @@ private:
     std::string mBudgetSetting;
     S32 mDefaultMB = 256;
     U32 mIndexShare = 4;
+    // FSAutoSizeResources
+    U32 mFirstShare = 1;            // the first size without history is divided by this
+    bool mHistoryLoaded = false;
+    U32 mHistoryVerts = 0;          // peak use of the last session (vertices, indices), 0 when none
+    U32 mHistoryIndices = 0;
+    U32 mPeakVerts = 0;             // this session's peak use, as seen at the sweeps
+    U32 mPeakIndices = 0;
+    U32 mSavedPeakVerts = 0;        // what was last written to FSGDDArenaPeaks
+    U32 mSavedPeakIndices = 0;
+    F64 mActiveSince = -1.0;        // first sweep that found it in use (seconds)
+    U64 mStableRef = 0;             // use when mStableSince started (bytes)
+    F64 mStableSince = 0.0;
+    F64 mFitRefillUntil = -1.0;     // after a shrink to fit: until then the refill waits for room rather than giving up
+    U32 mStaleEvictFrame = U32_MAX; // frame an allocation last dropped stale copies before growing, at most once per frame
 
     GLuint mIB = 0;
     FSGDDRangeAllocator mVerts;     // in vertices
