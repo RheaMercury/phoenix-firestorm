@@ -134,6 +134,7 @@
 // [/RLVa:KB]
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
+#include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 #include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "fsshadowscreenfilter.h" // <FS:Trish/>
 
@@ -1671,6 +1672,7 @@ void LLPipeline::releaseGLBuffers()
     assertInitialized();
 
     LLDrawPoolWater::fsReleaseFoamDepth(); // <FS:Trish/> shoreline foam depth
+    FSWaterRipples::release(); // <FS:Trish/> interactive ripples
     fs_release_dust_points(); // <FS:Trish/> dust motes
     fs_release_ui_buffer(); // <FS:Trish/> FSRenderUICap
     FSGPUTimers::releaseGL(); // <FS:Trish/> FSRenderGPUTimings: query names die with the context

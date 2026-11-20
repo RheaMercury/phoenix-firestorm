@@ -57,6 +57,7 @@
 #include "fsgpudrivenmaterials.h" // <FS:Trish/> fsGDDRiggedWanted
 #include "fsssrbuffer.h" // <FS:Trish/>
 #include "fsssrhiz.h" // <FS:Trish/>
+#include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 #include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
@@ -1681,11 +1682,18 @@ bool LLViewerShaderMgr::loadShadersWater()
     const bool water_foam = water_foam_setting && LLPipeline::sRenderTransparentWater;
     // </FS:Trish>
     static LLCachedControl<bool> water_glints(gSavedSettings, "FSRenderSunGlints", false); // <FS:Trish/> Sun glints
+    // <FS:Trish> Interactive ripples, and their churned-water foam, which borrows the shoreline
+    // foam's noise from fsWaterFoamF.glsl
+    const bool water_ripples = FSWaterRipples::enabled();
+    static LLCachedControl<bool> water_ripple_foam_setting(gSavedSettings, "FSRenderWaterRippleFoam", false);
+    const bool water_ripple_foam = water_ripples && water_ripple_foam_setting;
+    // </FS:Trish>
 
     if (mShaderLevel[SHADER_WATER] == 0)
     {
         gWaterProgram.unload();
         gUnderWaterProgram.unload();
+        FSWaterRipples::loadShaders(0); // <FS:Trish/> nothing to ripple
         return true;
     }
 
@@ -1719,6 +1727,22 @@ bool LLViewerShaderMgr::loadShadersWater()
         {
             gWaterProgram.mShaderFiles.push_back(make_pair("environment/fsWaterFoamF.glsl", GL_FRAGMENT_SHADER));
             gWaterProgram.addPermutation("FS_WATER_FOAM", "1");
+        }
+        // </FS:Trish>
+
+        // <FS:Trish> Interactive ripples
+        if (water_ripples)
+        {
+            gWaterProgram.mShaderFiles.push_back(make_pair("environment/fsWaterRipplesF.glsl", GL_FRAGMENT_SHADER));
+            gWaterProgram.addPermutation("FS_WATER_RIPPLES", "1");
+            if (water_ripple_foam)
+            {
+                if (!water_foam)
+                {
+                    gWaterProgram.mShaderFiles.push_back(make_pair("environment/fsWaterFoamF.glsl", GL_FRAGMENT_SHADER));
+                }
+                gWaterProgram.addPermutation("FS_WATER_RIPPLE_FOAM", "1");
+            }
         }
         // </FS:Trish>
 
@@ -1759,9 +1783,31 @@ bool LLViewerShaderMgr::loadShadersWater()
             gUnderWaterProgram.addPermutation("FS_WATER_FOAM", "1");
         }
         // </FS:Trish>
+        // <FS:Trish> Interactive ripples
+        if (water_ripples)
+        {
+            gUnderWaterProgram.mShaderFiles.push_back(make_pair("environment/fsWaterRipplesF.glsl", GL_FRAGMENT_SHADER));
+            gUnderWaterProgram.addPermutation("FS_WATER_RIPPLES", "1");
+            if (water_ripple_foam)
+            {
+                if (!water_foam)
+                {
+                    gUnderWaterProgram.mShaderFiles.push_back(make_pair("environment/fsWaterFoamF.glsl", GL_FRAGMENT_SHADER));
+                }
+                gUnderWaterProgram.addPermutation("FS_WATER_RIPPLE_FOAM", "1");
+            }
+        }
+        // </FS:Trish>
         success = gUnderWaterProgram.createShader();
         llassert(success);
     }
+
+    // <FS:Trish> Interactive ripples: the simulation program, unloaded while they are off
+    if (success)
+    {
+        FSWaterRipples::loadShaders(mShaderLevel[SHADER_WATER]);
+    }
+    // </FS:Trish>
 
     /// Keep track of water shader levels
     if (gWaterProgram.mShaderLevel != mShaderLevel[SHADER_WATER]

@@ -50,6 +50,7 @@
 #include "llsettingswater.h"
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "lldrawpoolalpha.h" // <FS:Trish/> water plane for the water SSR
+#include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 
 bool LLDrawPoolWater::sSkipScreenCopy = false;
 bool LLDrawPoolWater::sNeedsReflectionUpdate = true;
@@ -361,6 +362,15 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     // <FS:Trish> Water scratch targets are sized to the pack being rendered
     //gPipeline.bindDeferredShader(*shader, nullptr, &gPipeline.mWaterDis);
     LLRenderTarget& water_dis = gPipeline.getWaterDisTarget();
+    // <FS:Trish> Interactive ripples: one simulation step a frame for the main view, before the
+    // water shader is bound (it binds its own program and targets). Only when water is in view:
+    // with none queued, nothing would show the ripples, and after a pause of over a second the
+    // simulation starts over flat anyway.
+    if (fs_water_will_draw())
+    {
+        FSWaterRipples::update(gPipeline.mScreenTriangleVB.get());
+    }
+    // </FS:Trish>
     // <FS:Trish> Transparent water reflects the scene under it with this frame's camera: a hi-Z
     // pyramid of that, built before the water shader is bound (the build binds its own programs)
     const bool water_ssr = !underwater && !gCubeSnapshot && LLPipeline::sRenderTransparentWater &&
@@ -530,6 +540,9 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     }
 
     const S32 fs_foam_unit = fs_bind_water_foam(shader, water_dis); // <FS:Trish/>
+    // <FS:Trish> Interactive ripples, on the unit after the foam's
+    const S32 fs_ripple_unit = FSWaterRipples::bind(*shader, fs_foam_unit >= 0 ? fs_foam_unit + 1 : shader->mActiveTextureChannels);
+    // </FS:Trish>
     sFSFoamDepthValid = false; // <FS:Trish/> one view per capture
     fs_bind_water_glints(shader); // <FS:Trish/>
     // <FS:Trish> Snell's window, seen from below the surface
@@ -553,6 +566,12 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     if (fs_foam_unit >= 0)
     {
         gGL.getTexUnit(fs_foam_unit)->unbind(LLTexUnit::TT_TEXTURE);
+    }
+    // </FS:Trish>
+    // <FS:Trish> Interactive ripples' map, likewise
+    if (fs_ripple_unit >= 0)
+    {
+        gGL.getTexUnit(fs_ripple_unit)->unbind(LLTexUnit::TT_TEXTURE);
     }
     // </FS:Trish>
     gPipeline.unbindDeferredShader(*shader);

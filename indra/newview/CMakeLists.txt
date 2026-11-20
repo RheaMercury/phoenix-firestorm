@@ -248,6 +248,7 @@ set(viewer_SOURCE_FILES
     fsvirtualtrackpad.cpp
     fsvolumeprebuild.cpp
     fsvrs.cpp
+    fswaterripples.cpp
     fswindfield.cpp
     fsworldmapmessage.cpp
     lggbeamcolormapfloater.cpp
@@ -1183,6 +1184,7 @@ set(viewer_HEADER_FILES
     fsvirtualtrackpad.h
     fsvolumeprebuild.h
     fsvrs.h
+    fswaterripples.h
     fswindfield.h
     fsworldmapmessage.h
     lggbeamcolormapfloater.h

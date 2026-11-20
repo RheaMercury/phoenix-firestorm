@@ -27504,6 +27504,116 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.8</real>
     </map>
+    <key>FSRenderWaterRipples</key>
+    <map>
+      <key>Comment</key>
+      <string>Interactive water: avatars and moving objects in the water make ripples, wakes and splashes, simulated on a grid around the camera. Rebuilds the water shaders when changed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderWaterRipplesStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>How strongly the ripples tilt the water surface (0 to 4).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderWaterRipplesSpeed</key>
+    <map>
+      <key>Comment</key>
+      <string>Speed of the ripples in metres per second (0.1 to 10). Very fine grids hold it down to stay stable.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.4</real>
+    </map>
+    <key>FSRenderWaterRipplesDamping</key>
+    <map>
+      <key>Comment</key>
+      <string>How fast ripples die out: the fraction of their height lost each second (0 to 0.99).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.6</real>
+    </map>
+    <key>FSRenderWaterRipplesSplash</key>
+    <map>
+      <key>Comment</key>
+      <string>Strength of the splash when an avatar or a moving object enters the water (0 to 4, 0 is none).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderWaterRipplesMaxSources</key>
+    <map>
+      <key>Comment</key>
+      <string>Most avatars and moving objects making ripples at once, the nearest to the camera (1 to 64).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>32</integer>
+    </map>
+    <key>FSRenderWaterRipplesGridSize</key>
+    <map>
+      <key>Comment</key>
+      <string>Width in metres of the square around the camera where water ripples (16 to 256).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>64.0</real>
+    </map>
+    <key>FSRenderWaterRipplesResolution</key>
+    <map>
+      <key>Comment</key>
+      <string>Cells across the ripple grid (128 to 1024). With the grid size it sets the finest ripple: 64 m over 512 cells is 12.5 cm.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>512</integer>
+    </map>
+    <key>FSRenderWaterRippleFoam</key>
+    <map>
+      <key>Comment</key>
+      <string>White water where the rippling surface is steep or churned: wakes of fast movers and splashes. Needs FSRenderWaterRipples. Rebuilds the water shaders when changed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderWaterRippleFoamStrength</key>
+    <map>
+      <key>Comment</key>
+      <string>How easily churned water turns white, and how opaque that foam is (0 to 4).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
     <key>FSRenderBloomLensDirt</key>
     <map>
       <key>Comment</key>

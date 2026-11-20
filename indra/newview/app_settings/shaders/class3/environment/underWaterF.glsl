@@ -60,6 +60,12 @@ in vec3 vary_normal;
 float fsWaterFoam(vec2 screen_tc, vec3 pos, vec3 up, vec2 view_offset);
 #endif
 
+// <FS:Trish> Interactive ripples (fsWaterRipplesF.glsl)
+#ifdef FS_WATER_RIPPLES
+vec2 fsWaterRipples(vec2 view_offset, out float foam);
+#endif
+// </FS:Trish>
+
 vec4 applyWaterFogViewLinearNoClip(vec3 pos, vec4 color);
 
 // Snell's window: from below, light from above the water only gets through within the critical
@@ -107,6 +113,15 @@ void main()
     vec3 wave3 = texture(bumpMap, littleWave.zw).xyz*2.0-1.0;
     vec3 wavef = normalize(wave1+wave2+wave3);
 
+    // <FS:Trish> Interactive ripples tilt the underside too: the refraction of the world above
+    // and the rim of Snell's window ripple around whatever moves through the surface
+#ifdef FS_WATER_RIPPLES
+    float fs_ripple_foam = 0.0;
+    vec2 fs_ripple_slope = fsWaterRipples(view.xy, fs_ripple_foam);
+    wavef = normalize(wavef - vec3(fs_ripple_slope * wavef.z, 0.0));
+#endif
+    // </FS:Trish>
+
     //figure out distortion vector (ripply)
     vec2 distort = screen_tc;
     distort = mix(distort, distort+wavef.xy*refScale, water_mask);
@@ -117,10 +132,21 @@ void main()
     vec4 fb = vec4(waterFogColorLinear, 0.0);
 #endif
 
-#ifdef FS_WATER_FOAM
+    // <FS:Trish> Churned-water foam from the ripples shares the shoreline foam's look
+//#ifdef FS_WATER_FOAM
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
     // Shoreline foam seen from below (fsWaterFoamF.glsl): it scatters the light coming down
     // through it, so it shows as a pale, washed out patch on the underside of the surface
-    float foam = fsWaterFoam(screen_tc, vary_position, normalize(vary_normal), view.xy) * water_mask;
+    //float foam = fsWaterFoam(screen_tc, vary_position, normalize(vary_normal), view.xy) * water_mask;
+    float foam = 0.0;
+#ifdef FS_WATER_FOAM
+    foam = fsWaterFoam(screen_tc, vary_position, normalize(vary_normal), view.xy);
+#endif
+#ifdef FS_WATER_RIPPLE_FOAM
+    foam = max(foam, fs_ripple_foam);
+#endif
+    foam *= water_mask;
+    // </FS:Trish>
     if (foam > 0.0)
     {
         float luma = dot(fb.rgb, vec3(0.2126, 0.7152, 0.0722));

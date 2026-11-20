@@ -117,6 +117,12 @@ vec3 getPositionWithNDC(vec3 ndc);
 float fsWaterFoam(vec2 screen_tc, vec3 pos, vec3 up, vec2 view_offset);
 #endif
 
+// <FS:Trish> Interactive ripples (fsWaterRipplesF.glsl)
+#ifdef FS_WATER_RIPPLES
+vec2 fsWaterRipples(vec2 view_offset, out float foam);
+#endif
+// </FS:Trish>
+
 #ifdef FS_WATER_GLINTS
 float fsWaterGlint(vec3 pos, vec3 n, vec3 up, vec3 v, vec3 l, vec2 view_offset);
 #endif
@@ -203,6 +209,16 @@ void main()
     vec2 distort = (refCoord.xy/refCoord.z) * 0.5 + 0.5;
 
     vec3 wavef = (wave1 + wave2 * 0.4 + wave3 * 0.6) * 0.5;
+
+    // <FS:Trish> Interactive ripples tilt the wave normal before anything uses it, so they move
+    // the refraction, reflection, specular and glints. Called before any early return: it takes
+    // derivatives.
+#ifdef FS_WATER_RIPPLES
+    float fs_ripple_foam = 0.0;
+    vec2 fs_ripple_slope = fsWaterRipples(view.xy, fs_ripple_foam);
+    wavef.xy -= fs_ripple_slope * wavef.z;
+#endif
+    // </FS:Trish>
 
     vec3 waver = wavef*3;
 
@@ -359,10 +375,21 @@ void main()
     color += fsWaterGlint(pos.xyz, wavef, up, v, normalize(light_dir), view.xy) * sunlit_linear * shadow * atten * fade;
 #endif
 
-#ifdef FS_WATER_FOAM
+    // <FS:Trish> Churned-water foam from the ripples shares the shoreline foam's look
+//#ifdef FS_WATER_FOAM
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
     // Shoreline foam on top of everything else (fsWaterFoamF.glsl): rough and white, so it
     // takes diffuse sun and sky light and hides the refraction and reflection beneath it
-    float foam = fsWaterFoam(distort, pos.xyz, up, view.xy) * water_mask;
+    //float foam = fsWaterFoam(distort, pos.xyz, up, view.xy) * water_mask;
+    float foam = 0.0;
+#ifdef FS_WATER_FOAM
+    foam = fsWaterFoam(distort, pos.xyz, up, view.xy);
+#endif
+#ifdef FS_WATER_RIPPLE_FOAM
+    foam = max(foam, fs_ripple_foam);
+#endif
+    foam *= water_mask;
+    // </FS:Trish>
     if (foam > 0.0)
     {
         vec3 foam_light = sunlit_linear * shadow * max(dot(up, normalize(light_dir)), 0.0) + amblit;

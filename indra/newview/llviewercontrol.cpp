@@ -1489,6 +1489,8 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "FSRenderWetShore", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderWaterFoam", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderSunGlints", handleSetShaderChanged); // <FS:Trish/>
+    setting_setup_signal_listener(gSavedSettings, "FSRenderWaterRipples", handleSetShaderChanged); // <FS:Trish/>
+    setting_setup_signal_listener(gSavedSettings, "FSRenderWaterRippleFoam", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderColoredShadows", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderCloudShadows", handleSetShaderChanged); // <FS:Trish/>
     setting_setup_signal_listener(gSavedSettings, "FSRenderHeightFog", handleSetShaderChanged); // <FS:Trish/>

@@ -264,6 +264,32 @@
     <key>description</key><string>Turns the volumetric projector light off.</string>
   </map>
   <map>
+    <key>id</key><string>ripples_resolution</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:water ripples sim</string></array>
+    <key>min_ms</key><real>0.15</real>
+    <key>fraction</key><real>0.6</real>
+    <key>when</key><array><string>FSRenderWaterRipples eq 1</string><string>FSRenderWaterRipplesResolution gt 300</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderWaterRipplesResolution</string><key>value</key><string>x0.5</string><key>min</key><real>256.0</real></map>
+    </array>
+    <key>looks</key><string>Ripples a little coarser</string>
+    <key>description</key><string>Halves the cells across the water ripple grid: about a quarter of the simulation work.</string>
+  </map>
+  <map>
+    <key>id</key><string>ripples_off</string>
+    <key>bound</key><string>gpu</string>
+    <key>zones</key><array><string>gpu:water ripples sim</string></array>
+    <key>min_ms</key><real>0.3</real>
+    <key>fraction</key><real>0.95</real>
+    <key>when</key><array><string>FSRenderWaterRipples eq 1</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderWaterRipples</string><key>value</key><string>0</string></map>
+    </array>
+    <key>looks</key><string>Water no longer reacts to avatars, boats and splashes</string>
+    <key>description</key><string>Turns interactive water ripples off: no simulation, and the water shaders go back to the plain surface. Rebuilds the shaders.</string>
+  </map>
+  <map>
     <key>id</key><string>shadow_far_interval</string>
     <key>bound</key><string>gpu</string>
     <key>zones</key><array><string>gpu:generateSunShadow</string></array>
@@ -762,6 +788,17 @@
     <key>effect</key><string>uses headroom</string>
     <key>looks</key><string>Crisper reflections</string>
     <key>description</key><string>There is headroom: screen-space reflections traced at full resolution.</string>
+  </map>
+  <map>
+    <key>id</key><string>headroom_ripples</string>
+    <key>bound</key><string>capped</string>
+    <key>when</key><array><string>$headroom_ms ge 2</string><string>FSRenderWaterRipples eq 0</string></array>
+    <key>set</key><array>
+      <map><key>setting</key><string>FSRenderWaterRipples</string><key>value</key><string>1</string></map>
+    </array>
+    <key>effect</key><string>uses headroom</string>
+    <key>looks</key><string>Water reacts to avatars, boats and splashes</string>
+    <key>description</key><string>There is headroom: interactive water ripples on, with rings, wakes and splashes around avatars and moving objects in the water. About 0.1 to 0.2 ms of GPU time. Rebuilds the shaders.</string>
   </map>
   <map>
     <key>id</key><string>headroom_impostors</string>
