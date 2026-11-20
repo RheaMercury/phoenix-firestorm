@@ -6682,6 +6682,36 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                     swap();
                 }
 
+                // <FS:Trish> One glReadPixels per tile instead of one per row. A read returns data, so
+                // with the render thread each one waited for everything queued before it: thousands of
+                // waits a snapshot (0.3 to 1 s of freeze for a preview refresh). The colour is read
+                // straight into place, GL_PACK_ROW_LENGTH stepping by the image's width as the rows
+                // below did; depth is read into one block and converted row by row as before.
+                const S32 fs_tile_offset = ((window_width * subimage_x) + (raw->getWidth() * window_height * subimage_y) -
+                                            output_buffer_offset_x - (output_buffer_offset_y * raw->getWidth())) * raw->getComponents();
+                bool fs_color_read = false;
+                std::vector<GLfloat> fs_depth_block;
+                if (!LLRender::sNsightDebugSupport)
+                {
+                    if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR && raw->getComponents() == 3)
+                    {
+                        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                        glPixelStorei(GL_PACK_ROW_LENGTH, raw->getWidth());
+                        glReadPixels(subimage_x_offset, subimage_y_offset, read_width, read_height, GL_RGB, GL_UNSIGNED_BYTE,
+                                     raw->getData() + fs_tile_offset);
+                        glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+                        fs_color_read = true;
+                    }
+                    else if (type != LLSnapshotModel::SNAPSHOT_TYPE_COLOR)
+                    {
+                        fs_depth_block.resize((size_t)read_width * read_height);
+                        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                        glReadPixels(subimage_x_offset, subimage_y_offset, read_width, read_height, GL_DEPTH_COMPONENT, GL_FLOAT,
+                                     fs_depth_block.data());
+                    }
+                }
+                // </FS:Trish>
+
                 for (U32 out_y = 0; out_y < read_height ; out_y++)
                 {
                     S32 output_buffer_offset = (
@@ -6702,6 +6732,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                     {
                         if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR)
                         {
+                            if (!fs_color_read) // <FS:Trish/> read for the whole tile above
                             glReadPixels(
                                      subimage_x_offset, out_y + subimage_y_offset,
                                      read_width, 1,
@@ -6713,12 +6744,15 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                         else if (type == LLSnapshotModel::SNAPSHOT_TYPE_DEPTH24)
                         {
                             LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GLfloat)); // need to store floating point values
-                            glReadPixels(
-                                         subimage_x_offset, out_y + subimage_y_offset,
-                                         read_width, 1,
-                                         GL_DEPTH_COMPONENT, GL_FLOAT,
-                                         depth_line_buffer->getData()// current output pixel is beginning of buffer...
-                                         );
+                            // <FS:Trish> This row of the block read for the whole tile above
+                            //glReadPixels(
+                            //             subimage_x_offset, out_y + subimage_y_offset,
+                            //             read_width, 1,
+                            //             GL_DEPTH_COMPONENT, GL_FLOAT,
+                            //             depth_line_buffer->getData()// current output pixel is beginning of buffer...
+                            //             );
+                            memcpy(depth_line_buffer->getData(), fs_depth_block.data() + (size_t)out_y * read_width, read_width * sizeof(GLfloat));
+                            // </FS:Trish>
 
                             for (S32 i = 0; i < (S32)read_width; i++)
                             {
@@ -6747,12 +6781,15 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                             //LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GL_FLOAT)); // need to store floating point values
                             LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GLfloat)); // need to store floating point values
                             // </FS>
-                            glReadPixels(
-                                         subimage_x_offset, out_y + subimage_y_offset,
-                                         read_width, 1,
-                                         GL_DEPTH_COMPONENT, GL_FLOAT,
-                                         depth_line_buffer->getData()// current output pixel is beginning of buffer...
-                                         );
+                            // <FS:Trish> This row of the block read for the whole tile above
+                            //glReadPixels(
+                            //             subimage_x_offset, out_y + subimage_y_offset,
+                            //             read_width, 1,
+                            //             GL_DEPTH_COMPONENT, GL_FLOAT,
+                            //             depth_line_buffer->getData()// current output pixel is beginning of buffer...
+                            //             );
+                            memcpy(depth_line_buffer->getData(), fs_depth_block.data() + (size_t)out_y * read_width, read_width * sizeof(GLfloat));
+                            // </FS:Trish>
 
                             for (S32 i = 0; i < (S32)read_width; i++)
                             {
@@ -6780,28 +6817,18 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                     LLPipeline::sAvatarOnlyPass = LLPipeline::AVATAR_ONLY_OFF;
                     LLPipeline::sUseOcclusion = avatars_only_old_occlusion;
 
-                    for (U32 out_y = 0; out_y < read_height; out_y++)
+                    // one read for the tile, as the colour above
+                    LLAppViewer::instance()->pingMainloopTimeout("LLViewerWindow::rawSnapshot");
+                    if (!LLRender::sNsightDebugSupport)
                     {
-                        S32 output_buffer_offset = (
-                                                    (out_y * (avatar_alpha->getWidth()))
-                                                    + (window_width * subimage_x)
-                                                    + (avatar_alpha->getWidth() * window_height * subimage_y)
-                                                    - output_buffer_offset_x
-                                                    - (output_buffer_offset_y * (avatar_alpha->getWidth()))
-                                                    ) * avatar_alpha->getComponents();
-                        if (out_y % 100 == 0)
-                        {
-                            LLAppViewer::instance()->pingMainloopTimeout("LLViewerWindow::rawSnapshot");
-                        }
-                        if (!LLRender::sNsightDebugSupport)
-                        {
-                            glReadPixels(
-                                     subimage_x_offset, out_y + subimage_y_offset,
-                                     read_width, 1,
-                                     GL_RGB, GL_UNSIGNED_BYTE,
-                                     avatar_alpha->getData() + output_buffer_offset
-                                     );
-                        }
+                        const S32 alpha_offset = ((window_width * subimage_x) + (avatar_alpha->getWidth() * window_height * subimage_y) -
+                                                  output_buffer_offset_x - (output_buffer_offset_y * avatar_alpha->getWidth())) *
+                                                 avatar_alpha->getComponents();
+                        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                        glPixelStorei(GL_PACK_ROW_LENGTH, avatar_alpha->getWidth());
+                        glReadPixels(subimage_x_offset, subimage_y_offset, read_width, read_height, GL_RGB, GL_UNSIGNED_BYTE,
+                                     avatar_alpha->getData() + alpha_offset);
+                        glPixelStorei(GL_PACK_ROW_LENGTH, 0);
                     }
                 }
                 // </FS:Trish>
