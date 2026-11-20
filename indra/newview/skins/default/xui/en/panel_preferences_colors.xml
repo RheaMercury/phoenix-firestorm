@@ -727,6 +727,58 @@
          IMs/Group
        </text>
      </panel>
+     <!-- <FS:Trish> FIRE-36394 -->
+     <check_box
+       control_name="FSOmnifilterChangeColor"
+       follows="left|top"
+       layout="topleft"
+       left="20"
+       top_pad="8"
+       height="12"
+       name="FSOmnifilterChangeColor"
+       width="450"
+       label="Color chat text replaced by the Omnifilter:" />
+     <panel
+       top_pad="2"
+       height="25"
+       width="505"
+       follows="left|top"
+       label=""
+       visibility_control="FSOmnifilterChangeColor"
+       name="omnifilter_color_panel" >
+       <color_swatch
+         can_apply_immediately="true"
+         color="OmnifilterChatColor"
+         follows="left|top"
+         height="24"
+         label_height="0"
+         layout="topleft"
+         left="20"
+         name="omnifilter_chat"
+         top="0"
+         width="44" >
+         <color_swatch.init_callback
+          function="Pref.getUIColor"
+          parameter="OmnifilterChatColor" />
+         <color_swatch.commit_callback
+          function="Pref.applyUIColor"
+          parameter="OmnifilterChatColor" />
+       </color_swatch>
+       <text
+         type="string"
+         length="1"
+         follows="left|top"
+         height="10"
+         layout="topleft"
+         left_pad="5"
+         mouse_opaque="false"
+         name="omnifilter_chat_label"
+         top_delta="5"
+         width="95">
+         Omnifilter
+       </text>
+     </panel>
+     <!-- </FS:Trish> -->
    </panel>
 	 <panel
 	  top_pad="5"

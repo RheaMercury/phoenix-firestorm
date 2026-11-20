@@ -1392,6 +1392,11 @@
       name="ChatHistoryMessageFromServerLog"
       value=".37 .51 .38 1" />
   <!-- </FS:Zi> -->
+  <!-- <FS:Trish> FIRE-36394 Distinct color for Omnifilter replacements -->
+  <color
+      name="OmnifilterChatColor"
+      value="0.85 0.55 1 1" />
+  <!-- </FS:Trish> -->
   <color
       name="AreaSearchBeaconColor"
       reference="Blue_80" />

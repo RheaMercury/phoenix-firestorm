@@ -3388,6 +3388,7 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
                     LLSD args;
                     args["REPLACEMENT"] = needle->mChatReplace;
                     chat.mText = LLTrans::getString("OmnifilterReplacement", args);
+                    chat.mOmnifiltered = true; // <FS:Trish/> FIRE-36394 Distinct color for Omnifilter replacements
                 }
 
                 break;

@@ -150,6 +150,14 @@ void LLViewerChat::getChatColor(const LLChat& chat, LLUIColor& r_color, F32& r_c
         }
         // </FS:KC>
 
+        // <FS:Trish> FIRE-36394 Distinct color for Omnifilter replacements
+        static LLCachedControl<bool> sFSOmnifilterChangeColor(gSavedSettings, "FSOmnifilterChangeColor");
+        if (sFSOmnifilterChangeColor && chat.mOmnifiltered)
+        {
+            r_color = LLUIColorTable::instance().getColor("OmnifilterChatColor");
+        }
+        // </FS:Trish>
+
         if (!chat.mPosAgent.isExactlyZero())
         {
             LLVector3 pos_agent = gAgent.getPositionAgent();
@@ -235,6 +243,14 @@ void LLViewerChat::getChatColor(const LLChat& chat, std::string& r_color_name, F
             default:
                 r_color_name = "White";
         }
+
+        // <FS:Trish> FIRE-36394 Distinct color for Omnifilter replacements
+        static LLCachedControl<bool> sFSOmnifilterChangeColor(gSavedSettings, "FSOmnifilterChangeColor");
+        if (sFSOmnifilterChangeColor && chat.mOmnifiltered)
+        {
+            r_color_name = "OmnifilterChatColor";
+        }
+        // </FS:Trish>
 
         if (!chat.mPosAgent.isExactlyZero())
         {

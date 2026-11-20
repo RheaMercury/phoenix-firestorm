@@ -102,7 +102,11 @@ public:
         mPosAgent(),
         mURL(),
         mChatStyle(CHAT_STYLE_NORMAL),
-        mSessionID()
+        // <FS:Trish> FIRE-36394 Distinct color for Omnifilter replacements
+        //mSessionID()
+        mSessionID(),
+        mOmnifiltered(false)
+        // </FS:Trish>
     { }
 
     std::string     mText;      // UTF-8 line of text
@@ -125,6 +129,7 @@ public:
     std::string     mURL;
     EChatStyle      mChatStyle;
     LLUUID          mSessionID;
+    bool            mOmnifiltered; // <FS:Trish/> FIRE-36394 Text was replaced by the Omnifilter
 };
 
 #endif
