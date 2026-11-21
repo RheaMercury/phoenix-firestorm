@@ -324,6 +324,10 @@ void LLHeroProbeManager::renderProbes()
             LL_PROFILE_ZONE_NUM(rate);
 
             bool dynamic = mNearestHero->getReflectionProbeIsDynamic() && sDetail() > 0;
+            // <FS:Trish> FSRenderMirrorAvatars: avatars, animesh and particles in every mirror
+            dynamic = dynamic || FSMirrorPlanar::forceDynamic();
+            // </FS:Trish>
+
             // <FS:Trish> FSRenderMirrorPlanar: a flat mirror as one view fitted to it instead of the cube faces
             bool fs_planar_done = false;
             if (FSMirrorPlanar::enabled())

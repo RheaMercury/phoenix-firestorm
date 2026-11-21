@@ -217,6 +217,12 @@ namespace FSMirrorPlanar
         return llmin(main_far, llclamp((F32)distance, 16.f, 1024.f));
     }
 
+    bool forceDynamic()
+    {
+        static LLCachedControl<bool> avatars(gSavedSettings, "FSRenderMirrorAvatars", false);
+        return avatars;
+    }
+
     F32 selectionScore(LLVOVolume* vo, const LLVector3& normal, const LLVector3& camera_pos)
     {
         const LLVector3 offset = camera_pos - vo->getPositionAgent();

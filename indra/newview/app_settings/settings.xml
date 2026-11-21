@@ -27394,6 +27394,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>128.0</real>
     </map>
+    <key>FSRenderMirrorAvatars</key>
+    <map>
+      <key>Comment</key>
+      <string>Show avatars, animesh and particles in every mirror, not only in mirrors whose creator ticked Dynamic.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSPerfProbeUniformCache</key>
     <map>
       <key>Comment</key>

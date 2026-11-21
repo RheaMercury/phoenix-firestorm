@@ -71,6 +71,9 @@ namespace FSMirrorPlanar
     // Far clip for the planar view (FSRenderMirrorDrawDistance, never past the main view's)
     F32 drawDistance(F32 main_far);
 
+    // FSRenderMirrorAvatars: avatars, animesh and particles in every mirror, not only "dynamic" ones
+    bool forceDynamic();
+
     // How much a mirror candidate fills the view, for picking the mirror to render in planar mode
     F32 selectionScore(LLVOVolume* vo, const LLVector3& normal, const LLVector3& camera_pos);
 

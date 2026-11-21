@@ -511,6 +511,7 @@ namespace
         { "FSRenderMirrorPlanarMaxResolution", CM, VM },
         { "FSRenderMirrorDrawDistance", CL, VM },
         { "FSRenderMirrorPlanarAdaptiveRate", CS, VN },
+        { "FSRenderMirrorAvatars", CM, VL },
         { "FSPerfProbeUniformCache", CS, VN },
         { "FSPerfBatchedLocalLights", CS, VN },
         { "FSPerfBatchedSpotLights", CS, VN },
