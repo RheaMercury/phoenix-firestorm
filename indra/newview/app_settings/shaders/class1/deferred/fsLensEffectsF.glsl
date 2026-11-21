@@ -7,6 +7,9 @@
 out vec4 frag_color;
 
 in vec2 vary_fragcoord;
+// How much of the sun's disc is not covered by geometry, the same for every pixel: taken once by
+// fsLensEffectsV.glsl
+flat in float vary_sun_vis;
 
 uniform sampler2D diffuseRect;
 uniform sampler2D depthMap;
@@ -96,44 +99,10 @@ vec3 chromaticAberration(vec2 tc, vec3 base)
     return vec3(r, base.g, b);
 }
 
-// How much of the sun's disc is not covered by geometry: depth samples on two rings around it
-float sunVisibility(vec2 sun)
-{
-    if (sun_screen.z < 0.5)
-    {
-        return 0.0;
-    }
-    float aspect = screen_res.x / screen_res.y;
-    float visible = 0.0;
-    const int TAPS = 12;
-    for (int i = 0; i < TAPS; ++i)
-    {
-        float a = float(i) / float(TAPS) * 6.2831853;
-        vec2 dir = vec2(cos(a) / aspect, sin(a));
-        for (int ring = 1; ring <= 2; ++ring)
-        {
-            vec2 p = sun + dir * 0.006 * float(ring);
-            if (p.x >= 0.0 && p.x <= 1.0 && p.y >= 0.0 && p.y <= 1.0)
-            {
-#ifdef REVERSE_Z
-                visible += texture(depthMap, p).r <= 0.0 ? 1.0 : 0.0; // the far plane is 0
-#else
-                visible += texture(depthMap, p).r >= 1.0 ? 1.0 : 0.0;
-#endif
-            }
-        }
-    }
-    visible /= float(TAPS * 2);
-
-    // Fade out as the sun leaves the frame instead of cutting off at the edge
-    vec2 outside = max(abs(sun - 0.5) - 0.5, vec2(0.0));
-    return visible * clamp(1.0 - length(outside) * 8.0, 0.0, 1.0);
-}
-
 vec3 lensFlare(vec2 tc)
 {
     vec2 sun = sun_screen.xy;
-    float vis = sunVisibility(sun);
+    float vis = vary_sun_vis;
     if (vis <= 0.0)
     {
         return vec3(0.0);

@@ -4080,8 +4080,18 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             post.mShader->mFeatures.isDeferred = post.mDeferred;
             post.mShader->mShaderFiles.clear();
             post.mShader->clearPermutations();
-            // Dust motes are points, one per grid cell, with their own vertex shader
-            post.mShader->mShaderFiles.push_back(make_pair(post.mShader == &gFSDustMotesProgram ? "deferred/fsDustMotesV.glsl" : "deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+            // Dust motes are points, one per grid cell, with their own vertex shader. The lens effects'
+            // vertex shader takes the lens flare's sun visibility once instead of per pixel.
+            const char* vertex_file = "deferred/postDeferredNoTCV.glsl";
+            if (post.mShader == &gFSDustMotesProgram)
+            {
+                vertex_file = "deferred/fsDustMotesV.glsl";
+            }
+            else if (post.mShader == &gFSLensEffectsProgram)
+            {
+                vertex_file = "deferred/fsLensEffectsV.glsl";
+            }
+            post.mShader->mShaderFiles.push_back(make_pair(vertex_file, GL_VERTEX_SHADER));
             post.mShader->mShaderFiles.push_back(make_pair(post.mFile, GL_FRAGMENT_SHADER));
             if (post.mShader == &gFSDynResUpscaleProgram)
             {
