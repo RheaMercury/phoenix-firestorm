@@ -399,6 +399,13 @@ bool FSRegionLuaScripts::onConfirmation(const LLSD& notification, const LLSD& re
 {
     if (LLNotificationsUtil::getSelectedOption(notification, response) == 0)
     {
+        // <FS:Trish> Something may have started while the question was open (the Script Repositories window)
+        if (mOperation != Operation::NONE || mWindowLock)
+        {
+            FSCommon::report_to_nearby_chat("A region Lua script operation is already running.");
+            return false;
+        }
+        // </FS:Trish>
         beginScan(static_cast<Operation>(notification["payload"]["operation"].asInteger()));
     }
     return false;
@@ -898,12 +905,8 @@ void FSRegionLuaScripts::substitutionCoro()
 // <FS:Trish> Shared with the Script Repositories window
 namespace
 {
-    std::set<std::string> sRunningWaiters;
-
-    std::string runningPumpName(const LLUUID& object_id, const LLUUID& item_id)
-    {
-        return "FSScriptRunning-" + object_id.asString() + "-" + item_id.asString();
-    }
+    // Every wait for a script's running state, by object and item; one reply wakes them all
+    std::multimap<std::pair<LLUUID, LLUUID>, std::string> sRunningWaiters;
 }
 
 FSRegionLuaScripts::ScannedPrim FSRegionLuaScripts::toScanned(const ObjectInfo& info) const
@@ -975,9 +978,9 @@ bool FSRegionLuaScripts::queryScriptRunning(LLViewerObject* object, const LLUUID
     {
         return false;
     }
-    const std::string name = runningPumpName(object->getID(), item_id);
-    LLEventMailDrop reply(name, true);
-    sRunningWaiters.insert(name);
+    // Own mail drop per wait: two waits for the same script must both get the reply
+    LLEventMailDrop reply("FSScriptRunning-" + LLUUID::generateNewID().asString(), true);
+    const auto waiter = sRunningWaiters.emplace(std::make_pair(object->getID(), item_id), reply.getName());
 
     LLMessageSystem* msg = gMessageSystem;
     msg->newMessageFast(_PREHASH_GetScriptRunning);
@@ -987,7 +990,7 @@ bool FSRegionLuaScripts::queryScriptRunning(LLViewerObject* object, const LLUUID
     msg->sendReliable(object->getRegion()->getHost());
 
     LLSD result = llcoro::suspendUntilEventOnWithTimeout(reply, 15.f, LLSDMap("timeout", LLSD::Boolean(true)));
-    sRunningWaiters.erase(name);
+    sRunningWaiters.erase(waiter);
     if (result.has("timeout"))
     {
         return false;
@@ -1000,15 +1003,24 @@ bool FSRegionLuaScripts::queryScriptRunning(LLViewerObject* object, const LLUUID
 void FSRegionLuaScripts::onScriptRunningReply(const LLUUID& object_id, const LLUUID& item_id, bool running, bool mono,
     bool luau, bool luau_language)
 {
-    const std::string name = runningPumpName(object_id, item_id);
-    if (!sRunningWaiters.count(name))
+    const auto waiters = sRunningWaiters.equal_range(std::make_pair(object_id, item_id));
+    if (waiters.first == waiters.second)
     {
         return;
     }
     LLSD result;
     result["running"] = running;
     result["target"] = luau ? (luau_language ? "luau" : "lsl-luau") : (mono ? "mono" : "lsl2");
-    LLEventPumps::instance().post(name, result);
+    // Names first: a post can resume a waiting coroutine, which then erases its entry
+    std::vector<std::string> names;
+    for (auto it = waiters.first; it != waiters.second; ++it)
+    {
+        names.push_back(it->second);
+    }
+    for (const std::string& name : names)
+    {
+        LLEventPumps::instance().post(name, result);
+    }
 }
 
 bool FSRegionLuaScripts::substituteScript(LLViewerObject* object, const ScannedPrim& prim,
