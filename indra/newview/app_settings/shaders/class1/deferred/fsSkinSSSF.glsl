@@ -23,7 +23,10 @@
  * green and blue stay under half a millimetre, which gives the soft red terminator and the
  * red-tinted shadow edges without softening the image. Widths are in millimetres on the
  * surface, scaled by sss_radius (1 = measured human skin), converted to pixels by distance and
- * projection.
+ * projection. Up close, a tap whose span covers more than 2 pixels is sampled at up to 4 points
+ * across it (fsSkinTap), and a tap counts only where it lies on the centre's own surface (its
+ * depth within the curvature allowance of the centre's depth slope), so the light never jumps
+ * the gap to another surface of the avatar.
  *
  * Which pixels: with the feature on, rigged (HAS_SKIN) and system avatar g-buffer writers bias
  * their g-buffer flag by FS_SKIN_FLAG_BIAS (see LLShaderMgr::loadShaderFile), which marks
@@ -394,6 +397,60 @@ vec3 fsSkinTranslucency(vec3 pos, vec3 n)
     return t * fsSkinSunlight() * wrap;
 }
 
+// Offset in kernel mm of tap i of the kernel in use
+float fsSkinTapOffset(int i, bool lod)
+{
+#ifdef FS_SKIN_TAP_LOD
+    if (lod)
+    {
+        return fs_skin_kernel_lod[i].a;
+    }
+#endif
+    return fs_skin_kernel[i].a;
+}
+
+// One tap of the blur, x_px pixels along the pass's axis: its (clamped) irradiance where it is the
+// same skin surface as the centre, the centre's own where it is not, partly each in between.
+// dist: the centre's view depth; slope: its view depth per pixel along the axis; m_per_px:
+// metres on the surface per pixel at its distance.
+vec3 fsSkinTap(vec2 stc, float x_px, vec3 center, float dist, float depth_reject, float slope, float m_per_px, float ceiling)
+{
+    vec3 s_albedo;
+    float keep = clamp(fsSkinSample(stc, s_albedo), 0.0, 1.0);
+    if (keep <= 0.0)
+    {
+        return center;
+    }
+    float tap_z = max(-getPosition(stc).z, 1e-3);
+    float dz = abs(tap_z - dist);
+    keep *= 1.0 - clamp(dz * depth_reject, 0.0, 1.0);
+    // Light scatters through the skin it entered, not across the air to another surface. The
+    // taps follow the centre's surface: one off that surface's depth by more than its curvature
+    // allows (2 mm plus a quarter of the distance) is another part of the avatar, such as the
+    // cheek behind the edge of the nose, whose light would otherwise spread across the gap as
+    // a warm copy of that edge. Skin seen face on passes as before.
+    float tol = 0.002 + 0.25 * abs(x_px) * m_per_px;
+    float off = abs(tap_z - (dist + slope * x_px));
+    keep *= 1.0 - smoothstep(tol, 2.0 * tol, off);
+    vec4 c = texture(altDiffuseMap, stc);
+    // A tap pass 0 skipped (alpha 0), or one that is not a finite number, counts as off the
+    // skin: a single bad pixel must not spread through the kernel
+    bool bad = fsSkinBad(c) || (sss_pass == 1 && c.a <= 0.0);
+    if (!bad && sss_pass == 0)
+    {
+        float f;
+        c.rgb = fsSkinClamp(c.rgb / fsSkinScatterAlbedo(s_albedo), ceiling, f);
+        bad = fsSkinBad(c.rgb);
+    }
+    if (bad || fsSkinBad(keep) || keep <= 0.0)
+    {
+        return center;
+    }
+    // Off the skin or across a depth step: stand in the centre, so nothing bleeds in from
+    // clothing or the background (Jimenez's follow-surface rule)
+    return mix(center, max(c.rgb, vec3(0.0)), keep);
+}
+
 void main()
 {
     vec2 tc = vary_fragcoord.xy;
@@ -531,8 +588,30 @@ void main()
         bool lod = reach_px < FS_SKIN_LOD_PX;
         int taps = lod ? FS_SKIN_LOD_TAPS : FS_SKIN_TAPS;
 #else
+        bool lod = false;
         int taps = FS_SKIN_TAPS;
 #endif
+
+        // The skin's depth slope along this pass's axis (view depth per pixel), from the
+        // neighbour on the side whose depth is closer, so a silhouette next to this pixel does
+        // not tilt it; at most about 63 degrees, beyond which extrapolating it is guesswork
+        float m_per_px = 0.001 / px_per_mm;
+        float slope = 0.0;
+        {
+            float zr = -getPosition(tc + dir).z;
+            float zl = -getPosition(tc - dir).z;
+            bool r_ok = !fsSkinBad(zr) && zr > 0.0;
+            bool l_ok = !fsSkinBad(zl) && zl > 0.0;
+            if (r_ok && (!l_ok || abs(zr - dist) <= abs(dist - zl)))
+            {
+                slope = zr - dist;
+            }
+            else if (l_ok)
+            {
+                slope = dist - zl;
+            }
+            slope = clamp(slope, -2.0 * m_per_px, 2.0 * m_per_px);
+        }
 
         result = center * mix(vec3(fs_skin_kernel[0].r), fs_skin_kernel[0].rgb, tint);
         for (int i = 1; i <= taps; ++i)
@@ -543,36 +622,30 @@ void main()
             vec4 kernel = fs_skin_kernel[i];
 #endif
             vec3 k = mix(vec3(kernel.r), kernel.rgb, tint);
-            float x = kernel.a * px_per_unit;
-            for (int side = -1; side <= 1; side += 2)
+
+            // Each tap stands for the span of the profile around it. Up close the outer taps lie
+            // many pixels apart, and point samples that far apart add up shifted copies of any
+            // sharp change in the light (the bright rim along a silhouette, a shadow edge): a
+            // red ghost of the edge a few pixels inside it. Spans wider than 2 pixels are
+            // sampled at up to 4 points across them, centred on the tap, the weight shared.
+            float a_prev = fsSkinTapOffset(i - 1, lod);
+            float a_next = i < taps ? fsSkinTapOffset(i + 1, lod) : 2.0 * kernel.a - a_prev;
+            float half_span = 0.25 * (a_next - a_prev); // kernel mm
+            int subs = int(clamp(ceil(half_span * px_per_unit), 1.0, 4.0));
+            vec3 k_sub = k / float(subs);
+            for (int j = 0; j < 4; ++j)
             {
-                vec2 stc = tc + dir * (x * float(side));
-                vec3 s_albedo;
-                float keep = clamp(fsSkinSample(stc, s_albedo), 0.0, 1.0);
-                vec3 s = center;
-                if (keep > 0.0)
+                if (j >= subs)
                 {
-                    float dz = abs(max(-getPosition(stc).z, 1e-3) - dist);
-                    keep *= 1.0 - clamp(dz * depth_reject, 0.0, 1.0);
-                    vec4 c = texture(altDiffuseMap, stc);
-                    // A tap pass 0 skipped (alpha 0), or one that is not a finite number, counts
-                    // as off the skin: a single bad pixel must not spread through the kernel
-                    bool bad = fsSkinBad(c) || (sss_pass == 1 && c.a <= 0.0);
-                    if (!bad && sss_pass == 0)
-                    {
-                        float f;
-                        c.rgb = fsSkinClamp(c.rgb / fsSkinScatterAlbedo(s_albedo), ceiling, f);
-                        bad = fsSkinBad(c.rgb);
-                    }
-                    if (bad || fsSkinBad(keep))
-                    {
-                        keep = 0.0;
-                    }
-                    // Off the skin or across a depth step: stand in the centre, so nothing
-                    // bleeds in from clothing or the background (Jimenez's follow-surface rule)
-                    s = keep > 0.0 ? mix(center, max(c.rgb, vec3(0.0)), keep) : center;
+                    break;
                 }
-                result += s * k;
+                float a = subs == 1 ? kernel.a : kernel.a + half_span * ((2.0 * float(j) + 1.0) / float(subs) - 1.0);
+                float x = a * px_per_unit;
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float x_px = x * float(side);
+                    result += fsSkinTap(tc + dir * x_px, x_px, center, dist, depth_reject, slope, m_per_px, ceiling) * k_sub;
+                }
             }
         }
     }
