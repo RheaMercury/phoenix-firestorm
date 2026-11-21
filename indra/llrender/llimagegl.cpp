@@ -3523,6 +3523,10 @@ bool LLImageGL::scaleDown(S32 desired_discard)
     }
 
     mCurrentDiscardLevel = desired_discard;
+    // <FS:Trish> Its size in memory follows, as after a load: otherwise a shrunk texture is still counted
+    // at its old size by everything that reports texture memory per texture
+    mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+    // </FS:Trish>
 
     return true;
 }
