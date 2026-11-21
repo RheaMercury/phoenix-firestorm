@@ -20,6 +20,21 @@
 // mask costs one read per cell. Shallow water over terrain calms the ripples before the shore, and
 // in a surface current the downstream sides of obstacles shed a faint alternating wake while the
 // upstream sides gather a touch of foam.
+//
+// The water line (FSRenderWaterRippleWaterline): the water laps against still obstacles, even in
+// still air with nobody about. Laps are separate events at random: lap spots sit on a jittered
+// world anchored lattice (about half a metre apart), and each spot's time is cut into slots of its
+// own length; in each slot a hash of the spot and the slot says whether it laps, when, how hard
+// and which way up. A lap is a short, smooth push (about two thirds of a second) on the edge cells
+// within about 0.45 m of the spot, shaped so it adds no water and leaves none moving, and the wave
+// equation carries it off as a little ring or arc about 0.6 m from crest to crest. Spots and
+// slots never line up, so there is no beat to see and no two posts move together. Edges facing
+// into the surface current lap more often and harder, edges in its lee less (the wake handles
+// that side); in still air every side laps alike.
+// The rings ride the current like every other ripple (the grid is in the water's frame). It comes
+// from the neighbour flags already read: no extra fetch, and only the edge cells do the work. The
+// obstacle flags kept in alpha also give the water shader the edge itself (fsWaterRipplesF.glsl),
+// for the faint line where the water touches.
 
 #define FS_RIPPLE_MAX_SOURCES 64 // MAX_SOURCES in fswaterripples.cpp
 
@@ -41,6 +56,10 @@ uniform sampler2D fs_ripple_obst_map; // fsWaterObstacleF.glsl: r inside distanc
 uniform vec4 fs_ripple_obst;      // xy added to a cell centre for its mask texel, z damping per step in the shallows, w 1 with a mask
 uniform vec4 fs_ripple_wake;      // xy surface current direction, z wake push per step (m, 0 = none), w upstream foam (0 = none)
 uniform vec2 fs_ripple_wake_osc;  // the shedding's sin(phase) and sin(2 phase)
+uniform vec4 fs_ripple_waterline; // x push per step at a lap's peak (m, 0 = off), y this step's time (s), z mean slot (s), w a lap's length (s)
+uniform vec4 fs_ripple_waterline_o; // xy the lap spot lattice's coordinates at the grid's corner, z lattice cells per grid cell, w a lap's reach (lattice cells)
+uniform vec4 fs_ripple_waterline_f; // xy surface current direction times how much it counts (0 to 1, 0 in still air), z chance of a lap per slot
+uniform vec4 fs_ripple_waterline_g; // facing into the current: x extra chance, z extra strength; facing away: y chance taken off, w strength taken off
 #endif
 
 // Whatever the driver or a bad frame left there, the simulation never carries a NaN or a runaway
@@ -85,6 +104,98 @@ float fsRippleWindNoise(vec2 p)
     return mix(mix(a, b, u.x), mix(d, e, u.x), u.y);
 }
 
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+uint fsRippleMix(uint h)
+{
+    h ^= h >> 16u;
+    h *= 0x7feb352du;
+    h ^= h >> 15u;
+    h *= 0x846ca68bu;
+    h ^= h >> 16u;
+    return h;
+}
+
+// 32 random bits for a lap spot (its lattice node, wrapped like the noise) and one of its slots
+uint fsRippleLapHash(ivec2 node, int slot)
+{
+    uvec2 u = uvec2(node & ivec2(255));
+    return fsRippleMix((u.x * 0x8da6b343u) ^ (u.y * 0xd8163841u) ^ (uint(slot) * 0xcb1ab31fu));
+}
+
+// The laps reaching an edge cell at p (in cells), before the push: the sum over the lap spots
+// around it, each a smooth patch along the edge times its lap's shape in time.
+// facing the way out of the obstacles beside the cell (unit length, or zero between two)
+float fsRippleLap(vec2 p, vec2 facing)
+{
+    float face = dot(facing, fs_ripple_waterline_f.xy); // below 0 facing into the current
+    float into = max(-face, 0.0);
+    float away = max(face, 0.0);
+    float chance = clamp(fs_ripple_waterline_f.z * (1.0 + fs_ripple_waterline_g.x * into) * (1.0 - fs_ripple_waterline_g.y * away), 0.0, 0.95);
+    float gain = max(1.0 + fs_ripple_waterline_g.z * into - fs_ripple_waterline_g.w * away, 0.0);
+    if (chance <= 0.0 || gain <= 0.0)
+    {
+        return 0.0;
+    }
+
+    vec2 q = fs_ripple_waterline_o.xy + p * fs_ripple_waterline_o.z; // world anchored, in lattice cells
+    ivec2 base = ivec2(floor(q));
+    float reach = 1.0 / max(fs_ripple_waterline_o.w * fs_ripple_waterline_o.w, 1e-4);
+    float t = fs_ripple_waterline.y;
+    float slot_mean = max(fs_ripple_waterline.z, 1e-2);
+    float lap = 0.0;
+    for (int j = -1; j <= 1; ++j)
+    {
+        for (int i = -1; i <= 1; ++i)
+        {
+            ivec2 node = base + ivec2(i, j);
+            // The spot: somewhere in the middle half of its lattice cell
+            uint h0 = fsRippleLapHash(node, 0x3c6ef372);
+            vec2 spot = vec2(node) + 0.25 + 0.5 * vec2(float(h0 & 0xffffu), float(h0 >> 16u)) * (1.0 / 65536.0);
+            vec2 d = q - spot;
+            float d2 = dot(d, d) * reach;
+            if (d2 >= 1.0)
+            {
+                continue;
+            }
+            float w = 1.0 - d2;
+            w *= w;
+            // The spot's own slot length (0.7 to 1.3 times the mean) and offset, so no two keep time
+            uint h1 = fsRippleMix(h0 ^ 0x68e31da4u);
+            float slot = slot_mean * (0.7 + 0.6 * float(h1 & 0xffffu) * (1.0 / 65536.0));
+            float tt = t / slot + float(h1 >> 16u) * (1.0 / 65536.0);
+            float k0 = floor(tt);
+            float span = clamp(fs_ripple_waterline.w / slot, 1e-3, 1.0);
+            // A lap starts anywhere in its slot, so the one before may still be running
+            for (int back = 0; back < 2; ++back)
+            {
+                float k = k0 - float(back);
+                uint hk = fsRippleLapHash(node, int(k) + 1);
+                if ((float(hk & 0xffu) + 0.5) * (1.0 / 256.0) >= chance)
+                {
+                    continue;
+                }
+                float tau = (tt - k - float((hk >> 8u) & 0xffu) * (1.0 / 256.0)) / span;
+                if (tau <= 0.0 || tau >= 1.0)
+                {
+                    continue;
+                }
+                // Minus the second derivative of sin^4: up in the middle, down either side, so
+                // the lap adds no water and leaves none moving; only the ring it launches stays
+                float s = sin(3.14159265 * tau);
+                s *= s;
+                float shape = 4.0 * s * s - 3.0 * s;
+                // Mostly small, now and then a slap; either way up
+                float u = float((hk >> 16u) & 0xffu) * (1.0 / 256.0);
+                float size = 0.5 + u * u * u;
+                lap += w * shape * size * (((hk >> 24u) & 1u) != 0u ? 1.0 : -1.0);
+            }
+        }
+    }
+    // Where spots overlap, a pile of laps at once would only spike the edge
+    return clamp(lap * gain, -1.5, 1.5);
+}
+#endif
+
 // The wind's push at a cell centre p (in cells), before its strength: fine ripples, strongest in
 // the gust patches, which cover more of the water in a gust
 float fsRippleWind(vec2 p)
@@ -127,9 +238,10 @@ void main()
     // neighbours from the flags they kept last step (written as 0 or 1; a NaN reads as water)
     bool solid = false;
     float shallow = 0.0;
+    vec2 mask_pos = p + fs_ripple_obst.xy; // world anchored, in cells
     if (fs_ripple_obst.w > 0.0)
     {
-        ivec2 m = ivec2(floor(p + fs_ripple_obst.xy));
+        ivec2 m = ivec2(floor(mask_pos));
         if (all(greaterThanEqual(m, ivec2(0))) && all(lessThan(m, textureSize(fs_ripple_obst_map, 0))))
         {
             vec4 o = texelFetch(fs_ripple_obst_map, m, 0);
@@ -203,6 +315,17 @@ void main()
         float side = out_dir.x * fs_ripple_wake.y - out_dir.y * fs_ripple_wake.x;
         float weight = (down_stream + 0.3) / 1.3;
         h += fs_ripple_wake.z * weight * (side * fs_ripple_wake_osc.x + 0.3 * fs_ripple_wake_osc.y);
+    }
+
+    // The water line: an open cell with obstacles beside it takes the laps of the spots near it
+    // (fsRippleLap). Each lap is a smooth patch of edge pushed for a moment, which the wave
+    // equation sends off as a ring or arc; it adds no water, so nothing builds up, and the damping
+    // fades the rings out over a metre or two.
+    if (fs_ripple_waterline.x > 0.0 && sl + sr + sd + su > 0.0)
+    {
+        vec2 facing = vec2(sl - sr, sd - su);
+        facing = dot(facing, facing) > 0.0 ? normalize(facing) : vec2(0.0);
+        h += fs_ripple_waterline.x * fsRippleLap(p, facing);
     }
 #endif
 

@@ -146,6 +146,48 @@ namespace
     constexpr F64 WAKE_HZ_PER_SPEED = 1.5;      // Hz per m/s of current
     // - Foam the current piles up on their upstream side, at WAKE_SPEED (with wake foam on)
     constexpr F32 WAKE_FOAM = 0.35f;
+    // - The water line (FSRenderWaterRippleWaterline): laps against obstacles, one at a time at
+    //   random (fsWaterRippleSimF.glsl). Lap spots sit WATERLINE_SPACING metres apart (a
+    //   jittered, world anchored lattice) and a lap pushes the edge cells within WATERLINE_REACH
+    //   metres of its spot, so every bit of edge has a few spots near it. A lap launches a ring
+    //   of about WATERLINE_LAP_LENGTH metres wavelength, which takes a push 1.5 times as long as
+    //   a wave needs to cross that (about 0.65 s at the default speed). Each spot cuts time into
+    //   slots of its own length around WATERLINE_SLOT laps long and laps in a slot with
+    //   WATERLINE_CHANCE, at a random moment: a spot laps about every 5 s with no beat to it, and
+    //   a half metre post gets a lap somewhere about one and a half times a second. A coarse grid
+    //   stretches the laps, the spots and their reach alike, so the rings never get shorter than
+    //   WATERLINE_MIN_CELLS cells, where the grid only squares and frays them.
+    //   WATERLINE_PUSH is the push per step at a lap's peak at strength 1. With the default
+    //   damping and cells a half metre post's rings have a slope of about 4 % (rms) a quarter
+    //   metre out, 2.5 % at half a metre, 1 % at a metre and next to nothing at two, the bigger
+    //   laps several times that close in; a few centimetres high at most where they hit. The
+    //   strength goes in as strength^WATERLINE_STRENGTH_EXP, so 3 is about twice 1 rather than
+    //   three times. A breeze makes laps up to WATERLINE_WIND more likely all round. The surface
+    //   current (counted fully from WAKE_SPEED) makes the sides facing into it lap up to
+    //   WATERLINE_UP more often and WATERLINE_UP_STRENGTH harder, and the sides in its lee
+    //   WATERLINE_DOWN less often and WATERLINE_DOWN_STRENGTH softer (the wake handles the lee).
+    constexpr F32 WATERLINE_PUSH = 0.0026f;
+    constexpr F64 WATERLINE_LAP_LENGTH = 0.6;
+    constexpr F64 WATERLINE_MIN_CELLS = 4.5;
+    constexpr F64 WATERLINE_SPACING = 0.5;
+    constexpr F64 WATERLINE_REACH = 0.45;
+    constexpr F64 WATERLINE_SLOT = 1.6;
+    constexpr F32 WATERLINE_CHANCE = 0.2f;
+    constexpr F32 WATERLINE_STRENGTH_EXP = 0.63f;
+    constexpr F32 WATERLINE_WIND = 0.5f;
+    constexpr F32 WATERLINE_UP = 1.2f;
+    constexpr F32 WATERLINE_DOWN = 0.7f;
+    constexpr F32 WATERLINE_UP_STRENGTH = 0.5f;
+    constexpr F32 WATERLINE_DOWN_STRENGTH = 0.3f;
+    // The laps' clock wraps after this many seconds to keep its precision in the shader (a lap
+    // cut short once every half hour)
+    constexpr F64 WATERLINE_CLOCK_WRAP = 2048.0;
+    // - The touch of white where the water meets an obstacle (fsWaterRipplesF.glsl): foam cover at
+    //   its brightest at strength 1, gone by WATERLINE_LINE_FAR metres from the camera, and faded
+    //   out on cells too coarse to draw a thin line (WATERLINE_LINE_CELL, m)
+    constexpr F32 WATERLINE_LINE = 0.22f;
+    constexpr F32 WATERLINE_LINE_FAR = 45.f;
+    constexpr F32 WATERLINE_LINE_CELL = 0.3f;
 
     LLGLSLShader sSimProgram;
 
@@ -167,6 +209,7 @@ namespace
     LLVector3d sCurrentOffset;
 
     F64 sWakePhase = 0.0;      // the obstacles' wake shedding, radians
+    F64 sWaterlineClock = 0.0; // the water line's laps, simulated seconds (wrapped)
 
     F64 sLastTime = -1.0;      // when update last ran for the main view
     F64 sLastStepTime = -1.0;  // when the simulation last stepped
@@ -202,6 +245,7 @@ namespace
         bool mFoam;
         F32 mFoamStrength;
         bool mWake;
+        F32 mWaterline;  // FSRenderWaterRippleWaterline strength, 0 = off
     };
 
     LLRenderTarget& map(S32 i)
@@ -444,6 +488,9 @@ namespace
         settings.mFoam = foam;
         settings.mFoamStrength = llclamp((F32)foam_strength, 0.f, 4.f);
         settings.mWake = wake;
+        static LLCachedControl<bool> waterline(gSavedSettings, "FSRenderWaterRippleWaterline", true);
+        static LLCachedControl<F32> waterline_strength(gSavedSettings, "FSRenderWaterRippleWaterlineStrength", 1.f);
+        settings.mWaterline = waterline ? llclamp((F32)waterline_strength, 0.f, 3.f) : 0.f;
         return settings;
     }
 
@@ -536,6 +583,10 @@ namespace
         static LLStaticHashedString s_obst("fs_ripple_obst");
         static LLStaticHashedString s_wake("fs_ripple_wake");
         static LLStaticHashedString s_wake_osc("fs_ripple_wake_osc");
+        static LLStaticHashedString s_waterline("fs_ripple_waterline");
+        static LLStaticHashedString s_waterline_o("fs_ripple_waterline_o");
+        static LLStaticHashedString s_waterline_f("fs_ripple_waterline_f");
+        static LLStaticHashedString s_waterline_g("fs_ripple_waterline_g");
 
         // Waves cross (speed * step / cell) cells a step. The explicit scheme is only stable below
         // 1/sqrt(2) of a cell; very fine cells hold the speed down rather than blow up.
@@ -614,6 +665,10 @@ namespace
         GLfloat obst[4] = { 0.f, 0.f, 0.f, 0.f };
         GLfloat wake[4] = { 0.f, 0.f, 0.f, 0.f };
         GLfloat wake_osc[2] = { 0.f, 0.f };
+        GLfloat waterline[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat waterline_o[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat waterline_f[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat waterline_g[4] = { 0.f, 0.f, 0.f, 0.f };
         S64 mask_x = 0;
         S64 mask_y = 0;
         LLRenderTarget* mask = FSWaterObstacles::enabled() ? FSWaterObstacles::mask(sCell, mask_x, mask_y) : nullptr;
@@ -639,6 +694,46 @@ namespace
                 wake_osc[0] = (GLfloat)sin(sWakePhase);
                 wake_osc[1] = (GLfloat)sin(2.0 * sWakePhase);
             }
+            if (settings.mWaterline > 0.f)
+            {
+                const F32 push = WATERLINE_PUSH * powf(settings.mWaterline, WATERLINE_STRENGTH_EXP);
+                // The speed the waves really travel at (the step may hold it down)
+                const F64 wave_speed = courant * sCell / STEP;
+                if (push > 0.f && std::isfinite(push) && wave_speed > 0.0)
+                {
+                    // How much a coarse grid stretches the laps
+                    const F64 stretch = llmax(1.0, WATERLINE_MIN_CELLS * sCell / WATERLINE_LAP_LENGTH);
+                    const F64 spacing = WATERLINE_SPACING * stretch;
+                    const F64 lap = 1.5 * WATERLINE_LAP_LENGTH * stretch / wave_speed;
+                    waterline[0] = push;
+                    waterline[1] = (GLfloat)sWaterlineClock; // set again for each step below
+                    waterline[2] = (GLfloat)(WATERLINE_SLOT * lap);
+                    waterline[3] = (GLfloat)lap;
+                    // The lap spots are world anchored: the lattice's coordinates at the grid's
+                    // corner (in the world, not the water: the current carries the rings, not
+                    // the posts)
+                    const F64 world_x = (F64)sOriginX * sCell + sCurrentOffset.mdV[VX];
+                    const F64 world_y = (F64)sOriginY * sCell + sCurrentOffset.mdV[VY];
+                    waterline_o[0] = wrapNoise(world_x / spacing);
+                    waterline_o[1] = wrapNoise(world_y / spacing);
+                    waterline_o[2] = (GLfloat)(sCell / spacing);
+                    waterline_o[3] = (GLfloat)(WATERLINE_REACH / WATERLINE_SPACING);
+                    // More laps in a breeze, never none in still air; the current says which
+                    // sides take more of them
+                    const F32 breeze = wind.mOn ? llclamp(wind.mCover, 0.f, 1.f) : 0.f;
+                    if (current > 0.01f && std::isfinite(current))
+                    {
+                        const F32 flow = llmin(current / WAKE_SPEED, 1.f) / current;
+                        waterline_f[0] = wind.mCurrent.mV[VX] * flow;
+                        waterline_f[1] = wind.mCurrent.mV[VY] * flow;
+                    }
+                    waterline_f[2] = WATERLINE_CHANCE * (1.f + WATERLINE_WIND * breeze);
+                    waterline_g[0] = WATERLINE_UP;
+                    waterline_g[1] = WATERLINE_DOWN;
+                    waterline_g[2] = WATERLINE_UP_STRENGTH;
+                    waterline_g[3] = WATERLINE_DOWN_STRENGTH;
+                }
+            }
         }
 
         gGL.flush();
@@ -652,6 +747,10 @@ namespace
         sSimProgram.uniform4fv(s_obst, 1, obst);
         sSimProgram.uniform4fv(s_wake, 1, wake);
         sSimProgram.uniform2fv(s_wake_osc, 1, wake_osc);
+        sSimProgram.uniform4fv(s_waterline, 1, waterline);
+        sSimProgram.uniform4fv(s_waterline_o, 1, waterline_o);
+        sSimProgram.uniform4fv(s_waterline_f, 1, waterline_f);
+        sSimProgram.uniform4fv(s_waterline_g, 1, waterline_g);
         if (mask)
         {
             sSimProgram.uniform1i(s_obst_map, 1);
@@ -677,6 +776,13 @@ namespace
             read.bindTexture(0, 0, LLTexUnit::TFO_BILINEAR); // texelFetch: the filter is the one the water samples with
             sSimProgram.uniform2f(s_shift, step == 0 ? (F32)shift_x : 0.f, step == 0 ? (F32)shift_y : 0.f);
             sSimProgram.uniform1i(s_count, step == 0 ? count : 0);
+            if (waterline[0] > 0.f)
+            {
+                // The laps keep time by the step, not the frame
+                waterline[1] = (GLfloat)sWaterlineClock;
+                sSimProgram.uniform4fv(s_waterline, 1, waterline);
+            }
+            sWaterlineClock = fmod(sWaterlineClock + STEP, WATERLINE_CLOCK_WRAP);
             screen_triangle->setBuffer();
             screen_triangle->drawArrays(LLRender::TRIANGLES, 0, 3);
             write.flush();
@@ -878,6 +984,7 @@ S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
     static LLStaticHashedString s_map("fs_ripple_map");
     static LLStaticHashedString s_grid("fs_ripple_grid");
     static LLStaticHashedString s_params("fs_ripple_params");
+    static LLStaticHashedString s_line("fs_ripple_line");
     static LLCachedControl<F32> strength(gSavedSettings, "FSRenderWaterRipplesStrength", 1.f);
     static LLCachedControl<bool> foam(gSavedSettings, "FSRenderWaterRippleFoam", false);
     static LLCachedControl<F32> foam_strength(gSavedSettings, "FSRenderWaterRippleFoamStrength", 1.f);
@@ -893,6 +1000,7 @@ S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
     if (!unit_ok || !enabled() || !sValid || !mapsComplete() || sRes <= 0)
     {
         shader.uniform4f(s_params, 0.f, 0.f, 0.f, 0.f);
+        shader.uniform2f(s_line, 0.f, 0.f);
         return -1;
     }
 
@@ -908,6 +1016,18 @@ S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
     const F32 phase = (F32)fmod(LLFrameTimer::getElapsedSeconds(), 3600.0);
     shader.uniform4f(s_params, llclamp((F32)strength, 0.f, 4.f) * SLOPE_GAIN, (F32)(0.5 / sCell),
                      foam ? llclamp((F32)foam_strength, 0.f, 4.f) : 0.f, phase); // 0 to 4 as the setting: the shader clamps the foam after it
+
+    // The touch of white along the water line: only where the simulation marks obstacles (the
+    // map's alpha), and only on cells fine enough to draw it thin
+    static LLCachedControl<bool> waterline(gSavedSettings, "FSRenderWaterRippleWaterline", true);
+    static LLCachedControl<F32> waterline_strength(gSavedSettings, "FSRenderWaterRippleWaterlineStrength", 1.f);
+    F32 line = 0.f;
+    if (waterline && FSWaterObstacles::enabled())
+    {
+        const F32 fine = 1.f - llclamp((F32)(sCell / WATERLINE_LINE_CELL) * 2.f - 1.f, 0.f, 1.f);
+        line = WATERLINE_LINE * powf(llclamp((F32)waterline_strength, 0.f, 3.f), WATERLINE_STRENGTH_EXP) * fine;
+    }
+    shader.uniform2f(s_line, line, 1.f / WATERLINE_LINE_FAR);
     return unit;
 }
 
@@ -920,6 +1040,7 @@ void FSWaterRipples::release()
     sCell = 0.0;
     sCurrentOffset.setZero();
     sWakePhase = 0.0;
+    sWaterlineClock = 0.0;
     sAccum = 0.0;
     sLastTime = -1.0;
     sLastStepTime = -1.0;

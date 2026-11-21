@@ -132,9 +132,10 @@ void main()
     vec4 fb = vec4(waterFogColorLinear, 0.0);
 #endif
 
-    // <FS:Trish> Churned-water foam from the ripples shares the shoreline foam's look
+    // <FS:Trish> Churned-water foam and the water line touch from the ripples share the
+    // shoreline foam's look
 //#ifdef FS_WATER_FOAM
-#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLES)
     // Shoreline foam seen from below (fsWaterFoamF.glsl): it scatters the light coming down
     // through it, so it shows as a pale, washed out patch on the underside of the surface
     //float foam = fsWaterFoam(screen_tc, vary_position, normalize(vary_normal), view.xy) * water_mask;
@@ -142,7 +143,7 @@ void main()
 #ifdef FS_WATER_FOAM
     foam = fsWaterFoam(screen_tc, vary_position, normalize(vary_normal), view.xy);
 #endif
-#ifdef FS_WATER_RIPPLE_FOAM
+#ifdef FS_WATER_RIPPLES
     foam = max(foam, fs_ripple_foam);
 #endif
     foam *= water_mask;

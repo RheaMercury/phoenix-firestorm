@@ -216,6 +216,8 @@ namespace
         { "FSRenderWaterWindStrength", CL, VM },
         { "FSRenderWaterRippleObstacles", CL, VM },
         { "FSRenderWaterRippleObstacleWake", CL, VL },
+        { "FSRenderWaterRippleWaterline", CL, VL },
+        { "FSRenderWaterRippleWaterlineStrength", CL, VL },
         { "FSRenderSunGlints", CL, VM },
         { "FSRenderSunGlintsIntensity", CL, VM },
         { "FSRenderSunGlintsDensity", CL, VM },

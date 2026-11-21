@@ -390,9 +390,10 @@ void main()
     color += fsWaterGlint(pos.xyz, wavef, up, v, normalize(light_dir), view.xy) * sunlit_linear * shadow * atten * fade;
 #endif
 
-    // <FS:Trish> Churned-water foam from the ripples shares the shoreline foam's look
+    // <FS:Trish> Churned-water foam and the water line touch from the ripples share the
+    // shoreline foam's look
 //#ifdef FS_WATER_FOAM
-#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLES)
     // Shoreline foam on top of everything else (fsWaterFoamF.glsl): rough and white, so it
     // takes diffuse sun and sky light and hides the refraction and reflection beneath it
     //float foam = fsWaterFoam(distort, pos.xyz, up, view.xy) * water_mask;
@@ -400,7 +401,7 @@ void main()
 #ifdef FS_WATER_FOAM
     foam = fsWaterFoam(distort, pos.xyz, up, view.xy);
 #endif
-#ifdef FS_WATER_RIPPLE_FOAM
+#ifdef FS_WATER_RIPPLES
     foam = max(foam, fs_ripple_foam);
 #endif
     foam *= water_mask;
