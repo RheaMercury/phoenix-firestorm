@@ -366,6 +366,8 @@
     <array><real>1.0</real><real>1.0</real><real>1.0</real></array>
     <key>FSRenderLensFlare</key>
     <real>0.35</real>
+    <key>FSRenderLensFlareHQ</key>
+    <boolean>1</boolean>
     <key>FSRenderLensFlareMoon</key>
     <real>0.15</real>
     <key>FSRenderLighterWhileMoving</key>
