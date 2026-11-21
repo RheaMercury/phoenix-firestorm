@@ -70,7 +70,7 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
 GBufferInfo getGBuffer(vec2 screenpos);
 // <FS:Trish> Avatar skin lighting (fsSkinUtil.glsl)
 #ifdef FS_SKIN_LIGHTING
-float fsSkinWeightGB(GBufferInfo gb);
+float fsSkinWeightGB(GBufferInfo gb, vec2 tc);
 #endif
 #ifdef FS_SKIN_DUAL_SPEC
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
@@ -96,7 +96,7 @@ void main()
     GBufferInfo gb = getGBuffer(tc);
     // <FS:Trish> How much of this pixel is avatar skin (fsSkinUtil.glsl), 0 elsewhere
 #ifdef FS_SKIN_LIGHTING
-    float fs_skin = fsSkinWeightGB(gb);
+    float fs_skin = fsSkinWeightGB(gb, tc);
 #endif
     // </FS:Trish>
     // <FS:Trish> Skin: how thick it is where lights may shine through it from behind, once for

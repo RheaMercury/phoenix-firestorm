@@ -29,6 +29,13 @@
  * 1, so the tone alone decides there, as without the option.
  * It multiplies a relaxed tone score (fs_skin_tone_range): with the material doing the work of
  * keeping cloth out, the tone window can open up to pale, very dark and fantasy skins.
+ *
+ * Painted hair (FSRenderSkinHairFilter, fs_skin_hair_filter): a Bakes on Mesh hair base, brows
+ * or lashes are painted into the head's bake, so they are the same surface as the skin and carry
+ * no material of their own. Natural hair colours sit in skin's own hue band (both are melanin),
+ * so colour alone cannot tell brown or blonde hair from skin; what gives it away is its strands,
+ * fine light and dark lines that skin does not have (fsSkinHair). The weight the lighting and
+ * the scattering use fades out there, so painted hair gets no sheen, skin highlight or red glow.
  */
 
 /*[EXTRA_CODE_HERE]*/
@@ -37,10 +44,14 @@ uniform float sss_tone_match;       // 0: every avatar surface, 1: skin coloured
 #ifdef FS_SKIN_DETECT_MATERIAL
 uniform float fs_skin_tone_range;   // 0: the human tone window, 1: any hue, pale and dark
 #endif
+uniform float fs_skin_hair_filter;  // 0: painted hair counts as skin, 1: it does not (fsSkinHair)
+uniform sampler2D diffuseRect;      // g-buffer albedo, for the strand test
+uniform vec2 screen_res;
 
 vec3 linear_to_srgb(vec3 cl);
 vec3 srgb_to_linear(vec3 cs);
 float unpackRoughness(vec2 p);
+vec4 getNormRaw(vec2 screenpos);
 
 #define FS_SKIN_FLAG_BIAS 0.05
 #define FS_SKIN_MIN_ALBEDO 0.02     // linear; darker albedo is floored before dividing by it
@@ -174,8 +185,90 @@ float fsSkinWeightRaw(int surface, vec4 base, vec4 spec, float env, out vec3 alb
     return fsSkinWeightParts(surface, base, spec, env, albedo, material, tone);
 }
 
-// Skin weight of a g-buffer pixel for the lighting passes: 0 when not avatar or not skin
-float fsSkinWeightGB(GBufferInfo gb)
+// Brightness of a stored albedo on a perceptual scale: legacy stores sRGB, PBR linear, for which
+// the square root stands in for the sRGB curve
+float fsSkinPerceptualLum(int surface, vec3 stored)
+{
+    float y = dot(stored, vec3(0.2126, 0.7152, 0.0722));
+    return surface == 2 ? sqrt(max(y, 0.0)) : y;
+}
+
+// One neighbour of the strand test: its contrast to the centre's brightness lc, counted only on
+// the avatar (the background or clothing beside it is not texture)
+void fsSkinHairTap(vec2 tc, float lc, inout float sum, inout float n)
+{
+    int surface = fsSkinSurface(getNormRaw(tc).a);
+    if (surface != 0)
+    {
+        float l = fsSkinPerceptualLum(surface, texture(diffuseRect, tc).rgb);
+        sum += abs(l - lc) / (l + lc + 0.04);
+        n += 1.0;
+    }
+}
+
+// How much an avatar pixel looks like painted hair rather than skin, in [0, 1]. surface from
+// fsSkinSurface (not 0), stored its g-buffer albedo as stored. Two signs:
+// - Strands: the mean contrast to the albedo 2 pixels away on each side (Michelson, on a
+//   perceptual scale). Skin, pores and mottling included, stays under about 0.03; painted hair,
+//   with its strands and streaks, sits well above, from the bake's full size down to a head
+//   about a hundred pixels tall. Colours unlike skin (near grey, off the skin hue band, neon)
+//   need less of it, so a grey, black or dyed hair base goes out sooner, while flat fantasy
+//   skin, with no strands, stays skin.
+// - Near black: no skin is this dark (the darkest human tones are about 0.16 in sRGB), black hair
+//   and lashes are. Without this, a dark paint takes the sheen and highlight, whose strength does
+//   not follow the albedo, about as bright as its own colour: the glossy look.
+// The thresholds were checked against skin tones from very pale to very dark (the Monk scale),
+// natural and dyed hair colours, and synthetic skin and hair textures at several distances.
+float fsSkinHair(vec2 tc, int surface, vec3 stored)
+{
+    vec3 srgb = surface == 2 ? linear_to_srgb(stored) : stored;
+    vec3 hsv = fsSkinHSV(srgb);
+    float dark = 1.0 - smoothstep(0.06, 0.13, hsv.z);
+
+    float grey = (1.0 - smoothstep(0.04, 0.09, hsv.y)) * (1.0 - smoothstep(0.70, 0.85, hsv.z));
+    float wh = smoothstep(-25.0, -5.0, hsv.x) * (1.0 - smoothstep(45.0, 65.0, hsv.x));
+    float off_hue = (1.0 - wh) * smoothstep(0.08, 0.16, hsv.y); // a hue only with some colour
+    float neon = smoothstep(0.72, 0.88, hsv.y);
+    float unlike = max(grey, max(off_hue, neon));
+
+    float lc = fsSkinPerceptualLum(surface, stored);
+    vec2 px = 2.0 / screen_res;
+    float sum = 0.0;
+    float n = 0.0;
+    fsSkinHairTap(tc + vec2(px.x, 0.0), lc, sum, n);
+    fsSkinHairTap(tc - vec2(px.x, 0.0), lc, sum, n);
+    fsSkinHairTap(tc + vec2(0.0, px.y), lc, sum, n);
+    fsSkinHairTap(tc - vec2(0.0, px.y), lc, sum, n);
+    float detail = n > 0.0 ? sum / n : 0.0;
+    float strands = smoothstep(0.035, 0.09, detail * (1.0 + unlike));
+    float hair = max(dark, strands);
+    return (isnan(hair) || isinf(hair)) ? 0.0 : clamp(hair, 0.0, 1.0);
+}
+
+// What the painted hair test leaves of a pixel's skin weight: 1 with the filter off
+float fsSkinHairKeepFrom(vec2 tc, int surface, vec3 stored)
+{
+    float f = clamp(fs_skin_hair_filter, 0.0, 1.0);
+    if (f <= 0.0)
+    {
+        return 1.0;
+    }
+    return 1.0 - f * fsSkinHair(tc, surface, stored);
+}
+
+// The same for the g-buffer pixel at tc (1 when it is not an avatar surface)
+float fsSkinHairKeep(vec2 tc)
+{
+    int surface = fsSkinSurface(getNormRaw(tc).a);
+    if (surface == 0 || fs_skin_hair_filter <= 0.0)
+    {
+        return 1.0;
+    }
+    return fsSkinHairKeepFrom(tc, surface, texture(diffuseRect, tc).rgb);
+}
+
+// Skin weight of a g-buffer pixel at tc for the lighting passes: 0 when not avatar or not skin
+float fsSkinWeightGB(GBufferInfo gb, vec2 tc)
 {
     int surface = fsSkinSurface(gb.gbufferFlag);
     if (surface == 0)
@@ -183,7 +276,12 @@ float fsSkinWeightGB(GBufferInfo gb)
         return 0.0;
     }
     vec3 albedo;
-    return clamp(fsSkinWeightRaw(surface, gb.albedo, gb.specular, gb.envIntensity, albedo), 0.0, 1.0);
+    float w = clamp(fsSkinWeightRaw(surface, gb.albedo, gb.specular, gb.envIntensity, albedo), 0.0, 1.0);
+    if (w > 0.0)
+    {
+        w *= fsSkinHairKeepFrom(tc, surface, gb.albedo.rgb);
+    }
+    return w;
 }
 
 #ifdef FS_SKIN_DUAL_SPEC
@@ -318,7 +416,6 @@ float fsSkinRimThinning(vec3 n, vec3 v)
 uniform float sss_translucency;     // strength, FSRenderSkinSSSTranslucency
 uniform float sss_radius;           // profile scale, 1 = measured human skin
 uniform float sss_tint;             // 0: every channel transmits like red, 1: skin profile
-uniform vec2 screen_res;
 vec4 getPosition(vec2 pos_screen);
 vec3 getGeoNorm(vec2 screenpos);
 

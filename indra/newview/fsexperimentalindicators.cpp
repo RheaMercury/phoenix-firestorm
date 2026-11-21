@@ -465,6 +465,7 @@ namespace
         { "FSRenderSkinBakesOnly", CL, VM },
         { "FSRenderSkinDetectMaterial", CL, VM },
         { "FSRenderSkinToneRange", CL, VM },
+        { "FSRenderSkinHairFilter", CL, VM },
         { "FSRenderSkinDebug", CL, VN },
         { "FSRenderSkinDualSpecular", CL, VM },
         { "FSRenderSkinSpecularMix", CL, VN },

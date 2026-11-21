@@ -98,7 +98,7 @@ float fsWetShore(vec3 pos, vec3 norm, vec4 water_plane);
 #endif
 // <FS:Trish> Avatar skin lighting (fsSkinUtil.glsl)
 #ifdef FS_SKIN_LIGHTING
-float fsSkinWeightGB(GBufferInfo gb);
+float fsSkinWeightGB(GBufferInfo gb, vec2 tc);
 
 // The sun's light per unit of specular BRDF on this pixel, N.L and shadow included, the way
 // pbrBaseLight applies it in the mode the sky is in
@@ -388,7 +388,7 @@ void main()
     GBufferInfo gb = getGBuffer(tc);
     // <FS:Trish> How much of this pixel is avatar skin (fsSkinUtil.glsl), 0 elsewhere
 #ifdef FS_SKIN_LIGHTING
-    float fs_skin = fsSkinWeightGB(gb);
+    float fs_skin = fsSkinWeightGB(gb, tc);
 #endif
     // </FS:Trish>
 

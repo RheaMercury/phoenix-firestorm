@@ -11762,6 +11762,7 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLCachedControl<F32> tint(gSavedSettings, "FSRenderSkinSSSTint", 1.0f);
     static LLCachedControl<F32> translucency(gSavedSettings, "FSRenderSkinSSSTranslucency", 1.0f);
     static LLCachedControl<F32> sheen_strength(gSavedSettings, "FSRenderSkinSheenStrength", 0.2f);
+    static LLCachedControl<F32> hair_filter(gSavedSettings, "FSRenderSkinHairFilter", 1.0f);
     static LLStaticHashedString s_tone_match("sss_tone_match");
     static LLStaticHashedString s_tone_range("fs_skin_tone_range");
     static LLStaticHashedString s_spec_mix("fs_skin_spec_mix");
@@ -11770,6 +11771,7 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     static LLStaticHashedString s_tint("sss_tint");
     static LLStaticHashedString s_translucency("sss_translucency");
     static LLStaticHashedString s_sheen("fs_skin_sheen");
+    static LLStaticHashedString s_hair_filter("fs_skin_hair_filter");
     shader.uniform1f(s_tone_match, llclamp((F32)tone_match, 0.f, 1.f));
     shader.uniform1f(s_tone_range, llclamp((F32)tone_range, 0.f, 1.f));
     shader.uniform1f(s_spec_mix, llclamp((F32)spec_mix, 0.f, 1.f));
@@ -11779,6 +11781,8 @@ static void fs_bind_skin_lighting(LLGLSLShader& shader)
     shader.uniform1f(s_tint, llclamp((F32)tint, 0.f, 1.f));
     shader.uniform1f(s_translucency, llclamp((F32)translucency, 0.f, 4.f));
     shader.uniform1f(s_sheen, llclamp((F32)sheen_strength, 0.f, 1.f));
+    // Painted hair (a Bakes on Mesh hair base, brows) is not lit as skin (fsSkinHair)
+    shader.uniform1f(s_hair_filter, llclamp((F32)hair_filter, 0.f, 1.f));
 }
 // </FS:Trish>
 
@@ -12457,6 +12461,12 @@ static void fs_render_skin_sss(LLRenderTarget* screen)
         static LLCachedControl<F32> albedo_split(gSavedSettings, "FSRenderSkinAlbedoSplitAmount", 1.f);
         static LLStaticHashedString s_albedo_split("fs_skin_albedo_split");
         shader.uniform1f(s_albedo_split, llclamp((F32)albedo_split, 0.f, 1.f));
+    }
+    // Painted hair (a Bakes on Mesh hair base, brows) neither scatters nor glows (fsSkinHair)
+    {
+        static LLCachedControl<F32> hair_filter(gSavedSettings, "FSRenderSkinHairFilter", 1.0f);
+        static LLStaticHashedString s_hair_filter("fs_skin_hair_filter");
+        shader.uniform1f(s_hair_filter, llclamp((F32)hair_filter, 0.f, 1.f));
     }
     if (translucent)
     {

@@ -34,6 +34,10 @@
  * that, a skin weight (fsSkinUtil.glsl: a tone test on the albedo, with
  * FSRenderSkinDetectMaterial also a material test) keeps the blur off most clothing.
  *
+ * Painted hair (a Bakes on Mesh hair base, brows) is part of the same bake as the skin; the
+ * strand test (fsSkinHair, FSRenderSkinHairFilter) takes it out of the strength pass 1 blends the
+ * scattered light and the translucency in with, so a hair base does not glow red.
+ *
  * Debug view (sss_debug, FSRenderSkinDebug): pass 1 alone tints avatar pixels by that weight.
  *
  * Translucency (sss_translucency > 0, vertical pass only): sunlight transmitted through thin
@@ -134,6 +138,7 @@ vec3 srgb_to_linear(vec3 cs);
 int fsSkinSurface(float flag);
 float fsSkinWeightRaw(int surface, vec4 base, vec4 spec, float env, out vec3 albedo);
 float fsSkinWeightParts(int surface, vec4 base, vec4 spec, float env, out vec3 albedo, out float material, out float tone);
+float fsSkinHairKeep(vec2 tc);
 vec3 fsSkinTransmittance(float s);
 float fsSkinForwardScatter(vec3 n, vec3 v, vec3 l);
 float fsSkinRimThinning(vec3 n, vec3 v);
@@ -458,8 +463,9 @@ void main()
     if (sss_debug != 0)
     {
         // Debug view (FSRenderSkinDebug), pass 1 only: avatar pixels tinted green as far as they
-        // count as skin, the rest red where the colour test turned them down and blue where the
-        // material test did. Everything else is left as it is.
+        // count as skin, the rest red where the colour test turned them down, blue where the
+        // material test did and yellow where the painted hair test did. Everything else is left
+        // as it is.
         vec4 norm_raw = getNormRaw(tc);
         int surface = fsSkinSurface(norm_raw.a);
         if (surface == 0)
@@ -476,7 +482,10 @@ void main()
         float tone;
         float w = clamp(fsSkinWeightParts(surface, texture(diffuseRect, tc), spec, norm_raw.b, d_albedo, material, tone), 0.0, 1.0);
         float tone_w = mix(1.0, tone, clamp(sss_tone_match, 0.0, 1.0));
+        float hair_keep = fsSkinHairKeep(tc);
+        w *= hair_keep;
         vec3 rejected = material < tone_w ? vec3(0.1, 0.25, 1.0) : vec3(1.0, 0.1, 0.05);
+        rejected = hair_keep < min(material, tone_w) ? vec3(1.0, 0.85, 0.05) : rejected;
         vec3 c = mix(rejected, vec3(0.1, 1.0, 0.2), w) * (0.25 * fsSkinDiffuseCeiling());
         const float a = 0.8;
         frag_color = vec4(c * a, a);
@@ -508,6 +517,13 @@ void main()
         return;
     }
     float dist = max(-pos.z, 1e-3);
+
+    if (sss_pass == 1)
+    {
+        // Painted hair keeps its light as lit: no scattered light or translucency blended in. The
+        // blur of pass 0 still counts it, as the skin it is painted on.
+        center_w *= fsSkinHairKeep(tc);
+    }
 
     vec3 trans = vec3(0.0);
 #ifdef FS_SKIN_ENERGY

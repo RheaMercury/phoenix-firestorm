@@ -81,7 +81,7 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
 GBufferInfo getGBuffer(vec2 screenpos);
 // Avatar skin lighting (fsSkinUtil.glsl)
 #ifdef FS_SKIN_LIGHTING
-float fsSkinWeightGB(GBufferInfo gb);
+float fsSkinWeightGB(GBufferInfo gb, vec2 tc);
 #endif
 #ifdef FS_SKIN_DUAL_SPEC
 vec3 fsSkinDualLobe(vec3 n, vec3 v, vec3 l, float perceptualRoughness);
@@ -244,7 +244,7 @@ void main()
 
     GBufferInfo gb = getGBuffer(tc);
 #ifdef FS_SKIN_LIGHTING
-    float fs_skin = fsSkinWeightGB(gb); // how much of this pixel is avatar skin, 0 elsewhere
+    float fs_skin = fsSkinWeightGB(gb, tc); // how much of this pixel is avatar skin, 0 elsewhere
 #endif
 
     vec3 n = gb.normal;

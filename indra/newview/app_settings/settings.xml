@@ -28791,10 +28791,21 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderSkinHairFilter</key>
+    <map>
+      <key>Comment</key>
+      <string>Avatar skin: how far painted hair is kept out of the skin lighting (0-1). A Bakes on Mesh hair base, brows and lashes are painted into the head's bake, so they are the same surface as the skin; with this at 1 they get no skin sheen, skin highlight, scattering or backlit glow, so a hair base no longer looks glossy. Painted hair is told from skin by its strands (fine light and dark lines skin does not have) and by being darker than any skin; it is found best from close up to a few metres away. 0 treats it as skin, as before. Needs FSRenderSkinSSS; no shader rebuild.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
     <key>FSRenderSkinDebug</key>
     <map>
       <key>Comment</key>
-      <string>Skin subsurface scattering debug view: tints avatar pixels green as far as they count as skin, red where the colour test turns them down and blue where the material test does (FSRenderSkinDetectMaterial). Replaces the scattering while on. Needs FSRenderSkinSSS.</string>
+      <string>Skin subsurface scattering debug view: tints avatar pixels green as far as they count as skin, red where the colour test turns them down, blue where the material test does (FSRenderSkinDetectMaterial) and yellow where the painted hair test does (FSRenderSkinHairFilter). Replaces the scattering while on. Needs FSRenderSkinSSS.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
