@@ -1,6 +1,7 @@
 /**
  * @file fsfloaterscriptrepos.h
- * @brief Script Repositories window: syncs GitHub repositories into the Scripts folder and updates same-named
+ * @brief Script Repositories window: syncs Git repositories (GitHub, GitLab, Gitea/Forgejo, Bitbucket) and zip links
+ *        into the Scripts folder and updates same-named
  *        scripts in the user's objects in the region.
  */
 
@@ -13,6 +14,7 @@
 
 class LLButton;
 class LLCheckBoxCtrl;
+class LLComboBox;
 class LLEventPump;
 class LLLineEditor;
 class LLProgressBar;
@@ -113,6 +115,7 @@ private:
     LLLineEditor* mPrefixEdit{ nullptr };
     LLLineEditor* mTokenEdit{ nullptr };
     LLCheckBoxCtrl* mImages{ nullptr };
+    LLComboBox* mKind{ nullptr };
     LLTextBox* mStatus{ nullptr };
     LLProgressBar* mProgress{ nullptr };
 
@@ -127,6 +130,7 @@ private:
     bool mCancel{ false };
     bool mApplyAfterCheck{ false }; // Apply pressed while the region check was still reading
     std::string mPrefix;            // put in front of every repository folder name
+    std::string mTokenHost;         // the host the token field is for; empty for a zip link (no token)
     std::string mIgnoreText;        // the ignore list and image choice the rows were made with
     bool mImagesOn{ false };
 };

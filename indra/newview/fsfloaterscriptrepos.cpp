@@ -1,6 +1,7 @@
 /**
  * @file fsfloaterscriptrepos.cpp
- * @brief Script Repositories window: syncs GitHub repositories into the Scripts folder and updates same-named
+ * @brief Script Repositories window: syncs Git repositories (GitHub, GitLab, Gitea/Forgejo, Bitbucket) and zip links
+ *        into the Scripts folder and updates same-named
  *        scripts in the user's objects in the region.
  */
 
@@ -14,6 +15,7 @@
 #include "llbutton.h"
 #include "llcallbacklist.h"
 #include "llcheckboxctrl.h"
+#include "llcombobox.h"
 #include "llcoros.h"
 #include "lldir.h"
 #include "lleventcoro.h"
@@ -78,7 +80,8 @@ namespace
 
     std::string shortCommit(const std::string& commit)
     {
-        return commit.substr(0, 7);
+        // A zip link's version is its ETag, date or content hash ("etag:...", "md5:..."): nothing to show
+        return commit.find(':') != std::string::npos ? std::string("latest") : commit.substr(0, 7);
     }
 
     LLStringUtil::format_map_t fargs(std::initializer_list<std::pair<const char*, std::string>> list)
@@ -304,6 +307,7 @@ bool FSFloaterScriptRepos::postBuild()
     mPrefixEdit = getChild<LLLineEditor>("prefix_edit");
     mTokenEdit = getChild<LLLineEditor>("token_edit");
     mImages = getChild<LLCheckBoxCtrl>("images");
+    mKind = getChild<LLComboBox>("kind");
     mStatus = getChild<LLTextBox>("status");
     mProgress = getChild<LLProgressBar>("progress");
 
@@ -315,6 +319,7 @@ bool FSFloaterScriptRepos::postBuild()
     childSetAction("apply", [this](LLUICtrl*, const LLSD&) { onApply(); });
     childSetAction("cancel", [this](LLUICtrl*, const LLSD&) { onCancel(); });
     mRepoEdit->setCommitCallback([this](LLUICtrl*, const LLSD&) { onAdd(); });
+    mRepoList->setCommitCallback([this](LLUICtrl*, const LLSD&) { refreshToken(); });
     mTokenEdit->setCommitOnFocusLost(true);
     mTokenEdit->setCommitCallback([this](LLUICtrl*, const LLSD&) { onTokenCommit(); });
     mIgnoreEdit->setCommitOnFocusLost(true);
@@ -413,7 +418,8 @@ void FSFloaterScriptRepos::refreshRepos()
         row["columns"][0]["column"] = "repo";
         row["columns"][0]["value"] = state.ref.display();
         row["columns"][1]["column"] = "branch";
-        row["columns"][1]["value"] = state.ref.ref.empty() ? getString("default_branch") : state.ref.ref;
+        row["columns"][1]["value"] = state.ref.provider == Provider::ZIP ? getString("zip_link") :
+            state.ref.ref.empty() ? getString("default_branch") : state.ref.ref;
         row["columns"][2]["column"] = "synced";
         row["columns"][2]["value"] = state.commit.empty() && state.files.empty() ? getString("never_synced") :
             state.synced.toHTTPDateString("%Y-%m-%d %H:%M") + (state.commit.empty() ? "" : " @ " + shortCommit(state.commit));
@@ -423,17 +429,51 @@ void FSFloaterScriptRepos::refreshRepos()
 
 void FSFloaterScriptRepos::refreshToken()
 {
+    // The token field is for the selected repository's host (the first repository's when none is selected)
+    const RepoRef* ref = nullptr;
+    if (LLScrollListItem* item = mRepoList->getFirstSelected())
+    {
+        const S32 index = item->getValue().asInteger();
+        ref = index >= 0 && index < (S32)mRepos.size() ? &mRepos[index].state.ref : nullptr;
+    }
+    if (!ref && !mRepos.empty())
+    {
+        ref = &mRepos.front().state.ref;
+    }
+    mTokenHost = ref ? tokenHost(*ref) : std::string("github.com");
+
     mTokenEdit->clear();
-    mTokenEdit->setLabel(getString(loadToken().empty() ? "token_none" : "token_saved"));
+    if (mTokenHost.empty())
+    {
+        mTokenEdit->setLabel(getString("token_zip"));
+    }
+    else
+    {
+        const bool saved = !loadToken(mTokenHost).empty();
+        const bool basic = ref && ref->provider == Provider::BITBUCKET;
+        mTokenEdit->setLabel(getString(saved ? "token_saved" : basic ? "token_none_bitbucket" : "token_none",
+            fargs({ { "HOST", mTokenHost } })));
+    }
+    if (!mBusy)
+    {
+        mTokenEdit->setEnabled(!mTokenHost.empty());
+        getChildView("forget")->setEnabled(!mTokenHost.empty());
+    }
 }
 
 void FSFloaterScriptRepos::setBusy(bool busy)
 {
     mBusy = busy;
     for (const char* name : { "add", "remove", "forget", "check", "check_region", "repo_edit", "branch_edit",
-                              "ignore_edit", "token_edit", "images", "prefix_edit" })
+                              "kind", "ignore_edit", "token_edit", "images", "prefix_edit" })
     {
         getChildView(name)->setEnabled(!busy);
+    }
+    if (!busy && mTokenHost.empty())
+    {
+        // A zip link has no token
+        mTokenEdit->setEnabled(false);
+        getChildView("forget")->setEnabled(false);
     }
     // A region check lists rows while it reads: Apply stops the reading and applies what is listed
     getChildView("apply")->setEnabled((!busy && mMode == Mode::INVENTORY && !mInvRows.empty()) ||
@@ -495,15 +535,20 @@ void FSFloaterScriptRepos::onAdd()
         return;
     }
     RepoRef ref;
-    if (!parseRepoRef(mRepoEdit->getText(), mBranchEdit->getText(), ref))
+    Provider chosen = Provider::GITHUB;
+    const bool forced = providerFromName(mKind->getValue().asString(), chosen);    // "auto" is no provider
+    if (!parseRepoRef(mRepoEdit->getText(), mBranchEdit->getText(), forced ? &chosen : nullptr, ref))
     {
-        setStatus(getString("bad_repo"));
+        // A repository link on a host whose kind is not known by its name: ask for the kind
+        const Provider gitea = Provider::GITEA;
+        RepoRef probe;
+        setStatus(getString(!forced && parseRepoRef(mRepoEdit->getText(), mBranchEdit->getText(), &gitea, probe) ?
+            "unknown_host" : "bad_repo"));
         return;
     }
     for (const Repo& repo : mRepos)
     {
-        if (LLStringUtil::compareInsensitive(repo.state.ref.display(), ref.display()) == 0 &&
-            repo.state.ref.ref == ref.ref)
+        if (repo.state.ref.key() == ref.key())
         {
             setStatus(getString("duplicate_repo"));
             return;
@@ -514,9 +559,12 @@ void FSFloaterScriptRepos::onAdd()
     mRepos.push_back(repo);
     mRepoEdit->clear();
     mBranchEdit->clear();
+    mKind->setValue("auto");
     clearResults();
     save();
     refreshRepos();
+    mRepoList->selectNthItem((S32)mRepos.size() - 1);
+    refreshToken();
     setStatus(std::string());
     setBusy(false);
 }
@@ -542,12 +590,13 @@ void FSFloaterScriptRepos::onRemove()
     clearResults();
     save();
     refreshRepos();
+    refreshToken();
     setBusy(false);
 }
 
 void FSFloaterScriptRepos::onForget()
 {
-    forgetToken();
+    forgetToken(mTokenHost);
     refreshToken();
 }
 
@@ -557,7 +606,7 @@ void FSFloaterScriptRepos::onTokenCommit()
     LLStringUtil::trim(token);
     if (!token.empty())
     {
-        saveToken(token);
+        saveToken(mTokenHost, token);
     }
     refreshToken();
 }
@@ -719,7 +768,9 @@ std::string FSFloaterScriptRepos::repoFolderName(size_t index, const std::string
     {
         if (i != index && LLStringUtil::compareInsensitive(mRepos[i].state.ref.repo, ref.repo) == 0)
         {
-            return inWorldName(prefix + ref.owner + "-" + ref.repo);
+            std::string owner = ref.owner;  // a GitLab namespace or a zip link's host
+            LLStringUtil::replaceChar(owner, '/', '-');
+            return inWorldName(prefix + owner + "-" + ref.repo);
         }
     }
     return inWorldName(prefix + ref.repo);
@@ -793,8 +844,9 @@ bool FSFloaterScriptRepos::fetchRepo(LLHandle<LLFloater> handle, size_t index, b
         return false;
     }
 
+    // An empty version (a zip link whose server gives none) is only known after the download
     Repo& repo = floater->mRepos[index];
-    if (repo.loaded && repo.fetched_commit == commit.commit)
+    if (!commit.commit.empty() && repo.loaded && repo.fetched_commit == commit.commit)
     {
         return true;
     }
@@ -802,21 +854,29 @@ bool FSFloaterScriptRepos::fetchRepo(LLHandle<LLFloater> handle, size_t index, b
     repo.loaded = false;
     repo.entries.clear();
 
-    if (!force_download && repo.state.commit == commit.commit)
+    auto unchanged_since_sync = [floater, index, force_download](const std::string& version)
     {
+        const Repo& synced = floater->mRepos[index];
+        if (force_download || version.empty() || synced.state.commit != version)
+        {
+            return false;
+        }
         const LLUUID folder = floater->findRepoFolder(index);
-        bool all_present = true;
-        for (const auto& file : repo.state.files)
+        for (const auto& file : synced.state.files)
         {
-            all_present = all_present && floater->itemPresent(file.second.item_id, folder);
+            if (!floater->itemPresent(file.second.item_id, folder))
+            {
+                return false;
+            }
         }
-        if (all_present)
-        {
-            return true;    // nothing changed since the last sync: no download
-        }
+        return true;
+    };
+    if (unchanged_since_sync(commit.commit))
+    {
+        return true;    // nothing changed since the last sync: no download
     }
 
-    FetchResult zip = fetchZipball(ref, commit.commit);
+    FetchResult zip = fetchArchive(ref, commit.commit);
     if (!(floater = self(handle)) || floater->mCancel)
     {
         return false;
@@ -825,6 +885,11 @@ bool FSFloaterScriptRepos::fetchRepo(LLHandle<LLFloater> handle, size_t index, b
     {
         error = zip.error;
         return false;
+    }
+    floater->mRepos[index].fetched_commit = zip.commit;
+    if (commit.commit.empty() && unchanged_since_sync(zip.commit))
+    {
+        return true;    // a zip link with the same content as at the last sync
     }
 
     std::vector<std::pair<std::string, std::string>> files;

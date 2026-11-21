@@ -13,9 +13,13 @@
  single_instance="true">
     <string name="never_synced">never synced</string>
     <string name="default_branch">(default branch)</string>
-    <string name="token_none">Optional, for private repositories</string>
-    <string name="token_saved">Saved (type to replace)</string>
-    <string name="bad_repo">Type owner/repo or a github.com link.</string>
+    <string name="zip_link">(zip link)</string>
+    <string name="token_none">Optional, for private repositories on [HOST]</string>
+    <string name="token_none_bitbucket">Optional: username:app password for [HOST]</string>
+    <string name="token_saved">Saved for [HOST] (type to replace)</string>
+    <string name="token_zip">Zip links are read without a token</string>
+    <string name="bad_repo">Type owner/repo (GitHub), a repository link, or an https link to a zip file.</string>
+    <string name="unknown_host">The kind of server is not known from its name: choose it in the list next to the link.</string>
     <string name="duplicate_repo">That repository is already listed.</string>
     <string name="no_inventory">The inventory is not loaded yet.</string>
     <string name="inventory_loading">The Scripts folder is still loading. Try again in a moment.</string>
@@ -95,13 +99,29 @@
     </scroll_list>
     <line_editor
      name="repo_edit"
-     label="owner/repo or GitHub link"
+     label="owner/repo, a repository link, or a zip link"
+     tool_tip="GitHub: owner/repo or a github.com link. GitLab, Gitea/Forgejo (such as Codeberg) and Bitbucket: the repository's link. Anything else: an https link to a zip file."
      layout="topleft"
      follows="left|right|top"
      left="8"
-     right="-246"
+     right="-368"
      top="96"
      height="22" />
+    <combo_box
+     name="kind"
+     tool_tip="The kind of server. Auto tells it from the link; choose it for a self-hosted GitLab, Gitea or Forgejo on its own domain."
+     layout="topleft"
+     follows="right|top"
+     left_pad="4"
+     width="110"
+     height="22">
+        <combo_box.item label="Auto" name="auto" value="auto" />
+        <combo_box.item label="GitHub" name="github" value="github" />
+        <combo_box.item label="GitLab" name="gitlab" value="gitlab" />
+        <combo_box.item label="Gitea / Forgejo" name="gitea" value="gitea" />
+        <combo_box.item label="Bitbucket" name="bitbucket" value="bitbucket" />
+        <combo_box.item label="Zip link" name="zip" value="zip" />
+    </combo_box>
     <line_editor
      name="branch_edit"
      label="branch (optional)"
@@ -177,7 +197,7 @@
     <line_editor
      name="token_edit"
      is_password="true"
-     tool_tip="A GitHub fine-grained token with read-only Contents access to these repositories. Kept in the viewer's protected store, only sent to api.github.com."
+     tool_tip="For the selected repository's server. GitHub: a fine-grained token with read-only Contents access. GitLab: a token with read_api. Gitea/Forgejo: a token with read access to repositories. Bitbucket: username:app password. Kept in the viewer's protected store, one per server, and only sent to that server's API."
      layout="topleft"
      follows="right|top"
      left_pad="0"
@@ -186,7 +206,7 @@
     <button
      name="forget"
      label="Forget"
-     tool_tip="Removes the saved GitHub token from this computer."
+     tool_tip="Removes the token saved for the selected repository's server from this computer."
      layout="topleft"
      follows="right|top"
      left_pad="4"
@@ -195,7 +215,7 @@
     <button
      name="check"
      label="Check for changes"
-     tool_tip="Compares the repositories with the Scripts folder. Changes nothing."
+     tool_tip="Compares the repositories and zip links with the Scripts folder. Changes nothing."
      layout="topleft"
      follows="left|top"
      left="8"

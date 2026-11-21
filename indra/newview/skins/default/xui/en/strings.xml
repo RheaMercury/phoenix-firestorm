@@ -2867,7 +2867,7 @@ name="Command_360_Capture_Label">360° Snapshot</string>
   <string name="Command_RegionTracker_Tooltip">Track various regions status</string>
   <!-- [FS:Chanayane] Compass floater -->
   <string name="Command_AvatarAlign_Tooltip">Align your avatar to a cardinal direction or face the nearest avatar</string>
-  <string name="Command_ScriptRepos_Tooltip">Sync scripts from GitHub repositories into your inventory and your objects in this region</string>
+  <string name="Command_ScriptRepos_Tooltip">Sync scripts from Git repositories (GitHub, GitLab, Gitea/Forgejo, Bitbucket) or zip links into your inventory and your objects in this region</string>
   <string name="Command_FaceNearest_Tooltip">Turn to face the nearest avatar within 20m</string>
   <!-- [/FS:Chanayane] -->
   <string name="Command_Group_Titles_Tooltip">Change active group tag</string>
