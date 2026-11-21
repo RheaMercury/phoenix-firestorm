@@ -103,6 +103,27 @@ namespace
         {
             LL_INFOS("FSRenderThread") << "Calls per frame by GPU zone: " << s.mTopZones << LL_ENDL;
         }
+        if (!s.mTopZoneTimes.empty())
+        {
+            LL_INFOS("FSRenderThread") << "Render thread replay time per frame by GPU zone: " << s.mTopZoneTimes << LL_ENDL;
+        }
+        // What lives on: a count that keeps growing over a long session while the scene stays the
+        // same is a leak (live = made minus deleted since the render thread started; made/deleted
+        // are for this period)
+        std::string objects;
+        for (S32 k = 0; k < FSGLStream::OBJ_COUNT; ++k)
+        {
+            objects += llformat("%s%s %lld (+%llu -%llu)", k ? ", " : "", FSGLStream::objKindName(k), (long long)s.mObjLive[k],
+                                (unsigned long long)s.mObjMade[k], (unsigned long long)s.mObjDeleted[k]);
+        }
+        LL_INFOS("FSRenderThread") << "Live GL objects: " << objects
+            << llformat("; queries pending %llu, tracked by the render thread %llu, results held %llu, issued %llu; "
+                        "per frame: query polls %.2f ms (%.0f availability reads), readback poll %.2f ms; LLImageGL %d (%llu MB)",
+                        (unsigned long long)s.mQueriesPending, (unsigned long long)s.mQueryRenderIds,
+                        (unsigned long long)s.mQueryResults, (unsigned long long)s.mQueryIssued,
+                        s.mRenderPollMs / frames, (F64)s.mQueryAvailCalls / frames, s.mRenderPollHookMs / frames,
+                        LLImageGL::sCount, (unsigned long long)(LLImageGL::getTextureBytesAllocated() >> 20))
+            << LL_ENDL;
         sFrames = 0;
         sFrameSeconds = 0.0;
     }

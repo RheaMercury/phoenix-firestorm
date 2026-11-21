@@ -148,6 +148,22 @@ namespace FSGLStream
     // stats lines (off by default: a few ns on every recorded call). Main thread.
     void setCallStats(bool on);
 
+    // Kinds of GL objects counted for the stats line
+    enum EObjKind
+    {
+        OBJ_QUERY = 0,
+        OBJ_BUFFER,
+        OBJ_TEXTURE,
+        OBJ_VAO,
+        OBJ_FRAMEBUFFER,
+        OBJ_RENDERBUFFER,
+        OBJ_SAMPLER,
+        OBJ_SYNC,
+        OBJ_PROGRAM,
+        OBJ_COUNT
+    };
+    const char* objKindName(S32 kind);
+
     struct Stats
     {
         U64 mRecordedCalls = 0;
@@ -162,6 +178,22 @@ namespace FSGLStream
         std::string mTopSkips;      // "glBindTexture 340, ..." calls dropped as redundant, per frame
         std::string mTopZones;      // "shadow simple 4100 (draws 900, texture binds 20), ..." calls per GPU zone, per frame (FSRenderThreadCallStats)
         U64 mSkippedCalls = 0;      // calls dropped as redundant (they would set state to what it is)
+
+        // GL objects made minus deleted through the proxies since they were installed (any thread),
+        // and how many were made and deleted since the last call: a kind that keeps growing leaks
+        S64 mObjLive[OBJ_COUNT] = {};
+        U64 mObjMade[OBJ_COUNT] = {};
+        U64 mObjDeleted[OBJ_COUNT] = {};
+        // Query bookkeeping: ended queries the render thread has yet to collect, ids it tracks,
+        // results held for the main thread, ids the main thread tracks
+        U64 mQueriesPending = 0;
+        U64 mQueryRenderIds = 0;
+        U64 mQueryResults = 0;
+        U64 mQueryIssued = 0;
+        F64 mRenderPollMs = 0.0;        // render thread collecting query results (in busy and idle)
+        F64 mRenderPollHookMs = 0.0;    // render thread in the poll hook (readback fences)
+        U64 mQueryAvailCalls = 0;       // GL_QUERY_RESULT_AVAILABLE reads the render thread made
+        std::string mTopZoneTimes;      // "shadow simple 1.20 ms, ..." render thread replay time per GPU zone, per frame (FSRenderThreadCallStats)
     };
     // Main thread. Returns the counters since the last call and resets them.
     Stats takeStats();

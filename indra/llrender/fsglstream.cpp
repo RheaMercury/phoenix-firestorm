@@ -129,6 +129,10 @@ namespace
     // recorded call costs one test of this flag here.
     bool sCallStats = false;                    // main thread
 
+    // FSRenderThreadCallStats: a record telling the render thread that the calls after it belong
+    // to another GPU zone, so it can time how long it spends replaying each zone
+    void recordZoneMark(const char* zone);
+
     template <int ID>
     inline void noteCall(size_t bytes)
     {
@@ -141,6 +145,10 @@ namespace
         const char* zone = LLFSGPUZone::tZone;
         if (zone != sLastZone || !sLastZoneCalls)
         {
+            if (zone != sLastZone)
+            {
+                recordZoneMark(zone);
+            }
             sLastZone = zone;
             sLastZoneCalls = &sZoneCalls[zone];
         }
@@ -163,6 +171,60 @@ namespace
     {
         ++sSkipCount[id];
         ++sStatSkips;
+    }
+
+    // GL objects made and deleted through the proxies, on any thread (the texture and media workers
+    // pass through them too), for the stats line: a kind whose live count keeps growing over a long
+    // session is a leak. Counted from when the proxies were installed, so objects made before that
+    // and deleted later make a count lower than the true one; the trend is what matters. A relaxed
+    // atomic add per call that makes or deletes objects, nothing per frame.
+    std::atomic<S64> sObjLive[FSGLStream::OBJ_COUNT];
+    std::atomic<U64> sObjMade[FSGLStream::OBJ_COUNT];      // since the last stats line
+    std::atomic<U64> sObjDeleted[FSGLStream::OBJ_COUNT];   // since the last stats line
+
+    constexpr int objKindOf(int id)
+    {
+        return id == FSGL_ID_glGenQueries || id == FSGL_ID_glCreateQueries ? FSGLStream::OBJ_QUERY
+             : id == FSGL_ID_glGenBuffers || id == FSGL_ID_glCreateBuffers ? FSGLStream::OBJ_BUFFER
+             : id == FSGL_ID_glGenTextures || id == FSGL_ID_glCreateTextures ? FSGLStream::OBJ_TEXTURE
+             : id == FSGL_ID_glGenVertexArrays || id == FSGL_ID_glCreateVertexArrays ? FSGLStream::OBJ_VAO
+             : id == FSGL_ID_glGenFramebuffers || id == FSGL_ID_glCreateFramebuffers ? FSGLStream::OBJ_FRAMEBUFFER
+             : id == FSGL_ID_glGenRenderbuffers || id == FSGL_ID_glCreateRenderbuffers ? FSGLStream::OBJ_RENDERBUFFER
+             : id == FSGL_ID_glGenSamplers || id == FSGL_ID_glCreateSamplers ? FSGLStream::OBJ_SAMPLER
+             : FSGLStream::OBJ_COUNT;
+    }
+
+    inline void noteMade(int kind, S64 n)
+    {
+        if (kind < FSGLStream::OBJ_COUNT && n > 0)
+        {
+            sObjLive[kind].fetch_add(n, std::memory_order_relaxed);
+            sObjMade[kind].fetch_add((U64)n, std::memory_order_relaxed);
+        }
+    }
+
+    inline void noteDeleted(int kind, S64 n)
+    {
+        if (kind < FSGLStream::OBJ_COUNT && n > 0)
+        {
+            sObjLive[kind].fetch_sub(n, std::memory_order_relaxed);
+            sObjDeleted[kind].fetch_add((U64)n, std::memory_order_relaxed);
+        }
+    }
+
+    // Name 0 is ignored by every glDelete*
+    inline void noteDeleted(int kind, GLsizei n, const GLuint* ids)
+    {
+        if (n <= 0 || !ids)
+        {
+            return;
+        }
+        S64 count = 0;
+        for (GLsizei i = 0; i < n; ++i)
+        {
+            count += ids[i] != 0;
+        }
+        noteDeleted(kind, count);
     }
 
     template <typename Fn>
@@ -189,6 +251,11 @@ namespace
     U32 sStatPresents = 0;          // main
     std::atomic<U64> sStatRenderBusyNs{ 0 };
     std::atomic<U64> sStatRenderIdleNs{ 0 };
+    // Render thread time spent collecting query results and running the poll hook (readback
+    // fences), inside both the busy and the idle time above, and the driver calls it made
+    std::atomic<U64> sStatRenderPollNs{ 0 };
+    std::atomic<U64> sStatQueryAvailCalls{ 0 };
+    std::atomic<U64> sStatRenderPollHookNs{ 0 };
 
     //------------------------------------------------------------------------
     // Command buffer
@@ -379,8 +446,52 @@ namespace
         }
     }
 
+    // Render thread time per GPU zone (FSRenderThreadCallStats): zone marks in the stream switch
+    // the zone the replay time goes to. Only the time inside execChunk counts. Zone names are
+    // literals, so keyed by pointer.
+    std::atomic<bool> sZoneTiming{ false };             // main sets, render reads
+    std::mutex sZoneTimeMutex;
+    std::unordered_map<const char*, U64> sZoneTimeNs;   // guarded by sZoneTimeMutex
+    const char* sRenderZone = nullptr;                  // render thread
+    U64 sRenderZoneStartNs = 0;                         // render thread
+
+    void addRenderZoneTime(U64 now)
+    {
+        if (now > sRenderZoneStartNs)
+        {
+            std::lock_guard<std::mutex> lock(sZoneTimeMutex);
+            sZoneTimeNs[sRenderZone] += now - sRenderZoneStartNs;
+        }
+        sRenderZoneStartNs = now;
+    }
+
+    void execZoneMark(U8* p)
+    {
+        const char* zone = *reinterpret_cast<const char**>(p);
+        if (sZoneTiming.load(std::memory_order_relaxed))
+        {
+            addRenderZoneTime(nowNs());
+        }
+        sRenderZone = zone;
+    }
+
+    void recordZoneMark(const char* zone)
+    {
+        // Called from noteCall, after the record it counts was written and before its commit,
+        // so another record can be added here. It is not a GL call: not in the call counts.
+        U8* p = allocRecord(&execZoneMark, sizeof(const char*));
+        *reinterpret_cast<const char**>(p) = zone;
+        --sStatCalls;
+        sStatBytes -= sizeof(RecHdr) + align16(sizeof(const char*));
+    }
+
     void execChunk(Chunk* c)
     {
+        const bool timing = sZoneTiming.load(std::memory_order_relaxed);
+        if (timing)
+        {
+            sRenderZoneStartNs = nowNs();
+        }
         U8* p = c->mData;
         U8* end = p + c->mUsed;
         while (p < end)
@@ -388,6 +499,10 @@ namespace
             RecHdr* hdr = reinterpret_cast<RecHdr*>(p);
             hdr->mFn(reinterpret_cast<U8*>(hdr + 1));
             p += hdr->mSize;
+        }
+        if (timing)
+        {
+            addRenderZoneTime(nowNs());
         }
     }
 
@@ -931,6 +1046,12 @@ namespace
         std::vector<V> mDense;
         std::vector<U8> mHas;
         std::unordered_map<GLuint, V> mSparse;
+        size_t mSize = 0;   // names held, for the stats line
+
+        size_t size() const
+        {
+            return mSize;
+        }
 
         const V* find(GLuint name) const
         {
@@ -946,7 +1067,12 @@ namespace
         {
             if (name >= DENSE_LIMIT)
             {
-                return mSparse[name];
+                auto [it, added] = mSparse.try_emplace(name);
+                if (added)
+                {
+                    ++mSize;
+                }
+                return it->second;
             }
             if (name >= mHas.size())
             {
@@ -958,6 +1084,7 @@ namespace
             {
                 mHas[name] = 1;
                 mDense[name] = V();
+                ++mSize;
             }
             return mDense[name];
         }
@@ -965,17 +1092,19 @@ namespace
         {
             if (name >= DENSE_LIMIT)
             {
-                mSparse.erase(name);
+                mSize -= mSparse.erase(name);
             }
-            else if (name < mHas.size())
+            else if (name < mHas.size() && mHas[name])
             {
                 mHas[name] = 0;
+                --mSize;
             }
         }
         void clear()
         {
             std::fill(mHas.begin(), mHas.end(), (U8)0);
             mSparse.clear();
+            mSize = 0;
         }
     };
 
@@ -2533,6 +2662,10 @@ namespace
 
         static void APIENTRY call(GLsizei n, GLuint* out)
         {
+            if (out)
+            {
+                noteMade(objKindOf(ID), n);
+            }
             if (!tRecording || n <= 0 || !out)
             {
                 if (!tRecording)
@@ -2662,6 +2795,10 @@ namespace
 
         static void APIENTRY call(GLenum target, GLsizei n, GLuint* out)
         {
+            if (out)
+            {
+                noteMade(objKindOf(ID), n);
+            }
             if (!tRecording || n <= 0 || !out)
             {
                 if (!tRecording)
@@ -2775,6 +2912,7 @@ namespace
     FSGL_BEGIN(glDeleteBuffers)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_BUFFER, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             recordDeleted(n, ids, [](GLuint id)
             {
@@ -2799,6 +2937,7 @@ namespace
     FSGL_BEGIN(glDeleteVertexArrays)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_VAO, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             recordDeleted(n, ids, [](GLuint id)
             {
@@ -2831,6 +2970,7 @@ namespace
     FSGL_BEGIN(glDeleteTextures)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_TEXTURE, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             recordDeleted(n, ids, [](GLuint id)
             {
@@ -2843,6 +2983,7 @@ namespace
     FSGL_BEGIN(glDeleteFramebuffers)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_FRAMEBUFFER, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             recordDeleted(n, ids, [](GLuint id)
             {
@@ -2862,6 +3003,7 @@ namespace
     FSGL_BEGIN(glDeleteSamplers)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_SAMPLER, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             recordDeleted(n, ids, [](GLuint id)
             {
@@ -2871,7 +3013,14 @@ namespace
         }
     FSGL_END
 
-    FSGL_DELETE(glDeleteRenderbuffers)
+    FSGL_BEGIN(glDeleteRenderbuffers)
+        static void APIENTRY call(GLsizei n, const GLuint* ids)
+        {
+            noteDeleted(FSGLStream::OBJ_RENDERBUFFER, n, ids);
+            if (!tRecording) { P::passthrough(n, ids); return; }
+            FSGL_BLOB(glDeleteRenderbuffers, 1)::record(size_t(n > 0 ? n : 0) * sizeof(GLuint), n, ids);
+        }
+    FSGL_END
 
     //------------------------------------------------------------------------
     // Sync objects (glFenceSync and glClientWaitSync stay synchronous)
@@ -2884,9 +3033,26 @@ namespace
         }
     FSGL_END
 
+    // Counted only, for the stats line; glFenceSync stays synchronous (the generic proxy)
+    FSGL_BEGIN(glFenceSync)
+        static GLsync APIENTRY call(GLenum condition, GLbitfield flags)
+        {
+            const GLsync s = P::generic(condition, flags);
+            if (s)
+            {
+                noteMade(FSGLStream::OBJ_SYNC, 1);
+            }
+            return s;
+        }
+    FSGL_END
+
     FSGL_BEGIN(glDeleteSync)
         static void APIENTRY call(GLsync s)
         {
+            if (s)
+            {
+                noteDeleted(FSGLStream::OBJ_SYNC, 1);
+            }
             if (!tRecording) { P::passthrough(s); return; }
             P::record(s);
         }
@@ -2945,6 +3111,15 @@ namespace
     NameMap<QueryResult> sQueryResults;                     // id -> result of its latest collected generation
     std::deque<PendingQuery> sQueryPending;                 // render: ended, not collected
     std::unordered_map<GLuint, U64> sQueryRenderGen;        // render: id -> latest ended generation (0 while open)
+    // Render: the sizes of the two above, for the stats line on the main thread
+    std::atomic<U64> sQueryPendingCount{ 0 };
+    std::atomic<U64> sQueryRenderGenCount{ 0 };
+
+    inline void noteQueryRenderSizes()
+    {
+        sQueryPendingCount.store(sQueryPending.size(), std::memory_order_relaxed);
+        sQueryRenderGenCount.store(sQueryRenderGen.size(), std::memory_order_relaxed);
+    }
 
     // A result not in after this long is given up on (a query whose begin failed never becomes
     // available), so it can't keep the poll from reaching the ones behind it
@@ -2974,6 +3149,7 @@ namespace
         {
             sQueryRenderGen[r.mId] = r.mGen;
             sQueryPending.push_back({ r.mId, r.mGen, nowNs() });
+            noteQueryRenderSizes();
         }
     }
 
@@ -2983,6 +3159,7 @@ namespace
         FSGL_REAL(glQueryCounter)(r.mId, r.mTarget);
         sQueryRenderGen[r.mId] = r.mGen;
         sQueryPending.push_back({ r.mId, r.mGen, nowNs() });
+        noteQueryRenderSizes();
     }
 
     void execDeleteQueries(U8* p)
@@ -3000,6 +3177,7 @@ namespace
             }
         }
         FSGL_REAL(glDeleteQueries)(n, ids);
+        noteQueryRenderSizes();
     }
 
     void recordQuery(ExecFn fn, GLenum target, GLuint id, U64 gen)
@@ -3024,6 +3202,7 @@ namespace
         auto avail_fn = FSGL_REAL(glGetQueryObjectuiv);
         auto res64_fn = FSGL_REAL(glGetQueryObjectui64v);
         const U64 now = nowNs();
+        U64 avail_calls = 0;
         const size_t count = sQueryPending.size();
         size_t keep = 0;    // entries still pending are moved down to here, in order
         size_t r = 0;
@@ -3038,6 +3217,7 @@ namespace
             }
             GLuint avail = 0;
             avail_fn(q.mId, GL_QUERY_RESULT_AVAILABLE, &avail);
+            ++avail_calls;
             if (!avail)
             {
                 if (now > q.mEndNs && now - q.mEndNs > QUERY_GIVE_UP_NS)
@@ -3070,6 +3250,9 @@ namespace
             sQueryPending[keep++] = sQueryPending[r];
         }
         sQueryPending.resize(keep);
+        noteQueryRenderSizes();
+        sStatQueryAvailCalls.fetch_add(avail_calls, std::memory_order_relaxed);
+        sStatRenderPollNs.fetch_add(nowNs() - now, std::memory_order_relaxed);
     }
 
     FSGL_BEGIN(glBeginQuery)
@@ -3124,6 +3307,7 @@ namespace
     FSGL_BEGIN(glDeleteQueries)
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
+            noteDeleted(FSGLStream::OBJ_QUERY, n, ids);
             if (!tRecording) { P::passthrough(n, ids); return; }
             if (n <= 0 || !ids)
             {
@@ -3599,6 +3783,10 @@ namespace
     FSGL_BEGIN(glDeleteProgram)
         static void APIENTRY call(GLuint program)
         {
+            if (program)
+            {
+                noteDeleted(FSGLStream::OBJ_PROGRAM, 1);
+            }
             if (tRecording) { forgetProgram(program); }
             P::generic(program);
         }
@@ -3618,6 +3806,7 @@ namespace
         static GLuint APIENTRY call()
         {
             const GLuint program = P::generic();
+            if (program) { noteMade(FSGLStream::OBJ_PROGRAM, 1); }
             if (tRecording && program) { forgetProgram(program); }
             return program;
         }
@@ -3627,6 +3816,7 @@ namespace
         static GLuint APIENTRY call(GLenum type, GLsizei count, const GLchar* const* strings)
         {
             const GLuint program = P::generic(type, count, strings);
+            if (program) { noteMade(FSGLStream::OBJ_PROGRAM, 1); }
             if (tRecording && program) { forgetProgram(program); }
             return program;
         }
@@ -3674,7 +3864,14 @@ namespace
     bool runRenderPoll()
     {
         bool (*fn)(bool) = sRenderPoll.load(std::memory_order_acquire);
-        return fn && fn(false);
+        if (!fn)
+        {
+            return false;
+        }
+        const U64 t0 = nowNs();
+        const bool more = fn(false);
+        sStatRenderPollHookNs.fetch_add(nowNs() - t0, std::memory_order_relaxed);
+        return more;
     }
 
     void execPresent(U8* p)
@@ -3838,6 +4035,7 @@ namespace
         }
         sQueryPending.clear();
         sQueryRenderGen.clear();
+        noteQueryRenderSizes();
         sStrings.clear();
         sStringsI.clear();
         sStale.clear();
@@ -3969,6 +4167,7 @@ namespace
         }
         sQueryPending.clear();
         sQueryRenderGen.clear();
+        noteQueryRenderSizes();
 
         sOps.mReleaseOnMain();
         tRecording = true;
@@ -4135,8 +4334,11 @@ namespace FSGLStream
             sZoneCalls.clear();
             sLastZone = nullptr;
             sLastZoneCalls = nullptr;
+            std::lock_guard<std::mutex> lock(sZoneTimeMutex);
+            sZoneTimeNs.clear();
         }
         sCallStats = on;
+        sZoneTiming.store(on, std::memory_order_relaxed);
     }
 
     void setFilter(bool filter)
@@ -4262,6 +4464,15 @@ namespace FSGLStream
         sCheck.store(check, std::memory_order_relaxed);
     }
 
+    const char* objKindName(S32 kind)
+    {
+        static const char* const names[OBJ_COUNT] =
+        {
+            "queries", "buffers", "textures", "vertex arrays", "framebuffers", "renderbuffers", "samplers", "syncs", "programs"
+        };
+        return kind >= 0 && kind < OBJ_COUNT ? names[kind] : "?";
+    }
+
     Stats takeStats()
     {
         Stats s;
@@ -4342,6 +4553,48 @@ namespace FSGLStream
             s.mTopSkips += llformat("%s%s %.0f", i ? ", " : "", sNames[skips[i].second], (F64)skips[i].first / frames);
         }
         s.mSkippedCalls = sStatSkips;
+
+        // Render thread replay time per GPU zone
+        {
+            std::map<std::string, U64> zone_ns;
+            {
+                std::lock_guard<std::mutex> lock(sZoneTimeMutex);
+                for (const auto& [name, ns] : sZoneTimeNs)
+                {
+                    zone_ns[name ? name : "(outside any zone)"] += ns;
+                }
+                sZoneTimeNs.clear();
+            }
+            std::vector<std::pair<U64, std::string>> top_times;
+            for (const auto& [name, ns] : zone_ns)
+            {
+                top_times.emplace_back(ns, name);
+            }
+            std::sort(top_times.begin(), top_times.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+            for (size_t i = 0; i < top_times.size() && i < 16; ++i)
+            {
+                s.mTopZoneTimes += llformat("%s%s %.2f ms", i ? ", " : "", top_times[i].second.c_str(), (F64)top_times[i].first * 1e-6 / frames);
+            }
+        }
+
+        // What lives on: objects and query bookkeeping
+        for (int k = 0; k < OBJ_COUNT; ++k)
+        {
+            s.mObjLive[k] = sObjLive[k].load(std::memory_order_relaxed);
+            s.mObjMade[k] = sObjMade[k].exchange(0, std::memory_order_relaxed);
+            s.mObjDeleted[k] = sObjDeleted[k].exchange(0, std::memory_order_relaxed);
+        }
+        s.mQueriesPending = sQueryPendingCount.load(std::memory_order_relaxed);
+        s.mQueryRenderIds = sQueryRenderGenCount.load(std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(sQueryResultMutex);
+            s.mQueryResults = sQueryResults.size();
+        }
+        s.mQueryIssued = sQueryIssued.size();
+        s.mRenderPollMs = (F64)sStatRenderPollNs.exchange(0, std::memory_order_relaxed) * 1e-6;
+        s.mRenderPollHookMs = (F64)sStatRenderPollHookNs.exchange(0, std::memory_order_relaxed) * 1e-6;
+        s.mQueryAvailCalls = sStatQueryAvailCalls.exchange(0, std::memory_order_relaxed);
+
         memset(sCallCount, 0, sizeof(sCallCount));
         memset(sCallBytes, 0, sizeof(sCallBytes));
         memset(sSkipCount, 0, sizeof(sSkipCount));
@@ -4385,6 +4638,7 @@ namespace FSGLStream
     void present(std::function<void()> fn) { fn(); }
     void setCheck(bool) {}
     Stats takeStats() { return Stats(); }
+    const char* objKindName(S32) { return ""; }
     void recordCall(void (*fn)(U64), U64 value) { fn(value); }
     bool reserveTextures(U32, U32) { return true; }
     bool peekQueryResult(U32, U64&) { return false; }
