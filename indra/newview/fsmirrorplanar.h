@@ -88,6 +88,11 @@ namespace FSMirrorPlanar
     // cube wasn't rendered last frame (the planar view was in use), so all its faces are out of date.
     bool useCube(U32 cube_res, const LLVector3& mirror_pos, const LLVector3& mirror_normal);
 
+    // The reflection cube's faces (bit per face, LLViewerWindow::cubeSnapshot's order) that no
+    // reflection off a flat mirror can reach from the reflected eye: the mirror, a little larger for
+    // normal maps, seen from there misses them. 0 for a thick or curved mirror.
+    U32 unreachedCubeFaces(LLVOVolume* hero, const LLVector3& mirror_pos, const LLVector3& virtual_eye);
+
     // The mirror plane as a culling plane for the world camera of the mirror pass
     bool cullPlane(LLPlane& plane);
 

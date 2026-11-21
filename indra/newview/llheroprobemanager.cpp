@@ -45,6 +45,9 @@
 
 extern bool gCubeSnapshot;
 extern bool gSnapshot; // <FS:Trish/>
+// <FS:Trish> Cube faces generateRadiance leaves alone this time (FSPerfHeroProbeSkipHiddenFaces)
+static U32 sFSRadianceSkipMask = 0;
+// </FS:Trish>
 extern bool gTeleportDisplay;
 
 // get the next highest power of two of v (or v if v is already a power of two)
@@ -355,6 +358,9 @@ void LLHeroProbeManager::renderProbes()
             if (skip_hidden_faces)
             {
                 hidden_mask = getHiddenFaceMask();
+                // A flat mirror only reflects what lies through it: the faces it misses, seen from the
+                // reflected eye, are never read either
+                hidden_mask |= FSMirrorPlanar::unreachedCubeFaces(mNearestHero, mMirrorPosition, LLVector3(mProbes[0]->mOrigin.getF32ptr()));
                 if (hidden_mask != mHiddenFaceMask || mNearestHero.get() != mHiddenFaceHero || mTexture.get() != mHiddenFaceTexture)
                 {
                     mHiddenFaceMask = hidden_mask;
@@ -373,6 +379,22 @@ void LLHeroProbeManager::renderProbes()
                 mHiddenFaceHero = nullptr;
                 mHiddenFaceTexture = nullptr;
             }
+            // When the faces that are read fit in the faces per frame the update rate allows, render them
+            // all every frame: same cost, no face a frame older than the others (lag, seams)
+            if (hidden_mask && rate > 1)
+            {
+                U32 needed = 0;
+                for (U32 i = 0; i < 6; ++i)
+                {
+                    needed += (hidden_mask & (1U << i)) ? 0 : 1;
+                }
+                if (needed <= 6U / (U32)rate)
+                {
+                    rate = 1;
+                }
+            }
+            U32 fs_rendered_mask = 0;
+            bool fs_refreshed_hidden = false;
             // </FS:Trish>
 
             for (U32 i = 0; i < 6; ++i)
@@ -384,13 +406,27 @@ void LLHeroProbeManager::renderProbes()
                     {
                         continue;
                     }
+                    // one overdue unread face per frame, so their refreshes don't all land on one frame
+                    if (hidden_mask & (1U << i))
+                    {
+                        if (fs_refreshed_hidden)
+                        {
+                            continue;
+                        }
+                        fs_refreshed_hidden = true;
+                    }
                     mFaceRenderFrame[i] = gFrameCount;
+                    fs_rendered_mask |= 1U << i;
                     // </FS:Trish>
                     LL_PROFILE_ZONE_NUM(i);
                     updateProbeFace(mProbes[0], i, dynamic, near_clip);
                 }
             }
+            // <FS:Trish> The prefilter leaves skipped faces as they were: they are not read
+            sFSRadianceSkipMask = hidden_mask & ~fs_rendered_mask;
+            // </FS:Trish>
             generateRadiance(mProbes[0]);
+            sFSRadianceSkipMask = 0; // <FS:Trish/>
             } // <FS:Trish/> !fs_planar_done
         }
 
@@ -492,7 +528,13 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
         LLRenderTarget *depth_rt  = &gPipeline.mHeroProbeRT.deferredScreen;
 
         // perform a gaussian blur on the super sampled render before downsampling
+        // <FS:Trish> FSRenderMirrorPlanar: the cube is then only used for curved or thick mirrors and the
+        // views the planar fit can't cover; glossy surfaces read mip 0, which the blur only softened (the
+        // render is not super sampled, the mirror target has the cube's size). Rough ones read the mips.
+        //{
+        if (!FSMirrorPlanar::enabled())
         {
+        // </FS:Trish>
             gGaussianProgram.bind();
             gGaussianProgram.uniform1f(resScale, 1.f / (mProbeResolution * 2));
             S32 diffuseChannel = gGaussianProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
@@ -611,6 +653,12 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
 
                 for (int cf = 0; cf < 6; ++cf)
                 {  // for each cube face
+                    // <FS:Trish>
+                    if (sFSRadianceSkipMask & (1U << cf))
+                    {
+                        continue;
+                    }
+                    // </FS:Trish>
                     LLCoordFrame frame;
                     frame.lookAt(LLVector3(0, 0, 0), LLCubeMapArray::sClipToCubeLookVecs[cf], LLCubeMapArray::sClipToCubeUpVecs[cf]);
 

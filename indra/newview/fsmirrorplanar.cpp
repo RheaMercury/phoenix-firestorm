@@ -540,6 +540,52 @@ namespace FSMirrorPlanar
         return stale;
     }
 
+    U32 unreachedCubeFaces(LLVOVolume* hero, const LLVector3& mirror_pos, const LLVector3& virtual_eye)
+    {
+        if (!hero || hero->isDead() || hero->mDrawable.isNull())
+        {
+            return 0;
+        }
+        // Only a flat mirror limits its reflections to the directions through it; a curved one can
+        // send them anywhere
+        const LLVector3 scale = hero->getScale();
+        const F32 smaller = llmin(scale.mV[VX], scale.mV[VY]);
+        if (smaller <= 0.f || scale.mV[VZ] > smaller * MAX_THICKNESS)
+        {
+            return 0;
+        }
+        // the mirror, a little larger: normal maps bend the reflection past its edges
+        constexpr F32 GROW = 1.15f;
+        const LLQuaternion rot = hero->mDrawable->getWorldRotation();
+        const LLVector3 ax = LLVector3::x_axis * rot * (scale.mV[VX] * 0.5f * GROW);
+        const LLVector3 ay = LLVector3::y_axis * rot * (scale.mV[VY] * 0.5f * GROW);
+        const LLVector3 corners[4] = { mirror_pos - ax - ay, mirror_pos + ax - ay, mirror_pos + ax + ay, mirror_pos - ax + ay };
+
+        // Face order and orientation of LLViewerWindow::cubeSnapshot: +X, -X, +Y, -Y, +Z, -Z. A face
+        // sees the directions d with |d.u| <= d.look and |d.v| <= d.look.
+        static const LLVector3 axes[3] = { LLVector3::x_axis, LLVector3::y_axis, LLVector3::z_axis };
+        U32 mask = 0;
+        std::vector<LLVector3> poly;
+        for (U32 face = 0; face < 6; ++face)
+        {
+            const U32 a = face / 2;
+            const LLVector3 look = (face & 1) ? -axes[a] : axes[a];
+            const LLVector3& u = axes[(a + 1) % 3];
+            const LLVector3& v = axes[(a + 2) % 3];
+            poly.assign(corners, corners + 4);
+            fs_clip(poly, look - u, virtual_eye, 0.f);
+            fs_clip(poly, look + u, virtual_eye, 0.f);
+            fs_clip(poly, look - v, virtual_eye, 0.f);
+            fs_clip(poly, look + v, virtual_eye, 0.f);
+            if (poly.size() < 3)
+            {
+                mask |= 1U << face;
+            }
+        }
+        // never all six: something went wrong with the geometry, render as before
+        return mask == 0x3f ? 0 : mask;
+    }
+
     bool cullPlane(LLPlane& plane)
     {
         if (!sCullValid || !enabled() || !gPipeline.mHeroProbeManager.isMirrorPass() ||

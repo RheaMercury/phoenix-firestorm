@@ -9824,7 +9824,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heroprobeskiphiddenfaces"
-                     tool_tip="EXPERIMENTAL. Do not render the sides of a mirror's reflection cube that face away from the mirror surface."
+                     tool_tip="EXPERIMENTAL. Do not render the sides of a mirror's reflection cube that face away from the mirror surface or, for a flat mirror, that no reflection off it can reach (usually 3 or 4 of the 6). When the sides left fit in the faces per frame the mirror update rate allows, they are all rendered every frame, so the reflection doesn't lag or show seams."
                      top="370"
                      width="475" />
                     <!-- <FS:Trish> -->

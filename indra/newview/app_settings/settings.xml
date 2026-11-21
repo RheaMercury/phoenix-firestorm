@@ -27331,7 +27331,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSPerfHeroProbeSkipHiddenFaces</key>
     <map>
       <key>Comment</key>
-      <string>Do not render the sides of a mirror's reflection cube that face away from the mirror surface.</string>
+      <string>Do not render the sides of a mirror's reflection cube that face away from the mirror surface, or, for a flat mirror, that no reflection off it can reach; render the rest every frame when they fit in the update rate's budget.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
