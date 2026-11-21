@@ -12238,7 +12238,10 @@ static void fs_bind_contact_shadow(LLGLSLShader& shader, bool apply_here)
     }
     static const LLStaticHashedString sContactShadow("fs_contact_shadow");
     static const LLStaticHashedString sContactHere("fs_contact_here");
-    shader.uniform2f(sContactShadow, llclamp((F32)contact_length, 0.05f, 2.f), llclamp((F32)contact_strength, 0.f, 1.f));
+    // The march's noise moves on every frame only while TAA blends the frames; a still pattern otherwise
+    const F32 noise_offset = FSTAA::frameActive() ? (F32)fmod((F64)gFrameCount * 0.6180339887, 1.0) : 0.f;
+    shader.uniform4f(sContactShadow, llclamp((F32)contact_length, 0.05f, 2.f), llclamp((F32)contact_strength, 0.f, 1.f),
+                     noise_offset, 24.f);
     shader.uniform1i(sContactHere, (apply_here && !gCubeSnapshot) ? 1 : 0);
     // the blur program isn't in the environment's shader list, so it doesn't get this otherwise
     shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, LLEnvironment::instance().getIsSunUp() ? 1 : 0);

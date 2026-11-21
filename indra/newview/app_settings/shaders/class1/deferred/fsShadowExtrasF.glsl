@@ -136,7 +136,9 @@ float fsCloudShadow(vec3 pos, vec3 light_dir)
 // small props); multiplied into the cascaded shadow, so it can only darken.
 uniform mat4 projection_matrix;
 uniform vec2 screen_res;
-uniform vec2 fs_contact_shadow;      // x: ray length (m), y: strength 0-1 (0: off)
+// x: ray length (m), y: strength 0-1 (0: off), z: noise offset 0-1 (changes every frame while
+// frames are blended: TAA, FSRenderPhotoShadows; 0 otherwise), w: most steps along the ray
+uniform vec4 fs_contact_shadow;
 // Non-zero in the pass that applies the contact term. The light map's sun channel is blurred
 // after the sun pass (a dozen pixels each way), which spread a contact shadow a few pixels wide
 // so thin it disappeared; so where the blur runs, its second pass applies the term to the
@@ -147,34 +149,105 @@ vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 float getDepth(vec2 pos_screen);
 bool isFarDepth(float d);
 
-#define FS_CONTACT_MIN_STEPS  6      // steps along the ray: one per two pixels it covers on
-#define FS_CONTACT_MAX_STEPS  24     // screen, within these bounds
+#define FS_CONTACT_MIN_STEPS  4      // steps along the ray: one per pixel it covers on screen,
+#define FS_CONTACT_MAX_STEPS  48     // within these bounds (and fs_contact_shadow.w)
 #define FS_CONTACT_FADE_NEAR  24.0   // metres from the camera: full strength up to here
 #define FS_CONTACT_FADE_FAR   48.0   // and none from here on
 #define FS_CONTACT_EDGE       0.04   // screen fraction at the edges over which hits fade out
-#define FS_CONTACT_THICKNESS  0.25   // metres: how deep a surface in the depth buffer is taken to be
+#define FS_CONTACT_THICKNESS  0.10   // metres: how deep a surface in the depth buffer is taken to be,
+#define FS_CONTACT_THICKNESS_PER_M 0.005 // plus this much per metre from the camera
 
+// View-space position of the depth buffer at uv, false for sky
+bool fsContactNeighbour(vec2 uv, out vec3 p)
+{
+    float d = getDepth(uv);
+    if (isFarDepth(d))
+    {
+        p = vec3(0.0);
+        return false;
+    }
+    p = getPositionWithDepth(uv, d).xyz;
+    return true;
+}
+
+// The surface normal the depth buffer itself describes, from the neighbour on each axis whose depth
+// is closer to this pixel's (so a silhouette doesn't bend it), facing the camera. The march is
+// tested against that same depth surface: with the G-buffer normal, a normal map or a smoothed
+// avatar normal could aim the ray into the surface it leaves, which then shadowed itself.
+vec3 fsContactDepthNormal(vec2 tc, vec3 pos, vec3 fallback)
+{
+    vec2 px = 1.0 / screen_res;
+    vec3 pr, pl, pu, pd;
+    bool r = fsContactNeighbour(tc + vec2(px.x, 0.0), pr);
+    bool l = fsContactNeighbour(tc - vec2(px.x, 0.0), pl);
+    bool u = fsContactNeighbour(tc + vec2(0.0, px.y), pu);
+    bool d = fsContactNeighbour(tc - vec2(0.0, px.y), pd);
+    if (!(r || l) || !(u || d))
+    {
+        return fallback;
+    }
+    vec3 dr = pr - pos;
+    vec3 dl = pos - pl;
+    vec3 du = pu - pos;
+    vec3 dd = pos - pd;
+    vec3 dx = (r && (!l || abs(dr.z) <= abs(dl.z))) ? dr : dl;
+    vec3 dy = (u && (!d || abs(du.z) <= abs(dd.z))) ? du : dd;
+    vec3 n = cross(dx, dy);
+    float len = length(n);
+    if (len < 1e-10)
+    {
+        return fallback;
+    }
+    n /= len;
+    return dot(n, -pos) < 0.0 ? -n : n;
+}
+
+// How the march works, and what it fixed (on a depth buffer test scene, the old march found about
+// half of the pixels a cup, a chair leg and a foot shadow within a metre, and missed most of the
+// first few centimetres around them; this one finds nearly all of those):
+//  - The ray starts a pixel's width off the surface along the depth buffer's own normal. That is
+//    all the neighbouring texels of the same surface need to stay behind the ray, so a hit needs
+//    no margin beyond depth precision. The old start, 1 to 8 cm off along the G-buffer normal,
+//    jumped over the contact itself, and its hit margin of a centimetre and more missed a ray
+//    passing through a thin chair leg.
+//  - Steps get longer along the ray (t grows as s^1.5) and start right at the surface, so the first
+//    centimetres are walked about a pixel at a time; the old even steps began one whole step out.
+//  - A surface counts as an occluder when it is up to 10 cm (plus 5 mm per metre) in front of the
+//    ray, about the depth of a limb or a chair leg; deeper ones drew halos around objects whose
+//    silhouette the ray passed behind.
+//  - Hits fade out over the last 40 % of the ray, so the end of the ray is no hard edge.
 float fsContactShadow(vec3 pos, vec3 norm, vec3 light_dir)
 {
     float len = fs_contact_shadow.x;
     float dist = -pos.z;
     float strength = clamp(fs_contact_shadow.y, 0.0, 1.0) * (1.0 - smoothstep(FS_CONTACT_FADE_NEAR, FS_CONTACT_FADE_FAR, dist));
-    if (strength <= 0.0 || len <= 0.0 || dot(norm, light_dir) <= 0.0)
+    if (strength <= 0.0 || len <= 0.0 || dist <= 0.0 || dot(norm, light_dir) <= 0.0)
     {
         return 1.0; // far away, off, or facing away from the light (already dark)
     }
 
-    // depth precision falls with distance: leave the surface further and widen the hit test with
-    // it. At grazing light the ray runs along the surface, so it also leaves it further there, or
-    // the surface's own depth steps shadow it in streaks near the terminator.
-    float nl = dot(norm, light_dir);
-    float bias = (0.01 + 0.002 * dist) / max(nl, 0.25);
-    float thickness = FS_CONTACT_THICKNESS + 0.01 * dist;
-    float min_delta = 0.004 + 0.0015 * dist;
-    vec3 origin = pos + norm * bias;
+    vec4 clip_p = projection_matrix * vec4(pos, 1.0);
+    if (clip_p.w <= 0.0)
+    {
+        return 1.0;
+    }
+    vec2 tc = clip_p.xy / clip_p.w * 0.5 + 0.5;
+    vec3 n = fsContactDepthNormal(tc, pos, norm);
+    float nl = dot(n, light_dir);
+    if (nl <= 0.0)
+    {
+        return 1.0; // the surface as drawn faces away: the shadow map's terminator is there
+    }
+    strength *= smoothstep(0.0, 0.1, nl); // no hard edge where a rounded surface turns away
 
-    // As many steps as the ray covers pixels (halved), so a ray close to the camera doesn't step
-    // over thin occluders and a distant one doesn't sample the same pixel over and over
+    // Width of a pixel at this distance (m): ndc y spans 2 over screen_res.y pixels
+    float px_m = 2.0 * dist / (max(projection_matrix[1][1], 1e-4) * max(screen_res.y, 1.0));
+    vec3 origin = pos + n * (px_m + 0.002);
+    float thickness = FS_CONTACT_THICKNESS + FS_CONTACT_THICKNESS_PER_M * dist;
+    float min_delta = 0.0015 + 0.0002 * dist; // depth precision
+
+    // As many steps as the ray covers pixels, so a ray close to the camera doesn't step over
+    // thin occluders and a distant one doesn't sample the same pixel over and over
     vec4 clip0 = projection_matrix * vec4(origin, 1.0);
     vec4 clip1 = projection_matrix * vec4(origin + light_dir * len, 1.0);
     float px = 0.0;
@@ -182,9 +255,11 @@ float fsContactShadow(vec3 pos, vec3 norm, vec3 light_dir)
     {
         px = length((clip1.xy / clip1.w - clip0.xy / clip0.w) * 0.5 * screen_res);
     }
-    int steps = int(clamp(px * 0.5, float(FS_CONTACT_MIN_STEPS), float(FS_CONTACT_MAX_STEPS)));
-    float step_len = len / float(steps);
-    float t = step_len * fsExtrasNoise(gl_FragCoord.xy); // jittered start: banding becomes noise the blur removes
+    float max_steps = clamp(fs_contact_shadow.w, float(FS_CONTACT_MIN_STEPS), float(FS_CONTACT_MAX_STEPS));
+    int steps = int(clamp(ceil(px), float(FS_CONTACT_MIN_STEPS), max_steps));
+    // jittered: banding becomes noise the blur (or TAA, or the photo shadows) removes
+    float jitter = fract(fsExtrasNoise(gl_FragCoord.xy) + fs_contact_shadow.z);
+    float min_t = 0.5 * px_m;
 
     for (int i = 0; i < FS_CONTACT_MAX_STEPS; ++i)
     {
@@ -192,7 +267,8 @@ float fsContactShadow(vec3 pos, vec3 norm, vec3 light_dir)
         {
             break;
         }
-        t += step_len;
+        float s = (float(i) + jitter) / float(steps);
+        float t = max(len * s * sqrt(s), min_t);
         vec3 p = origin + light_dir * t;
         vec4 clip = projection_matrix * vec4(p, 1.0);
         if (clip.w <= 0.0)
@@ -209,15 +285,14 @@ float fsContactShadow(vec3 pos, vec3 norm, vec3 light_dir)
         {
             continue;
         }
-        // > 0: the surface the depth buffer has there is in front of the ray. The ray already
-        // starts off the surface (bias), so only depth precision needs a margin here; requiring
-        // the whole normal offset rejected an occluder close to the ray, which is exactly the
-        // contact (a foot just above the ground, a fold against the body)
+        // > 0: the surface the depth buffer has there is in front of the ray
         float delta = getPositionWithDepth(uv, d).z - p.z;
         if (delta > min_delta && delta < thickness)
         {
+            // the first hit is the nearest, and the fade only falls along the ray
             vec2 edge = min(uv, vec2(1.0) - uv);
-            return 1.0 - strength * smoothstep(0.0, FS_CONTACT_EDGE, min(edge.x, edge.y));
+            float fade = 1.0 - clamp((t / len - 0.6) * 2.5, 0.0, 1.0);
+            return 1.0 - strength * fade * smoothstep(0.0, FS_CONTACT_EDGE, min(edge.x, edge.y));
         }
     }
     return 1.0;
