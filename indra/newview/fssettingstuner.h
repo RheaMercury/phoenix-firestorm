@@ -110,6 +110,7 @@ private:
     void onApply();
     void onUndo();
     void rememberBaseline();
+    void keepInPreferences(const std::vector<std::string>& names);
     void onCopyReport();
     void onSelect();
     void updateButtons();

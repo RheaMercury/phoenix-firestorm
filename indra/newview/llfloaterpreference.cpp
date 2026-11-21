@@ -1061,6 +1061,25 @@ void LLFloaterPreference::apply()
     saveGraphicsPreset(gSavedSettings.getString("PresetGraphicActive"));
 }
 
+// <FS:Trish> The settings tuner applies and undoes its suggestions while Preferences is usually open (it is
+// opened from the Experimental tab): closing Preferences with Cancel or its close button put back the values
+// Preferences was opened with, so a suggestion applied there was lost, and was off again after the next login.
+void LLFloaterPreference::fsKeepCurrentValues(const std::vector<std::string>& names)
+{
+    LLTabContainer* tabcontainer = getChild<LLTabContainer>("pref core");
+    for (LLView* view : *tabcontainer->getChildList())
+    {
+        if (LLPanelPreference* panel = dynamic_cast<LLPanelPreference*>(view))
+        {
+            for (const std::string& name : names)
+            {
+                panel->fsKeepCurrentValue(name);
+            }
+        }
+    }
+}
+// </FS:Trish>
+
 void LLFloaterPreference::cancel(const std::vector<std::string> settings_to_skip)
 {
     LLTabContainer* tabcontainer = getChild<LLTabContainer>("pref core");
@@ -3805,6 +3824,19 @@ void LLPanelPreference::onCheckContactListColumnMode()
     childSetEnabled("FSFriendListColumnShowFullName", gSavedSettings.getBOOL("FSFriendListColumnShowUserName") || gSavedSettings.getBOOL("FSFriendListColumnShowDisplayName"));
 }
 // </FS:Ansariel>
+
+// <FS:Trish> See LLFloaterPreference::fsKeepCurrentValues
+void LLPanelPreference::fsKeepCurrentValue(const std::string& name)
+{
+    for (auto& [control, value] : mSavedValues)
+    {
+        if (control && control->getName() == name)
+        {
+            value = control->getValue();
+        }
+    }
+}
+// </FS:Trish>
 
 void LLPanelPreference::cancel(const std::vector<std::string> settings_to_skip)
 {

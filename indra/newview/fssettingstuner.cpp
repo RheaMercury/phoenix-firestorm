@@ -34,6 +34,8 @@
 #include "llbutton.h"
 #include "llcharacter.h"
 #include "llclipboard.h"
+#include "llfloaterpreference.h"
+#include "llfloaterreg.h"
 #include "lldir.h"
 #include "llfile.h"
 #include "llgl.h"
@@ -1395,8 +1397,27 @@ void FSFloaterSettingsTuner::onApply()
         }
     }
     fs_end_settings_batch();
+    // Preferences, open or not, must not put the old values back when it is closed without OK
+    {
+        std::vector<std::string> names;
+        for (const auto& change : changes)
+        {
+            names.push_back(change.first);
+        }
+        keepInPreferences(names);
+    }
     evaluate(); // what was applied no longer changes anything and drops out of the list
     mDetails->setText(getString("applied"));
+}
+
+// Preferences restores the values it was opened with when it is closed without OK, which took back what
+// Apply and Undo did while it was open (the tuner is opened from its Experimental tab)
+void FSFloaterSettingsTuner::keepInPreferences(const std::vector<std::string>& names)
+{
+    if (LLFloaterPreference* prefs = LLFloaterReg::findTypedInstance<LLFloaterPreference>("preferences"))
+    {
+        prefs->fsKeepCurrentValues(names);
+    }
 }
 
 void FSFloaterSettingsTuner::rememberBaseline()
@@ -1428,6 +1449,7 @@ void FSFloaterSettingsTuner::onUndo()
     rememberBaseline();
     mBaseChanges += mBaseChanges.empty() ? "Undo" : "; Undo";
     fs_begin_settings_batch();
+    std::vector<std::string> undone;
     for (const auto& [name, value] : llsd::inMap(undo["Settings"]))
     {
         LLControlVariablePtr control = gSavedSettings.getControl(name);
@@ -1435,9 +1457,11 @@ void FSFloaterSettingsTuner::onUndo()
         {
             LL_INFOS("SettingsTuner") << "Undo: " << name << " = " << value << LL_ENDL;
             control->setValue(value);
+            undone.push_back(name);
         }
     }
     fs_end_settings_batch();
+    keepInPreferences(undone);
     LLFile::remove(path);
     evaluate();
     mDetails->setText(getString("undone"));

@@ -87,6 +87,10 @@ public:
 
     void apply();
     void cancel(const std::vector<std::string> settings_to_skip = {});
+    // <FS:Trish> Settings another floater changed while Preferences is open (the settings tuner): Cancel, and
+    // closing Preferences without OK, keep their new values instead of restoring the ones it was opened with
+    void fsKeepCurrentValues(const std::vector<std::string>& names);
+    // </FS:Trish>
     // <FS:Zi> FIRE-19539 - Include the alert messages in Prefs>Notifications>Alerts in preference Search.
     // /*virtual*/ void draw();
     // </FS:Zi>
@@ -363,6 +367,7 @@ public:
 
     virtual void apply();
     virtual void cancel(const std::vector<std::string> settings_to_skip = {});
+    void fsKeepCurrentValue(const std::string& name); // <FS:Trish/> see LLFloaterPreference::fsKeepCurrentValues
     // void setControlFalse(const LLSD& user_data); //<FS:KC> Handled centrally now
     virtual void setHardwareDefaults();
 
