@@ -22,6 +22,7 @@
 #include "llfloaterperms.h"
 #include "llinventoryfunctions.h"
 #include "llinventorymodel.h"
+#include "llinventorymodelbackgroundfetch.h"
 #include "lllineeditor.h"
 #include "llnotecard.h"
 #include "llprogressbar.h"
@@ -47,7 +48,16 @@ namespace
     constexpr F32 FOLDER_TIMEOUT = 30.f;
     constexpr F32 UPLOAD_TIMEOUT = 60.f;
     constexpr F32 IMAGE_TIMEOUT = 120.f;
+    constexpr size_t BACKUP_NAME_CHARS = 40; // keeps backup paths well inside the Windows path limit
     const std::string STATE_FILE("script_repos.xml");
+
+    std::string backupName(const std::string& name)
+    {
+        std::string out = LLDir::getScrubbedFileName(name);
+        LLStringUtil::truncate(out, BACKUP_NAME_CHARS);
+        LLStringUtil::trim(out);
+        return out.empty() ? std::string("_") : out;
+    }
 
     std::string statePath()
     {
@@ -329,6 +339,7 @@ void FSFloaterScriptRepos::onClose(bool app_quitting)
         mRegionScanner->close(app_quitting);
         mRegionScanner.reset();
     }
+    LLFloater::onClose(app_quitting);
 }
 
 FSFloaterScriptRepos* FSFloaterScriptRepos::self(LLHandle<LLFloater>& handle)
@@ -355,8 +366,10 @@ void FSFloaterScriptRepos::load()
         repo.state = state;
         mRepos.push_back(repo);
     }
-    mIgnoreEdit->setText(sd.has("ignore") ? sd["ignore"].asString() : DEFAULT_IGNORE);
-    mImages->set(sd["images"].asBoolean());
+    mIgnoreText = sd.has("ignore") ? sd["ignore"].asString() : DEFAULT_IGNORE;
+    mImagesOn = sd["images"].asBoolean();
+    mIgnoreEdit->setText(mIgnoreText);
+    mImages->set(mImagesOn);
     mPrefix = sd["prefix"].asString();
     mPrefixEdit->setText(mPrefix);
 }
@@ -477,6 +490,10 @@ std::string FSFloaterScriptRepos::kindLabel(Kind kind) const
 
 void FSFloaterScriptRepos::onAdd()
 {
+    if (mBusy)
+    {
+        return;
+    }
     RepoRef ref;
     if (!parseRepoRef(mRepoEdit->getText(), mBranchEdit->getText(), ref))
     {
@@ -506,6 +523,10 @@ void FSFloaterScriptRepos::onAdd()
 
 void FSFloaterScriptRepos::onRemove()
 {
+    if (mBusy)
+    {
+        return;
+    }
     LLScrollListItem* item = mRepoList->getFirstSelected();
     if (!item)
     {
@@ -543,6 +564,15 @@ void FSFloaterScriptRepos::onTokenCommit()
 
 void FSFloaterScriptRepos::onSettingsChanged()
 {
+    if (mBusy)
+    {
+        // A field losing focus after a check started: it must not clear the rows and scan the check is using
+        mIgnoreEdit->setText(mIgnoreText);
+        mImages->set(mImagesOn);
+        return;
+    }
+    mIgnoreText = mIgnoreEdit->getText();
+    mImagesOn = mImages->get();
     // Other files may count now: the next check downloads every repository again
     for (Repo& repo : mRepos)
     {
@@ -570,7 +600,7 @@ void FSFloaterScriptRepos::onPrefixChanged()
         const LLUUID folder = findRepoFolder(i);
         if (folder.notNull())
         {
-            renames.emplace_back(folder, prefix + repoFolderName(i).substr(mPrefix.size()));
+            renames.emplace_back(folder, repoFolderName(i, prefix));
         }
     }
     for (const auto& [folder, name] : renames)
@@ -592,9 +622,8 @@ void FSFloaterScriptRepos::onCheck()
     {
         return;
     }
-    if (!gInventory.isInventoryUsable())
+    if (!inventoryReady())
     {
-        setStatus(getString("no_inventory"));
         return;
     }
     clearResults();
@@ -615,9 +644,8 @@ void FSFloaterScriptRepos::onRegionCheck()
         setStatus(getString("no_region"));
         return;
     }
-    if (!gInventory.isInventoryUsable())
+    if (!inventoryReady())
     {
-        setStatus(getString("no_inventory"));
         return;
     }
     // Keep the scan of the last check in this region: closing it would end the 360 interest list, the region
@@ -656,6 +684,10 @@ void FSFloaterScriptRepos::onApply()
         setStatus(getString("no_region"));
         return;
     }
+    if (inventory && !inventoryReady())
+    {
+        return;
+    }
     mCancel = false;
     setBusy(true);
     LLHandle<LLFloater> handle = getHandle();
@@ -671,28 +703,62 @@ void FSFloaterScriptRepos::onApply()
 
 void FSFloaterScriptRepos::onCancel()
 {
+    // The coroutines notice it at their next step (the region check within half a second)
     mCancel = true;
-    if (!mRegionPumpName.empty())
-    {
-        LLEventPumps::instance().post(mRegionPumpName, LLSDMap("cancel", LLSD::Boolean(true)));
-    }
 }
 
 //
 // Inventory
 //
 
-std::string FSFloaterScriptRepos::repoFolderName(size_t index) const
+std::string FSFloaterScriptRepos::repoFolderName(size_t index, const std::string& prefix) const
 {
+    // As the inventory names it (a long repository name is cut), so the folder is found again
     const RepoRef& ref = mRepos[index].state.ref;
     for (size_t i = 0; i < mRepos.size(); ++i)
     {
         if (i != index && LLStringUtil::compareInsensitive(mRepos[i].state.ref.repo, ref.repo) == 0)
         {
-            return mPrefix + ref.owner + "-" + ref.repo;
+            return inWorldName(prefix + ref.owner + "-" + ref.repo);
         }
     }
-    return mPrefix + ref.repo;
+    return inWorldName(prefix + ref.repo);
+}
+
+bool FSFloaterScriptRepos::inventoryReady()
+{
+    // Folders and items not loaded yet look missing: a sync would create them a second time
+    const LLUUID scripts = gInventory.findCategoryUUIDForType(LLFolderType::FT_LSL_TEXT);
+    if (!gInventory.isInventoryUsable() || scripts.isNull())
+    {
+        setStatus(getString("no_inventory"));
+        return false;
+    }
+    if (LLInventoryModelBackgroundFetch::instance().isEverythingFetched())
+    {
+        return true;
+    }
+    bool complete = gInventory.isCategoryComplete(scripts);
+    if (complete)
+    {
+        LLInventoryModel::cat_array_t cats;
+        LLInventoryModel::item_array_t items;
+        gInventory.collectDescendents(scripts, cats, items, LLInventoryModel::EXCLUDE_TRASH);
+        for (const LLPointer<LLViewerInventoryCategory>& cat : cats)
+        {
+            if (!gInventory.isCategoryComplete(cat->getUUID()))
+            {
+                complete = false;
+                break;
+            }
+        }
+    }
+    if (!complete)
+    {
+        LLInventoryModelBackgroundFetch::instance().start(scripts, true);
+        setStatus(getString("inventory_loading"));
+    }
+    return complete;
 }
 
 LLUUID FSFloaterScriptRepos::findRepoFolder(size_t index) const
@@ -1098,6 +1164,12 @@ namespace
         {
             return false;
         }
+        if (region->getCapability("GetMetadata").empty())
+        {
+            // No experiences on this region (the cache would never answer)
+            experience.setNull();
+            return true;
+        }
         // Own pump: a late answer must not wake another wait
         LLEventMailDrop pump(std::string("ScriptReposExperience-") + LLUUID::generateNewID().asString(), true);
         const std::string pump_name = pump.getName();
@@ -1451,7 +1523,12 @@ void FSFloaterScriptRepos::regionCheckCoro(LLHandle<LLFloater> handle)
             {
                 no_properties += info.received ? 0 : 1;
                 gone += info.received && (!object || object->isAttachment()) ? 1 : 0;
-                no_modify += info.received && object && !object->isAttachment() ? 1 : 0;
+                if (info.received && object && !object->isAttachment())
+                {
+                    // Not looked at again every half second (a whole region of them adds up)
+                    ++no_modify;
+                    seen.insert(id);
+                }
                 continue;
             }
             seen.insert(id);
@@ -1653,11 +1730,11 @@ void FSFloaterScriptRepos::applyRegionCoro(LLHandle<LLFloater> handle)
         }
 
         // The old text first: no backup, no swap. The object's ID keeps copies with the same names apart.
-        const std::string dir_object = run + gDirUtilp->getDirDelimiter() +
-            LLDir::getScrubbedFileName(row.object_name + " " + row.object_id.asString());
-        const std::string dir_link = dir_object + gDirUtilp->getDirDelimiter() + LLDir::getScrubbedFileName(row.link_name);
-        const std::string backup = dir_link + gDirUtilp->getDirDelimiter() +
-            LLDir::getScrubbedFileName(row.script_name) + (row.lua ? ".luau" : ".lsl");
+        const std::string dir_object = run + gDirUtilp->getDirDelimiter() + backupName(row.object_name) + " " +
+            row.object_id.asString();
+        const std::string dir_link = dir_object + gDirUtilp->getDirDelimiter() + backupName(row.link_name);
+        const std::string backup = dir_link + gDirUtilp->getDirDelimiter() + backupName(row.script_name) +
+            (row.lua ? ".luau" : ".lsl");
         std::string backup_problem;
         if (!have_run_dir || !ensureDir(dir_object) || !ensureDir(dir_link))
         {
@@ -1716,6 +1793,12 @@ void FSFloaterScriptRepos::applyRegionCoro(LLHandle<LLFloater> handle)
             ++ok;
             floater->addResult(floater->getString("action_done"), what, "", "");
         }
+        else if (error == "removal")
+        {
+            // The delete-first path asked for the removal but the contents never showed it gone
+            ++failed;
+            floater->addResult(floater->getString("action_failed"), what, "", floater->getString("note_removal_unknown"));
+        }
         else
         {
             ++failed;
@@ -1731,6 +1814,8 @@ void FSFloaterScriptRepos::applyRegionCoro(LLHandle<LLFloater> handle)
     }
     floater->mRegionRows.clear();
     floater->mMode = Mode::NONE;
+    // Back to the normal interest list: nothing is left to apply
+    floater->mRegionScanner.reset();
     floater->setProgress(0, 0);
     floater->setStatus(floater->mCancel ? floater->getString("cancelled") :
         region_changed ? floater->getString("region_changed") :

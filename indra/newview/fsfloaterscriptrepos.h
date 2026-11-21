@@ -98,7 +98,9 @@ private:
     // Helpers used by the coroutines. fetchRepo suspends: the window may be gone when it returns false.
     static bool fetchRepo(LLHandle<LLFloater> handle, size_t index, bool force_download, std::string& error);
     static FSFloaterScriptRepos* self(LLHandle<LLFloater>& handle);
-    std::string repoFolderName(size_t index) const;
+    std::string repoFolderName(size_t index, const std::string& prefix) const;
+    std::string repoFolderName(size_t index) const { return repoFolderName(index, mPrefix); }
+    bool inventoryReady();
     LLUUID findRepoFolder(size_t index) const;
     bool itemPresent(const LLUUID& item_id, const LLUUID& repo_folder) const;
     std::string kindLabel(FSScriptRepos::Kind kind) const;
@@ -120,12 +122,13 @@ private:
     LLUUID mRegionID;               // region of the last region check
     // Holds the 360 interest list from the region check until Apply is done, so far objects stay known
     std::unique_ptr<FSRegionObjectScanner> mRegionScanner;
-    std::string mRegionPumpName;    // the region check's wait while it scans, for Cancel
     Mode mMode{ Mode::NONE };
     bool mBusy{ false };
     bool mCancel{ false };
     bool mApplyAfterCheck{ false }; // Apply pressed while the region check was still reading
     std::string mPrefix;            // put in front of every repository folder name
+    std::string mIgnoreText;        // the ignore list and image choice the rows were made with
+    bool mImagesOn{ false };
 };
 // </FS:Trish>
 

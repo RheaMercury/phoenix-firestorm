@@ -18,6 +18,7 @@
     <string name="bad_repo">Type owner/repo or a github.com link.</string>
     <string name="duplicate_repo">That repository is already listed.</string>
     <string name="no_inventory">The inventory is not loaded yet.</string>
+    <string name="inventory_loading">The Scripts folder is still loading. Try again in a moment.</string>
     <string name="no_region">Not connected to a region.</string>
     <string name="checking">Checking [REPO]...</string>
     <string name="applying">Applying [DONE] of [TOTAL]...</string>
@@ -49,18 +50,13 @@
     <string name="region_scanning">Finding every object in this region...</string>
     <string name="region_progress">Reading your objects, and new ones as they arrive: [READ] of [TOTAL] prims read, [LISTED] scripts listed. Apply works on the rows listed so far; Cancel stops.</string>
     <string name="region_stopped">Stopped watching; the rows found stay.</string>
-    <string name="region_streaming">Finding every object in this region: [COUNT] so far...</string>
-    <string name="region_reading">Reading the contents of your scripted objects ([DONE] of [TOTAL])...</string>
     <string name="region_changed">The region changed: stopped.</string>
-    <string name="region_timeout">The region scan did not finish in 5 minutes: stopped. Try again.</string>
-    <string name="region_summary">[CHANGE] scripts would change, [CURRENT] current, [OTHER] not touched, in [OBJECTS] of your objects</string>
+    <string name="region_summary">[CHANGE] scripts would change, in [OBJECTS] objects; [CURRENT] current, [OTHER] not touched.</string>
     <string name="region_ready">Nothing has been changed yet. Apply replaces the scripts marked "would change"; the old text is saved first.</string>
     <string name="region_done">Done: [OK] scripts replaced, [FAILED] failed. Old texts saved in [FOLDER]</string>
-    <string name="region_none">No script in your objects here has the name of a repository script.</string>
+    <string name="region_none">No script you may change here has the name of a repository script.</string>
     <string name="state_current">current</string>
     <string name="state_change">would change</string>
-    <string name="state_language">language differs</string>
-    <string name="state_ambiguous">ambiguous</string>
     <string name="state_untouched">not touched</string>
     <string name="note_language">only a [OTHER] version is in the repository</string>
     <string name="note_ambiguous">several different repository files have this name</string>
@@ -72,6 +68,7 @@
     <string name="note_from">from [PATH]</string>
     <string name="note_kept_original">original kept: [ERROR]</string>
     <string name="note_removed_original">original already removed (its text is in the backup folder): [ERROR]</string>
+    <string name="note_removal_unknown">the original may be gone, the copy was not added: check the object (the old text is in the backup folder)</string>
     <string name="note_from_others">from [PATH]; not your object: the original is deleted first</string>
     <string name="note_others_not_compiled">not your object, and the synced copy did not compile: sync a compiling version first</string>
     <string name="region_others">[COUNT] of them are in objects you don't own: there the original is deleted before the copy is added and compiled.</string>
@@ -184,11 +181,12 @@
      layout="topleft"
      follows="right|top"
      left_pad="0"
-     width="166"
+     width="160"
      height="22" />
     <button
      name="forget"
      label="Forget"
+     tool_tip="Removes the saved GitHub token from this computer."
      layout="topleft"
      follows="right|top"
      left_pad="4"
@@ -207,7 +205,7 @@
     <button
      name="check_region"
      label="Check scripts in this region"
-     tool_tip="Finds scripts in your own objects in this region with the name of a repository script. Changes nothing."
+     tool_tip="Finds scripts with the name of a repository script in the objects in this region you may modify (attachments are left out). Changes nothing."
      layout="topleft"
      follows="left|top"
      left_pad="4"
