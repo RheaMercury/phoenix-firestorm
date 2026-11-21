@@ -26,6 +26,7 @@
 
 #include "llviewerprecompiledheaders.h"
 #include "llviewerwindow.h"
+#include "fsmirrorplanar.h" // <FS:Trish/>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fsnativepopout.h"
 
@@ -7100,8 +7101,20 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
     glm::mat4 saved_mod = get_current_modelview();
 
     // camera constants for the square, cube map capture image
+    // <FS:Trish> FSRenderMirrorPlanar: one view fitted to a flat mirror instead of a cube face
+    const FSMirrorPlanar::View* fs_planar_view = FSMirrorPlanar::currentView();
+    if (fs_planar_view)
+    {
+        camera->setAspect(fs_planar_view->mAspect);
+        camera->setViewNoBroadcast(fs_planar_view->mFov);
+        camera->setZoomParameters(1.f, 0); // a snapshot tile's zoom is for the main view
+    }
+    else
+    {
+    // </FS:Trish>
     camera->setAspect(1.0); // must set aspect ratio first to avoid undesirable clamping of vertical FoV
     camera->setViewNoBroadcast(F_PI_BY_TWO);
+    } // <FS:Trish/>
     camera->yaw(0.0);
     camera->setOrigin(origin);
     camera->setNear(near_clip);
@@ -7178,7 +7191,18 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
     int i = face;
     {
         // set up camera to look in each direction
-        camera->lookDir(look_dirs[i], look_upvecs[i]);
+        // <FS:Trish> FSRenderMirrorPlanar
+        //camera->lookDir(look_dirs[i], look_upvecs[i]);
+        if (fs_planar_view)
+        {
+            camera->lookDir(fs_planar_view->mAt, fs_planar_view->mUp);
+            FSMirrorPlanar::recordCamera(*camera);
+        }
+        else
+        {
+            camera->lookDir(look_dirs[i], look_upvecs[i]);
+        }
+        // </FS:Trish>
 
         // turning this flag off here prohibits the screen swap
         // to present the new page to the viewer - this stops

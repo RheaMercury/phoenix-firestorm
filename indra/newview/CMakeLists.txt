@@ -193,6 +193,7 @@ set(viewer_SOURCE_FILES
     fsmaniprotatejoint.cpp
     fsmaniptranslatejoint.cpp
     fsmassobjectedit.cpp
+    fsmirrorplanar.cpp
     fsmoneytracker.cpp
     fsregionluascripts.cpp
     fsnamelistavatarmenu.cpp
@@ -1142,6 +1143,7 @@ set(viewer_HEADER_FILES
     fslslpreprocpath.h # <FS:Beq> Extended non-ASCII path test coverage. </FS:Beq>
     fslslpreprocviewer.h
     fsmassobjectedit.h
+    fsmirrorplanar.h
     fsmoneytracker.h
     fsmaniprotatejoint.h
     fsmaniptranslatejoint.h

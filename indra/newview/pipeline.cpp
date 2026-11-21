@@ -49,6 +49,7 @@
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
+#include "fsmirrorplanar.h" // <FS:Trish/> FSRenderMirrorPlanar
 #include "fsshadowcacheoffenders.h" // <FS:Trish/> FSPerfShadowStaticCacheFilter, FSPerfShadowStaticCacheDemote
 #include "llstartup.h"
 #include "llwindow.h"   // swapBuffers()
@@ -3087,6 +3088,13 @@ void LLPipeline::updateCull(LLCamera& camera, LLCullResult& result, bool hud_att
 
         camera.setUserClipPlane(plane);
     }
+    // <FS:Trish> FSRenderMirrorPlanar: the mirror's world view culls what is behind the mirror (its shadow
+    // cameras don't, casters behind it still shadow what is in front)
+    else if (LLPlane fs_mirror_plane; FSMirrorPlanar::cullPlane(fs_mirror_plane))
+    {
+        camera.setUserClipPlane(fs_mirror_plane);
+    }
+    // </FS:Trish>
     else
     {
         camera.disableUserClipPlane();
@@ -14087,6 +14095,7 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
             mHeroProbeManager.mTexture->bind(channel);
             bound = true;
         }
+        FSMirrorPlanar::bind(shader, !mFSPassUniformsSet); // <FS:Trish/> FSRenderMirrorPlanar
     }
 
 

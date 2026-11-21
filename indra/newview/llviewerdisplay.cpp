@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llviewerdisplay.h"
+#include "fsmirrorplanar.h" // <FS:Trish/>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
 
@@ -266,6 +267,12 @@ void display_update_camera()
     {
         static LLCachedControl<F32> reflection_probe_draw_distance(gSavedSettings, "RenderReflectionProbeDrawDistance", 64.f);
         final_far = reflection_probe_draw_distance();
+        // <FS:Trish> FSRenderMirrorPlanar: a planar mirror view sees as far as FSRenderMirrorDrawDistance
+        if (FSMirrorPlanar::currentView())
+        {
+            final_far = FSMirrorPlanar::drawDistance(gAgentCamera.mDrawDistance);
+        }
+        // </FS:Trish>
     }
     else if (CAMERA_MODE_CUSTOMIZE_AVATAR == gAgentCamera.getCameraMode())
     {
@@ -883,7 +890,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
     {
         // Render mirrors and associated hero probes before we render the rest of the scene.
         // This ensures the scene state in the hero probes are exactly the same as the rest of the scene before we render it.
-        if (gPipeline.RenderMirrors && !gSnapshot)
+        // <FS:Trish> FSRenderMirrorPlanar: the planar view also renders for snapshots
+        //if (gPipeline.RenderMirrors && !gSnapshot)
+        if (gPipeline.RenderMirrors && (!gSnapshot || FSMirrorPlanar::updateDuringSnapshot()))
+        // </FS:Trish>
         {
             LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("Update hero probes");
             LL_PROFILE_GPU_ZONE("hero manager")

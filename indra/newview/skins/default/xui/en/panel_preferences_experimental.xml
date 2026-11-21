@@ -9503,7 +9503,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="3075"
+                 height="3207"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -9687,7 +9687,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfLightRescanThrottle,FSPerfHeroProbeSkipHiddenFaces,FSPerfProbeUniformCache,FSPerfBatchedLocalLights,FSPerfBatchedSpotLights" />
+                         parameter="FSPerfLightRescanThrottle,FSPerfHeroProbeSkipHiddenFaces,FSRenderMirrorPlanar,FSRenderMirrorPlanarScale,FSRenderMirrorPlanarMaxResolution,FSRenderMirrorDrawDistance,FSRenderMirrorPlanarAdaptiveRate,FSPerfProbeUniformCache,FSPerfBatchedLocalLights,FSPerfBatchedSpotLights" />
                     </button>
                     <check_box
                      control_name="FSPerfLightRescanThrottle"
@@ -9711,6 +9711,109 @@
                      tool_tip="EXPERIMENTAL. Do not render the sides of a mirror's reflection cube that face away from the mirror surface."
                      top="370"
                      width="475" />
+                    <!-- <FS:Trish> -->
+                    <check_box
+                     control_name="FSRenderMirrorPlanar"
+                     follows="left|top"
+                     height="20"
+                     label="Render flat mirrors as one sharp planar view"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendermirrorplanar"
+                     tool_tip="EXPERIMENTAL. A flat mirror is rendered once per frame as a single view fitted to the part of it you can see, at a resolution that follows its size on screen, instead of the six sides of a reflection cube a few at a time. The reflection is much sharper, lines up exactly, does not lag behind when you move and costs far less. Curved or thick mirrors keep the cube. Rebuilds the shaders."
+                     top="392"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermirrorplanarscale_label"
+                     tool_tip="EXPERIMENTAL. Resolution of a planar mirror against its size on screen. 1 matches the screen; the mirror renders at the next of 256, 512, 1024 or 2048 pixels, up to the largest size below."
+                     top="420"
+                     width="285">
+                        Planar mirror resolution scale
+                    </text>
+                    <spinner
+                     control_name="FSRenderMirrorPlanarScale"
+                     decimal_digits="2"
+                     enabled_control="FSRenderMirrorPlanar"
+                     follows="left|top"
+                     height="20"
+                     increment="0.25"
+                     layout="topleft"
+                     left="330"
+                     max_val="2"
+                     min_val="0.25"
+                     name="fs_fsrendermirrorplanarscale"
+                     tool_tip="EXPERIMENTAL. Resolution of a planar mirror against its size on screen. 1 matches the screen; the mirror renders at the next of 256, 512, 1024 or 2048 pixels, up to the largest size below."
+                     top="418"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermirrorplanarmaxresolution_label"
+                     tool_tip="EXPERIMENTAL. Largest render target a planar mirror may use, 256 to 2048 pixels. Larger is sharper for mirrors that fill the screen and takes more video memory."
+                     top="448"
+                     width="285">
+                        Largest planar mirror resolution
+                    </text>
+                    <spinner
+                     control_name="FSRenderMirrorPlanarMaxResolution"
+                     decimal_digits="0"
+                     enabled_control="FSRenderMirrorPlanar"
+                     follows="left|top"
+                     height="20"
+                     increment="256"
+                     layout="topleft"
+                     left="330"
+                     max_val="2048"
+                     min_val="256"
+                     name="fs_fsrendermirrorplanarmaxresolution"
+                     tool_tip="EXPERIMENTAL. Largest render target a planar mirror may use, 256 to 2048 pixels. Larger is sharper for mirrors that fill the screen and takes more video memory."
+                     top="446"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendermirrordrawdistance_label"
+                     tool_tip="EXPERIMENTAL. How far a planar mirror reflects, never past your draw distance; 0 uses the draw distance. Mirrors as reflection cubes reflect 64 m (RenderReflectionProbeDrawDistance)."
+                     top="476"
+                     width="285">
+                        Planar mirror draw distance (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderMirrorDrawDistance"
+                     decimal_digits="0"
+                     enabled_control="FSRenderMirrorPlanar"
+                     follows="left|top"
+                     height="20"
+                     increment="16"
+                     layout="topleft"
+                     left="330"
+                     max_val="512"
+                     min_val="0"
+                     name="fs_fsrendermirrordrawdistance"
+                     tool_tip="EXPERIMENTAL. How far a planar mirror reflects, never past your draw distance; 0 uses the draw distance. Mirrors as reflection cubes reflect 64 m (RenderReflectionProbeDrawDistance)."
+                     top="474"
+                     width="100" />
+                    <check_box
+                     control_name="FSRenderMirrorPlanarAdaptiveRate"
+                     enabled_control="FSRenderMirrorPlanar"
+                     follows="left|top"
+                     height="20"
+                     label="Update small planar mirrors less often"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendermirrorplanaradaptiverate"
+                     tool_tip="EXPERIMENTAL. A planar mirror under a quarter of the view height updates every second frame, under a tenth every third frame. It still updates at once when the camera moves."
+                     top="502"
+                     width="475" />
+                    <!-- </FS:Trish> -->
                     <check_box
                      control_name="FSPerfProbeUniformCache"
                      follows="left|top"
@@ -9720,7 +9823,7 @@
                      left="15"
                      name="perf_probeuniformcache"
                      tool_tip="EXPERIMENTAL. Do not update the mirror (hero) probe data a second time in each render pass; the reflection probe update already includes it."
-                     top="392"
+                     top="524"
                      width="475" />
                     <check_box
                      control_name="FSPerfBatchedLocalLights"
@@ -9731,7 +9834,7 @@
                      left="15"
                      name="fs_fsperfbatchedlocallights"
                      tool_tip="EXPERIMENTAL. Draws point lights in a few instanced calls instead of one call per light, cutting CPU time where hundreds of lights are visible (clubs, cities). Lighting should look the same. Spotlights and projectors are unchanged. Rebuilds shaders when changed."
-                     top="422"
+                     top="554"
                      width="475" />
                     <check_box
                      control_name="FSPerfBatchedSpotLights"
@@ -9742,7 +9845,7 @@
                      left="15"
                      name="fs_fsperfbatchedspotlights"
                      tool_tip="EXPERIMENTAL. Draws projectors (spotlights) that are not casting shadows in a few instanced calls per projector texture instead of one call per light, and draws the ones the camera is inside of over their light volume instead of the whole screen. Cuts CPU and GPU time in crowds full of projector facelights. Lighting should look the same; shadowed projectors are unchanged. Rebuilds shaders when changed."
-                     top="444"
+                     top="576"
                      width="475" />
                     <text
                      follows="left|top"
@@ -9751,7 +9854,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_threading"
-                     top="486"
+                     top="618"
                      width="340">
                         Threading
                     </text>
@@ -9763,7 +9866,7 @@
                      left="370"
                      name="reset_fs_heading_threading"
                      tool_tip="Set every option in &quot;Threading&quot; back to its default value."
-                     top="485"
+                     top="617"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -9779,7 +9882,7 @@
                      left="15"
                      name="fs_fsperfparallelshadowcull"
                      tool_tip="EXPERIMENTAL. Works out which objects fall into each sun shadow map on several CPU cores at once instead of one map after another on the main thread. Shadows look the same; saves main thread time in busy scenes. Only works with Shadows &gt; Find sun shadow casters set to Separately per map: with Once for all maps there is a single search already, and this does nothing."
-                     top="512"
+                     top="644"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelShadowCullVerify"
@@ -9791,7 +9894,7 @@
                      left="35"
                      name="fs_fsperfparallelshadowcullverify"
                      tool_tip="Debug. Also runs the old shadow cull and writes any difference to the log. Slower; only for testing."
-                     top="538"
+                     top="670"
                      width="455" />
                     <check_box
                      control_name="FSPerfParallelGeometry"
@@ -9802,7 +9905,7 @@
                      left="15"
                      name="fs_fsperfparallelgeometry"
                      tool_tip="EXPERIMENTAL. Fills the vertex data of rezzing and changing objects on several CPU cores instead of only the main thread. Reduces hitches on region arrival, teleports and heavy rezzing. Looks exactly the same as when off."
-                     top="568"
+                     top="700"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelGeometryVerify"
@@ -9814,7 +9917,7 @@
                      left="35"
                      name="fs_fsperfparallelgeometryverify"
                      tool_tip="EXPERIMENTAL. Debug aid: builds the geometry a second time on the main thread and logs any difference to the threaded result. Costs more than it saves; for testing only."
-                     top="594"
+                     top="726"
                      width="455" />
                     <text
                      follows="left|top"
@@ -9823,7 +9926,7 @@
                      left="35"
                      name="fs_fsperfparallelgeometryminverts_label"
                      tool_tip="EXPERIMENTAL. A geometry rebuild uses the worker threads only when it has at least this many vertices; smaller ones are built on the main thread, where waking the workers would cost more than it saves."
-                     top="622"
+                     top="754"
                      width="285">
                         Min. vertices for threaded geometry
                     </text>
@@ -9840,7 +9943,7 @@
                      min_val="0"
                      name="fs_fsperfparallelgeometryminverts"
                      tool_tip="EXPERIMENTAL. A geometry rebuild uses the worker threads only when it has at least this many vertices; smaller ones are built on the main thread, where waking the workers would cost more than it saves."
-                     top="620"
+                     top="752"
                      width="100" />
                     <check_box
                      control_name="FSPerfParallelAvatarUpdate"
@@ -9851,7 +9954,7 @@
                      left="15"
                      name="fs_fsperfparallelavatarupdate"
                      tool_tip="EXPERIMENTAL. Evaluates the animations of all visible avatars of a frame in parallel on worker threads instead of one after another on the main thread. Helps most in crowded places. Your own avatar stays on the main thread."
-                     top="652"
+                     top="784"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelAvatarUpdateVerify"
@@ -9863,7 +9966,7 @@
                      left="35"
                      name="fs_fsperfparallelavatarupdateverify"
                      tool_tip="EXPERIMENTAL. Debug check: recomputes the avatar joints serially after the worker threads and logs any difference. Costs extra CPU time, only for testing."
-                     top="678"
+                     top="810"
                      width="455" />
                     <check_box
                      control_name="FSPerfParallelMainCull"
@@ -9874,7 +9977,7 @@
                      left="15"
                      name="fs_fsperfparallelmaincull"
                      tool_tip="EXPERIMENTAL. Works out which objects are in view (main camera and reflection probe updates) on several CPU cores at once instead of only on the main thread. The scene looks the same; saves main thread time in busy scenes."
-                     top="708"
+                     top="840"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelMainCullVerify"
@@ -9886,7 +9989,7 @@
                      left="35"
                      name="fs_fsperfparallelmaincullverify"
                      tool_tip="Debug. Also runs the old view cull and writes any difference to the log. Slower; only for testing."
-                     top="734"
+                     top="866"
                      width="455" />
                     <check_box
                      control_name="FSPerfParallelPostSort"
@@ -9897,7 +10000,7 @@
                      left="15"
                      name="fs_fsperfparallelpostsort"
                      tool_tip="EXPERIMENTAL. Collects the draw lists of each camera (main view, shadow cascades, probes) on worker threads in postSort. Same result as before, less main thread time in busy places."
-                     top="764"
+                     top="896"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelPostSortVerify"
@@ -9909,7 +10012,7 @@
                      left="35"
                      name="fs_fsperfparallelpostsortverify"
                      tool_tip="EXPERIMENTAL. Debug: also builds the render lists serially and logs any difference. Slower; for testing only."
-                     top="790"
+                     top="922"
                      width="455" />
                     <text
                      follows="left|top"
@@ -9918,7 +10021,7 @@
                      left="35"
                      name="fs_fsperfparallelpostsortmingroups_label"
                      tool_tip="EXPERIMENTAL. Views with fewer visible groups than this build their render lists on the main thread, where the worker hand-off would cost more than it saves."
-                     top="818"
+                     top="950"
                      width="285">
                         Parallel render lists min groups
                     </text>
@@ -9935,7 +10038,7 @@
                      min_val="2"
                      name="fs_fsperfparallelpostsortmingroups"
                      tool_tip="EXPERIMENTAL. Views with fewer visible groups than this build their render lists on the main thread, where the worker hand-off would cost more than it saves."
-                     top="816"
+                     top="948"
                      width="100" />
                     <check_box
                      control_name="FSPerfParallelTexturePriority"
@@ -9946,7 +10049,7 @@
                      left="15"
                      name="fs_fsperfparalleltexturepriority"
                      tool_tip="EXPERIMENTAL. Computes how sharp each texture needs to be (face screen areas and texture virtual sizes) on worker threads instead of the main thread. Helps in busy places with many textures loaded."
-                     top="848"
+                     top="980"
                      width="475" />
                     <check_box
                      control_name="FSPerfParallelTexturePriorityVerify"
@@ -9958,7 +10061,7 @@
                      left="35"
                      name="fs_fsperfparalleltexturepriorityverify"
                      tool_tip="EXPERIMENTAL. Debug: also computes texture priorities the old way and logs any difference. Costs more than either alone."
-                     top="874"
+                     top="1006"
                      width="455" />
                     <check_box
                      control_name="FSPerfDiskThread"
@@ -9969,7 +10072,7 @@
                      left="15"
                      name="fs_fsperfdiskthread"
                      tool_tip="EXPERIMENTAL. Looks assets up in the disk cache on a separate low priority thread instead of the main thread, and reads them once there so the main thread's later read comes from memory. Cached animations go through the same lookup. Helps against hitches when content arrives in bursts and the cache is on a slow disk or scanned by antivirus software. A cached asset becomes ready about a frame later."
-                     top="904"
+                     top="1036"
                      width="475" />
                     <check_box
                      control_name="FSPerfBackgroundVolumeFree"
@@ -9980,7 +10083,7 @@
                      left="15"
                      name="fs_fsperfbackgroundvolumefree"
                      tool_tip="EXPERIMENTAL. Frees the geometry of objects that go away (a region leaving view, objects changing detail level) on a worker thread instead of the main thread. A region going out of range frees thousands of shapes at once, which took a few hundred milliseconds of the frame."
-                     top="934"
+                     top="1066"
                      width="475" />
                     <check_box
                      control_name="FSPerfAudioThread"
@@ -9991,7 +10094,7 @@
                      left="15"
                      name="fs_fsperfaudiothread"
                      tool_tip="EXPERIMENTAL. Make every OpenAL call on an audio thread of its own instead of the main thread. A call that waits inside OpenAL (its locks, the mixer, an output device being reopened) then can't hold up a frame. Sounds start up to a few milliseconds later. Takes effect after a restart."
-                     top="964"
+                     top="1096"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10000,7 +10103,7 @@
                      left="15"
                      name="fs_fsperfopenjpegbuffercachemb_label"
                      tool_tip="EXPERIMENTAL. Builds that decode textures with OpenJPEG only (not Kakadu). How much of the decoder's large working buffers each texture decode thread keeps for its next decode, in MB, instead of handing them back to Windows and getting them back fresh every time. Saves the bursts of page faults that make the whole computer sluggish while many textures decode at once (logging in, arriving somewhere). 0 turns it off. Takes effect after a restart."
-                     top="992"
+                     top="1124"
                      width="310">
                         OpenJPEG buffers kept per decode thread (MB)
                     </text>
@@ -10016,7 +10119,7 @@
                      min_val="0"
                      name="fs_fsperfopenjpegbuffercachemb"
                      tool_tip="EXPERIMENTAL. Builds that decode textures with OpenJPEG only (not Kakadu). How much of the decoder's large working buffers each texture decode thread keeps for its next decode, in MB, instead of handing them back to Windows and getting them back fresh every time. Saves the bursts of page faults that make the whole computer sluggish while many textures decode at once (logging in, arriving somewhere). 0 turns it off. Takes effect after a restart."
-                     top="990"
+                     top="1122"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10025,7 +10128,7 @@
                      left="35"
                      name="fs_fsperfimagebufferpoolmb_label"
                      tool_tip="EXPERIMENTAL. How much of the pixel buffers freed by decoded textures is kept, in MB, for the next texture of a similar size instead of being handed back to Windows and fetched fresh, page by page, every time. Saves the bursts of page faults that stall the viewer while many textures decode at once (logging in, arriving somewhere). Kept buffers unused for 30 seconds are handed back. 0 turns it off. Takes effect at once."
-                     top="1016"
+                     top="1148"
                      width="290">
                         Texture pixel buffers kept for reuse (MB)
                     </text>
@@ -10041,7 +10144,7 @@
                      min_val="0"
                      name="fs_fsperfimagebufferpoolmb"
                      tool_tip="EXPERIMENTAL. How much of the pixel buffers freed by decoded textures is kept, in MB, for the next texture of a similar size instead of being handed back to Windows and fetched fresh, page by page, every time. Saves the bursts of page faults that stall the viewer while many textures decode at once (logging in, arriving somewhere). Kept buffers unused for 30 seconds are handed back. 0 turns it off. Takes effect at once."
-                     top="1014"
+                     top="1146"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10050,7 +10153,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_gpu_driven_draws"
-                     top="1056"
+                     top="1188"
                      width="340">
                         GPU-driven draws
                     </text>
@@ -10062,7 +10165,7 @@
                      left="370"
                      name="reset_fs_heading_gpu_driven_draws"
                      tool_tip="Set every option in &quot;GPU-driven draws&quot; back to its default value."
-                     top="1055"
+                     top="1187"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10078,7 +10181,7 @@
                      left="15"
                      name="fs_fsperfgpudrivendraws"
                      tool_tip="EXPERIMENTAL. Sends the opaque buildings and objects of each shadow map to the graphics card as one multi-draw call instead of one call per object batch, from a copy of their positions kept in video memory. Shadows look the same; saves CPU time in busy scenes. Works together with 'Draw sun shadow cascades in one pass'. Needs OpenGL 4.3 (most NVIDIA, AMD and Intel cards with current drivers; not macOS); otherwise nothing changes."
-                     top="1082"
+                     top="1214"
                      width="475" />
                     <check_box
                      control_name="FSPerfGPUDrivenDrawsVerify"
@@ -10090,7 +10193,7 @@
                      left="35"
                      name="fs_fsperfgpudrivendrawsverify"
                      tool_tip="Debug. Draws the shadow casters a second time the old way and logs any place where the result would differ, plus draw statistics every 10 seconds. Slows rendering down; for testing only."
-                     top="1108"
+                     top="1240"
                      width="455" />
                     <text
                      follows="left|top"
@@ -10099,7 +10202,7 @@
                      left="35"
                      name="fs_fsperfgpudrivendrawsarenamb_label"
                      tool_tip="Most video memory the copy of the shadow casters' positions may use. Casters that don't fit are drawn the old way."
-                     top="1136"
+                     top="1268"
                      width="285">
                         Shadow caster memory (MB)
                     </text>
@@ -10116,7 +10219,7 @@
                      min_val="16"
                      name="fs_fsperfgpudrivendrawsarenamb"
                      tool_tip="Most video memory the copy of the shadow casters' positions may use. Casters that don't fit are drawn the old way."
-                     top="1134"
+                     top="1266"
                      width="100" />
                     <check_box
                      control_name="FSPerfGPUDrivenPBR"
@@ -10127,7 +10230,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenpbr"
                      tool_tip="EXPERIMENTAL. Draws static opaque PBR (GLTF material) surfaces with a few large multi-draw calls out of a shared vertex arena instead of one draw call each. Looks the same; saves CPU time in busy scenes. Needs OpenGL 4.3. Uses up to the arena size below of video memory. Rebuilds shaders."
-                     top="1166"
+                     top="1298"
                      width="475" />
                     <check_box
                      control_name="FSPerfGPUDrivenPBRBindless"
@@ -10139,7 +10242,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenpbrbindless"
                      tool_tip="EXPERIMENTAL. With GPU-driven PBR surfaces: uses bindless textures (GL_ARB_bindless_texture) so surfaces with different materials share one draw call. Looks the same; saves more CPU time. Not used where the driver doesn't support it properly. Rebuilds shaders."
-                     top="1192"
+                     top="1324"
                      width="455" />
                     <text
                      follows="left|top"
@@ -10148,7 +10251,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenpbrarenamb_label"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven PBR surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1220"
+                     top="1352"
                      width="285">
                         PBR vertex arena (MB)
                     </text>
@@ -10165,7 +10268,7 @@
                      min_val="16"
                      name="fs_fsperfgpudrivenpbrarenamb"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven PBR surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1218"
+                     top="1350"
                      width="100" />
                     <check_box
                      control_name="FSPerfGPUDrivenLegacy"
@@ -10176,7 +10279,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenlegacy"
                      tool_tip="EXPERIMENTAL. Draws static opaque non-PBR surfaces (simple, alpha masked and fullbright) with a few large multi-draw calls out of a shared vertex arena, with bindless textures, instead of one draw call and several texture binds each. Looks the same; saves CPU time in busy scenes. Needs OpenGL 4.3 and bindless textures (NVIDIA GPUs only). Uses up to the arena size below of video memory. Rebuilds shaders."
-                     top="1250"
+                     top="1382"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10185,7 +10288,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenlegacyarenamb_label"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven legacy surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1278"
+                     top="1410"
                      width="285">
                         Legacy vertex arena (MB)
                     </text>
@@ -10202,7 +10305,7 @@
                      min_val="16"
                      name="fs_fsperfgpudrivenlegacyarenamb"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven legacy surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1276"
+                     top="1408"
                      width="100" />
                     <check_box
                      control_name="FSPerfGPUDrivenPBRGroupRuns"
@@ -10213,7 +10316,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenpbrgroupruns"
                      tool_tip="EXPERIMENTAL. Applies to GPU-driven PBR surfaces and GPU-driven legacy material surfaces: draws them grouped instead of in the stock order. PBR: every surface with bindless textures in one multi-draw, the others one run per material. Legacy materials: every GPU-driven surface in one multi-draw. The surfaces drawn the old way follow. Far fewer draw calls and texture binds in busy scenes. Only where two surfaces lie at exactly the same depth can the other one show."
-                     top="1308"
+                     top="1440"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenMaterials"
@@ -10224,7 +10327,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenmaterials"
                      tool_tip="EXPERIMENTAL. Draws static opaque surfaces with legacy normal or specular maps (or shine on a material) with a few large multi-draw calls out of a shared vertex arena, with bindless textures, instead of one draw call, several texture binds and material settings each. Looks the same; saves CPU time in busy scenes. Needs OpenGL 4.3 and bindless textures (NVIDIA GPUs only). Uses up to the arena size below of video memory. Rebuilds shaders."
-                     top="1338"
+                     top="1470"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10233,7 +10336,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenmaterialsarenamb_label"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven legacy material surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1366"
+                     top="1498"
                      width="285">
                         Material vertex arena (MB)
                     </text>
@@ -10250,7 +10353,7 @@
                      min_val="16"
                      name="fs_fsperfgpudrivenmaterialsarenamb"
                      tool_tip="EXPERIMENTAL. Most video memory the GPU-driven legacy material surfaces may use for their copy of the vertex data, 16 to 2048 MB. Surfaces that don't fit are drawn the old way."
-                     top="1364"
+                     top="1496"
                      width="100" />
                     <check_box
                      control_name="FSPerfGPUDrivenShadowAlpha"
@@ -10262,7 +10365,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenshadowalpha"
                      tool_tip="EXPERIMENTAL. Sends the alpha tested shadow casters (leaves, fences, grass, cut-out textures, alpha masked PBR materials) of each shadow map to the graphics card as one multi-draw call with bindless textures, instead of one call and several texture binds per object batch. Shadows look the same; saves CPU time in busy scenes. Works together with 'Draw sun shadow cascades in one pass'; checked by 'Verify multi-draw shadows'. Needs OpenGL 4.3 and bindless textures (NVIDIA GPUs only); otherwise nothing changes. Rebuilds shaders."
-                     top="1396"
+                     top="1528"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10271,7 +10374,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenshadowalphaarenamb_label"
                      tool_tip="EXPERIMENTAL. Most video memory the copy of the alpha tested shadow casters' vertex data may use, 16 to 2048 MB. Casters that don't fit are drawn the old way."
-                     top="1424"
+                     top="1556"
                      width="285">
                         Alpha shadow caster memory (MB)
                     </text>
@@ -10288,7 +10391,7 @@
                      min_val="16"
                      name="fs_fsperfgpudrivenshadowalphaarenamb"
                      tool_tip="EXPERIMENTAL. Most video memory the copy of the alpha tested shadow casters' vertex data may use, 16 to 2048 MB. Casters that don't fit are drawn the old way."
-                     top="1422"
+                     top="1554"
                      width="100" />
                     <check_box
                      control_name="FSPerfRiggedPaletteBuffer"
@@ -10299,7 +10402,7 @@
                      left="15"
                      name="fs_fsperfriggedpalettebuffer"
                      tool_tip="EXPERIMENTAL. Write each rigged mesh&apos;s joint matrices once a frame into one buffer that every program, pass and shadow cascade reads, instead of uploading them to each program that draws the mesh. Saves main and render thread time with many avatars around; nothing looks different. Rebuilds shaders."
-                     top="1452"
+                     top="1584"
                      width="475" />
                     <check_box
                      control_name="FSPerfGPUDrivenRigged"
@@ -10311,7 +10414,7 @@
                      left="35"
                      name="fs_fsperfgpudrivenrigged"
                      tool_tip="EXPERIMENTAL. Draw the opaque rigged meshes of the G-buffer pass (bodies, clothes, attachments) as a few multi-draw calls, like the GPU driven paths above do for static objects, instead of one draw call each with its own state changes. Needs the joint matrix buffer. Saves main and render thread time with many avatars around; nothing looks different. Rebuilds shaders."
-                     top="1478"
+                     top="1610"
                      width="455" />
                     <check_box
                      control_name="FSPerfGPUDrivenAlpha"
@@ -10322,7 +10425,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenalpha"
                      tool_tip="EXPERIMENTAL. NVIDIA only. In the alpha pass, draw runs of consecutive plain alpha, fullbright alpha and legacy material alpha draws that share their shader and blend mode as one multi-draw call each, in the same order, so blending stays exactly as before. Rigged ones too with the joint matrix buffer and GPU driven rigged draws on. Saves main and render thread time with many avatars around; nothing looks different. Rebuilds shaders."
-                     top="1504"
+                     top="1636"
                      width="475" />
                     <!-- <FS:Trish> FSPerfGPUDrivenUploadRing, FSPerfGPUDrivenSharedMatrices -->
                     <check_box
@@ -10334,7 +10437,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenuploadring"
                      tool_tip="EXPERIMENTAL. Applies to every GPU-driven option above. Their per draw data goes into a few large buffers that take turns over three frames, instead of each pass asking the driver for 4 to 5 new buffers every time it draws. With the render thread off and OpenGL 4.4 the buffers are written directly. Less driver work; nothing looks different. The FSGPUDrivenUpload log line shows what it does."
-                     top="1530"
+                     top="1662"
                      width="475" />
                     <check_box
                      control_name="FSPerfGPUDrivenSharedMatrices"
@@ -10345,7 +10448,7 @@
                      left="15"
                      name="fs_fsperfgpudrivensharedmatrices"
                      tool_tip="EXPERIMENTAL. Applies to every GPU-driven option above. The passes of a frame that draw with the same camera (opaque, rigged and alpha; the passes of one shadow map) share their table of object matrices, so each object's matrices are worked out and sent to the graphics card once instead of once per pass. Saves main thread time in busy scenes; the same math, so nothing looks different. The FSGPUDrivenUpload log line shows what it does."
-                     top="1556"
+                     top="1688"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSPerfGPUDrivenBuildCache -->
@@ -10358,7 +10461,7 @@
                      left="15"
                      name="fs_fsperfgpudrivenbuildcache"
                      tool_tip="EXPERIMENTAL. Applies to the GPU-driven shadow caster, legacy and legacy material draws (not rigged). A pass that is given the same objects as in the last frame draws the commands it built then again instead of building them anew; only its texture handles and copies are checked and its matrices looked up again. Saves main thread time while you and the scene hold still, most of all in busy scenes; a pass whose objects changed is built as before, so nothing looks different. The FSGPUDrivenBuild log line (with the GPU-driven statistics on) shows how often it helps."
-                     top="1582"
+                     top="1714"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSRenderGPUOcclusionCulling -->
@@ -10372,7 +10475,7 @@
                      left="35"
                      name="fs_fsrendergpuocclusionculling"
                      tool_tip="EXPERIMENTAL. Needs GPU driven draws for PBR objects; also culls what the GPU-driven legacy and material passes draw. In the main view, the graphics card leaves out static objects that are hidden behind what is already drawn: it first draws what was visible last frame, then tests every other object's box against that depth and draws the ones that turned out visible, so nothing pops in late. Saves graphics card time in dense scenes with walls and buildings in front of other objects; little in open views. Rigged meshes are tested with their avatar's bounds, generously padded (never your own avatar's). Alpha, shadows, reflection probes and mirrors are drawn as before. Turning it on rebuilds the scene's geometry once. The FSGPUOcclusion log line shows how much it culls."
-                     top="1608"
+                     top="1740"
                      width="455" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSRenderMergePostPasses -->
@@ -10383,7 +10486,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_post_passes"
-                     top="1648"
+                     top="1780"
                      width="340">
                         Post processing
                     </text>
@@ -10396,7 +10499,7 @@
                      left="15"
                      name="fs_fsrendermergepostpasses"
                      tool_tip="EXPERIMENTAL. Draws post-processing passes that can be one as one full screen pass, with the same math: the sun rays (or underwater rays) together with the volumetric projector light when both are on, and the vignette inside the lens effects pass when both are on. Saves a full screen pass for each pair, about 0.05 to 0.2 ms of graphics card time at 1440p. The picture stays the same apart from the last bit of rounding."
-                     top="1674"
+                     top="1806"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <text
@@ -10406,7 +10509,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_render_thread"
-                     top="1714"
+                     top="1846"
                      width="340">
                         Render thread
                     </text>
@@ -10418,7 +10521,7 @@
                      left="370"
                      name="reset_fs_heading_render_thread"
                      tool_tip="Set every option in &quot;Render thread&quot; back to its default value."
-                     top="1713"
+                     top="1845"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10433,7 +10536,7 @@
                      left="15"
                      name="fs_fsrenderthread"
                      tool_tip="EXPERIMENTAL. Windows only, takes effect after a restart. The main thread hands its OpenGL work to a render thread, which talks to the graphics driver while the main thread already prepares the next frame. Can raise the frame rate when the main thread is the bottleneck. The picture is the same; if something renders wrongly or the viewer stalls, turn it off."
-                     top="1740"
+                     top="1872"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10442,7 +10545,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_shaders"
-                     top="1782"
+                     top="1914"
                      width="340">
                         Shaders
                     </text>
@@ -10454,7 +10557,7 @@
                      left="370"
                      name="reset_fs_heading_shaders"
                      tool_tip="Set every option in &quot;Shaders&quot; back to its default value."
-                     top="1781"
+                     top="1913"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10469,7 +10572,7 @@
                      left="15"
                      name="fs_fsperfparallelshadercompile"
                      tool_tip="EXPERIMENTAL. Shorter pauses when graphics settings change and shaders are rebuilt, because the graphics driver compiles them on several threads at once. Needs a driver that supports parallel shader compile (current NVIDIA and AMD drivers, Mesa). Without that support nothing changes. Applies from the next shader rebuild."
-                     top="1808"
+                     top="1940"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10478,7 +10581,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_user_interface"
-                     top="1850"
+                     top="1982"
                      width="340">
                         User interface
                     </text>
@@ -10490,7 +10593,7 @@
                      left="370"
                      name="reset_fs_heading_user_interface"
                      tool_tip="Set every option in &quot;User interface&quot; back to its default value."
-                     top="1849"
+                     top="1981"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10503,7 +10606,7 @@
                      left="35"
                      name="fs_fsrenderuicap_label"
                      tool_tip="EXPERIMENTAL. Draws the interface into its own image and redraws it only when needed: every frame while you use it (mouse over it, typing into it, dragging a window), at most this many times a second when something in it changes, otherwise a few times a second. Saves a large part of the main thread's frame when windows and chat are open. 0 draws the interface every frame as before."
-                     top="1878"
+                     top="2010"
                      width="285">
                         UI redraw cap (per second, 0 = every frame)
                     </text>
@@ -10519,7 +10622,7 @@
                      min_val="0"
                      name="fs_fsrenderuicap"
                      tool_tip="EXPERIMENTAL. Draws the interface into its own image and redraws it only when needed: every frame while you use it (mouse over it, typing into it, dragging a window), at most this many times a second when something in it changes, otherwise a few times a second. Saves a large part of the main thread's frame when windows and chat are open. 0 draws the interface every frame as before."
-                     top="1876"
+                     top="2008"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10528,7 +10631,7 @@
                      left="35"
                      name="fs_fsrenderuiidlerate_label"
                      tool_tip="EXPERIMENTAL. With the redraw cap on, how often the interface is redrawn while nothing uses it. Most changes (text, counters, chat) show up at this rate."
-                     top="1906"
+                     top="2038"
                      width="285">
                         UI idle refresh (per second)
                     </text>
@@ -10545,7 +10648,7 @@
                      min_val="0.5"
                      name="fs_fsrenderuiidlerate"
                      tool_tip="EXPERIMENTAL. With the redraw cap on, how often the interface is redrawn while nothing uses it. Most changes (text, counters, chat) show up at this rate."
-                     top="1904"
+                     top="2036"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10554,7 +10657,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_uploads_inventory"
-                     top="1946"
+                     top="2078"
                      width="340">
                         Uploads and inventory
                     </text>
@@ -10566,7 +10669,7 @@
                      left="370"
                      name="reset_fs_heading_uploads_inventory"
                      tool_tip="Set every option in &quot;Uploads and inventory&quot; back to its default value."
-                     top="1945"
+                     top="2077"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10581,7 +10684,7 @@
                      left="35"
                      name="fs_fsperfparalleltextureencode"
                      tool_tip="The viewer freezes while it compresses a texture for upload, about a second per large texture, and a material upload compresses up to four. With this on, each texture is compressed on several cores and the maps of a material at the same time, so the freeze is several times shorter. Applies to textures, materials, snapshots and mesh textures."
-                     top="1969"
+                     top="2101"
                      width="455" />
                     <check_box
                      control_name="FSPerfInventoryLazySort"
@@ -10592,7 +10695,7 @@
                      left="35"
                      name="fs_fsperfinventorylazysort"
                      tool_tip="Opening the inventory, switching its tabs or changing the sort order sorted every folder at once, a freeze of a few hundred milliseconds with large inventories. With this on, open folders are sorted right away and each closed folder when you open it. With folders sorted by date everything is still sorted at once, since that order depends on what is inside them."
-                     top="1992"
+                     top="2124"
                      width="455" />
                     <text
                      follows="left|top"
@@ -10601,7 +10704,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_other"
-                     top="2034"
+                     top="2166"
                      width="340">
                         Other
                     </text>
@@ -10613,7 +10716,7 @@
                      left="370"
                      name="reset_perf_heading_other"
                      tool_tip="Set every option in &quot;Other&quot; back to its default value."
-                     top="2033"
+                     top="2165"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10628,7 +10731,7 @@
                      left="15"
                      name="perf_audiothrottlechecks"
                      tool_tip="EXPERIMENTAL. Re-check whether each sound source is muted or allowed by parcel rules 4 times a second, or right away when the mute list, parcel or your position changes, instead of every frame."
-                     top="2057"
+                     top="2189"
                      width="475" />
                     <check_box
                      control_name="FSPerfInventoryIdleThrottle"
@@ -10639,7 +10742,7 @@
                      left="15"
                      name="perf_inventoryidlethrottle"
                      tool_tip="EXPERIMENTAL. Inventory panels that are not on screen update their folder views twice a second instead of every frame."
-                     top="2079"
+                     top="2211"
                      width="475" />
                     <check_box
                      control_name="FSPerfHoverPickThrottle"
@@ -10650,7 +10753,7 @@
                      left="15"
                      name="fs_fsperfhoverpickthrottle"
                      tool_tip="EXPERIMENTAL. While the mouse, its buttons and the camera stay still, the viewer reuses what it found under the mouse for up to a tenth of a second instead of casting a ray through the scene every frame. Something moving under a still mouse is noticed within that time."
-                     top="2109"
+                     top="2241"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10659,7 +10762,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_scene_updates"
-                     top="2151"
+                     top="2283"
                      width="340">
                         Scene updates
                     </text>
@@ -10671,7 +10774,7 @@
                      left="370"
                      name="reset_fs_heading_scene_updates"
                      tool_tip="Set every option in &quot;Scene updates&quot; back to its default value."
-                     top="2150"
+                     top="2282"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10686,7 +10789,7 @@
                      left="15"
                      name="fs_fsperfvertexarrayobjects"
                      tool_tip="Vertex buffers drawn more than once keep a vertex array object per shader layout, so a draw binds one object instead of setting up its buffers and attributes again. Off: the standard path."
-                     top="2179"
+                     top="2311"
                      width="475" />
                     <check_box
                      control_name="FSPerfDSATextureBinds"
@@ -10697,7 +10800,7 @@
                      left="15"
                      name="fs_fsperfdsatexturebinds"
                      tool_tip="EXPERIMENTAL. Draws bind their textures with one call that names the texture unit, instead of switching the active unit first: about one OpenGL call fewer per texture bound. Only on OpenGL 4.5 (not macOS). Off: the standard path."
-                     top="2205"
+                     top="2337"
                      width="475" />
                     <check_box
                      control_name="FSPerfRebuildNearestFirst"
@@ -10708,7 +10811,7 @@
                      left="15"
                      name="fs_fsperfrebuildnearestfirst"
                      tool_tip="When geometry updates (level of detail changes, new objects) can't all be done in one frame, do the ones in view and nearest the camera first, so the objects around you sharpen before distant ones. Off: the standard order."
-                     top="2231"
+                     top="2363"
                      width="475" />
                     <check_box
                      control_name="RenderReflectionProbeSharedShadows"
@@ -10719,7 +10822,7 @@
                      left="15"
                      name="fs_renderreflectionprobesharedshadows"
                      tool_tip="Render the sun shadows once per reflection probe update and share them between its 12 face renders, instead of rendering them for every face. Off: the standard path."
-                     top="2257"
+                     top="2389"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10728,7 +10831,7 @@
                      left="35"
                      name="fs_renderreflectionproberefreshframeinterval_label"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="2285"
+                     top="2417"
                      width="285">
                         Frames per face when refreshing a probe
                     </text>
@@ -10744,7 +10847,7 @@
                      min_val="1"
                      name="fs_renderreflectionproberefreshframeinterval"
                      tool_tip="While refreshing a reflection probe that is already complete, render one cube face every this many frames. New probes, the sky probe and moving probes still update every frame. 1 is standard."
-                     top="2283"
+                     top="2415"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10753,7 +10856,7 @@
                      left="35"
                      name="fs_renderreflectionprobeminrefresh_label"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="2313"
+                     top="2445"
                      width="285">
                         Shortest time between probe refreshes (s)
                     </text>
@@ -10769,7 +10872,7 @@
                      min_val="0"
                      name="fs_renderreflectionprobeminrefresh"
                      tool_tip="A complete reflection probe that doesn't move is not re-rendered until this many seconds after its last refresh. Sky changes still refresh it. 0 is standard."
-                     top="2311"
+                     top="2443"
                      width="100" />
                     <text
                      follows="left|top"
@@ -10778,7 +10881,7 @@
                      left="35"
                      name="fs_renderhiddenavatarupdateperiod_label"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="2341"
+                     top="2473"
                      width="285">
                         Frames between off-screen avatar updates
                     </text>
@@ -10794,7 +10897,7 @@
                      min_val="1"
                      name="fs_renderhiddenavatarupdateperiod"
                      tool_tip="Avatars outside the camera view are fully updated every this many frames (at most 2 with sun shadows on). 1 is standard, every frame."
-                     top="2339"
+                     top="2471"
                      width="100" />
                     <check_box
                      control_name="FSPerfThreadedObjectUpdates"
@@ -10805,7 +10908,7 @@
                      left="15"
                      name="fs_fsperfthreadedobjectupdates"
                      tool_tip="EXPERIMENTAL. While objects around you are created from the object cache (arriving somewhere, logging in, turning around), the ones coming up next are decoded on worker threads: their shape parameters and their texture faces. The main thread then only applies them, at the same moment and in the same order as before, and decodes anything the workers haven't reached yet itself. Updates sent straight from the region (movement, changes, removals) are handled as before. The result is identical; the gain is small."
-                     top="2369"
+                     top="2501"
                      width="475" />
                     <check_box
                      control_name="FSPerfThreadedGeometry"
@@ -10816,7 +10919,7 @@
                      left="15"
                      name="fs_fsperfthreadedgeometry"
                      tool_tip="EXPERIMENTAL. When a prim switches to a level of detail whose shape hasn&apos;t been built yet (arriving somewhere, moving the camera through a build), the shape is built on a worker thread instead of the main thread, and the prim keeps its current detail for one more frame meanwhile. Sculpts, meshes, flexible prims, HUDs and what you are editing are handled as before. Off: the standard path."
-                     top="2395"
+                     top="2527"
                      width="475" />
                     <!-- <FS:Trish> FSPerfTextureUpdateSlice -->
                     <check_box
@@ -10828,7 +10931,7 @@
                      left="15"
                      name="fs_fsperftextureupdateslice"
                      tool_tip="EXPERIMENTAL. While the camera stands still, a texture that is already loaded at the sharpness it needs and isn&apos;t on anything moving has its priority worked out on one pass of the texture sweep out of every few instead of on every pass. Textures still loading, sharpening or shrinking, avatar, UI and sculpt textures, projector textures and textures on moving objects keep the normal rate, and so does everything while the camera moves or turns, during a teleport and after the texture memory limit tightens. Saves main thread time in a still scene with many textures."
-                     top="2425"
+                     top="2557"
                      width="475" />
                     <text
                      follows="left|top"
@@ -10837,7 +10940,7 @@
                      left="35"
                      name="fs_fsperftextureupdateslicepasses_label"
                      tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
-                     top="2453"
+                     top="2585"
                      width="285">
                         Texture sweeps per settled texture check
                     </text>
@@ -10854,7 +10957,7 @@
                      min_val="1"
                      name="fs_fsperftextureupdateslicepasses"
                      tool_tip="A settled texture is looked at on one pass of the texture sweep out of this many (a pass takes 10 to 20 frames). 1 is the normal rate; higher saves more, but with the camera still a moving object coming closer sharpens a little later."
-                     top="2451"
+                     top="2583"
                      width="100" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSAutoSizeResources -->
@@ -10865,7 +10968,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_resources"
-                     top="2487"
+                     top="2619"
                      width="340">
                         Memory sizes
                     </text>
@@ -10878,7 +10981,7 @@
                      left="15"
                      name="fs_fsautosizeresources"
                      tool_tip="Sizes that used to be fixed follow the graphics card and what the scene actually uses. The GPU-driven draw arenas start at about what they held at most in your last session, make room by dropping copies not drawn for a couple of seconds before they grow, grow in smaller steps once they are large, and give back memory they no longer use after it has been steady for a few minutes while video memory is short. The GPU-driven upload ring is sized for the most a frame needed in the last minute. With live video memory on, the memory kept free for the system (when left at 0) is 12% of the card, between 1.5 and 3 GB. Nothing here changes what is drawn. Off: the fixed sizes as before."
-                     top="2511"
+                     top="2643"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSRenderLighterWhileMoving -->
@@ -10889,7 +10992,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_while_moving"
-                     top="2565"
+                     top="2697"
                      width="340">
                         While moving
                     </text>
@@ -10901,7 +11004,7 @@
                      left="370"
                      name="reset_perf_heading_while_moving"
                      tool_tip="Set every option in &quot;While moving&quot; back to its default value."
-                     top="2564"
+                     top="2696"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -10916,7 +11019,7 @@
                      left="15"
                      name="fs_fsrenderlighterwhilemoving"
                      tool_tip="EXPERIMENTAL. Walking and running never counted as moving for the motion throttles, which only reacted to turning faster than 35 degrees a second or travelling faster than 20 m/s, so every step changed object detail, re-rendered the far sun shadows and filled texture memory. This adds a walking tier (walking, running, gentle turns) that the options below use; each must be on as well. Off: everything as before."
-                     top="2589"
+                     top="2721"
                      width="475" />
                     <check_box
                      control_name="FSRenderMovingRebuildBudget"
@@ -10928,7 +11031,7 @@
                      left="35"
                      name="fs_fsrendermovingrebuildbudget"
                      tool_tip="EXPERIMENTAL. While moving, the group rebuild throttle (debug setting FSPerfGroupRebuildBudgetMs) also works at walking speed, with a budget of what the last frame left of the target frame time (the frame rate limit, or 60), at least 1 ms. Bursts of detail changes are spread over several frames instead of 20-30 ms spikes. What is in view and nearest sharpens first."
-                     top="2615"
+                     top="2747"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingLODHold"
@@ -10940,7 +11043,7 @@
                      left="35"
                      name="fs_fsrendermovinglodhold"
                      tool_tip="EXPERIMENTAL. While moving, objects don&apos;t drop to a lower level of detail, and only go up once clearly past the threshold (15%), so objects at the edge don&apos;t flip back and forth. Held changes are applied once the camera is still. Objects you walk towards may sharpen a moment later; objects behind you keep their detail until you stop."
-                     top="2641"
+                     top="2773"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingShadowReduce"
@@ -10952,7 +11055,7 @@
                      left="35"
                      name="fs_fsrendermovingshadowreduce"
                      tool_tip="EXPERIMENTAL. Needs &apos;Fewer small shadows while the camera moves fast&apos; (Shadows tab). While walking, running or turning gently, the far sun shadow maps leave out objects twice as small as they otherwise would. Small distant shadows may pop back in when you stop."
-                     top="2667"
+                     top="2799"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingTextureBiasHold"
@@ -10964,7 +11067,7 @@
                      left="35"
                      name="fs_fsrendermovingtexturebiashold"
                      tool_tip="EXPERIMENTAL. While moving, texture memory nearing its limit doesn&apos;t raise the discard bias and loaded textures aren&apos;t shrunk (each shrunk texture is a new texture, thousands of them mid-walk). The bias carries on once you stop. Running out of memory still lowers texture resolution at once."
-                     top="2693"
+                     top="2825"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingShadowHold"
@@ -10976,7 +11079,7 @@
                      left="35"
                      name="fs_fsrendermovingshadowhold"
                      tool_tip="EXPERIMENTAL. Needs &apos;Update far sun shadows every N frames&apos; above 1 (Shadows tab). Moving 2% of the shadow range or turning 3 degrees used to render every far shadow map, every frame while walking. Now a far map keeps its interval while what the view needs from it (the visible surfaces in its range, with a few texels to spare, and its depth range) still fits inside it; when it doesn&apos;t, all are rendered at once as before. Distant moving objects&apos; shadows follow at the interval, as when still."
-                     top="2719"
+                     top="2851"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingShadowCache"
@@ -10988,7 +11091,7 @@
                      left="35"
                      name="fs_fsrendermovingshadowcache"
                      tool_tip="EXPERIMENTAL. Needs &apos;Cache static far shadows&apos; (Shadows tab). The cache ignores changes of objects too small to cast into it, lets level of detail changes wait while the camera moves (2 seconds at most, or until it stops), keeps its map from shrinking while moving, and is stored while moving. A distant object&apos;s shadow may show its previous level of detail for up to 2 seconds."
-                     top="2745"
+                     top="2877"
                      width="455" />
                     <check_box
                      control_name="FSRenderMovingProbeHold"
@@ -11000,7 +11103,7 @@
                      left="35"
                      name="fs_fsrendermovingprobehold"
                      tool_tip="EXPERIMENTAL. While moving, reflection probes that already have a picture aren&apos;t refreshed; they are once you stop. New probes and probes a sky change needs are still captured. Reflections of things that changed while you walked update when you stop."
-                     top="2771"
+                     top="2903"
                      width="455" />
                     <check_box
                      control_name="FSRenderAsyncOcclusionReadback"
@@ -11011,7 +11114,7 @@
                      left="15"
                      name="fs_fsrenderasyncocclusionreadback"
                      tool_tip="With the render thread on: hidden-object test results are read from what the render thread has already collected, never with a read that makes the main thread wait for it. A test it no longer tracks (after a shader build) isn&apos;t waited for: its objects show until a new test answers, which can cost a little more drawing for a frame. Off: as before."
-                     top="2801"
+                     top="2933"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> Hitches -->
@@ -11022,7 +11125,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_hitches"
-                     top="2843"
+                     top="2975"
                      width="340">
                         Hitches
                     </text>
@@ -11034,7 +11137,7 @@
                      left="370"
                      name="reset_perf_heading_hitches"
                      tool_tip="Set every option in &quot;Hitches&quot; back to its default value."
-                     top="2842"
+                     top="2974"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -11050,7 +11153,7 @@
                      left="35"
                      name="fs_fsperfrenderthreadkeepvaostate"
                      tool_tip="EXPERIMENTAL. With the render thread on: after a shader build the main thread forgot what it knew of every mesh&apos;s buffers and waited for the render thread once for each on its next draw, thousands of waits in one frame. It now keeps what didn&apos;t change. The picture is the same; if something renders wrongly after changing a shader setting, turn it off."
-                     top="2869"
+                     top="3001"
                      width="455" />
                     <check_box
                      control_name="FSPerfFastRiggedPick"
@@ -11061,7 +11164,7 @@
                      left="15"
                      name="fs_fsperffastriggedpick"
                      tool_tip="EXPERIMENTAL. A right click on an avatar or a worn mesh (or the edit tools on one) worked out every vertex of every rigged mesh along the mouse ray, a third of a second over a few detailed avatars. Now only the parts the ray can reach are worked out, parts already worked out for the same pose are reused, and a hovered worn mesh is worked out a few times a second at most. What gets clicked is the same."
-                     top="2891"
+                     top="3023"
                      width="475" />
                     <check_box
                      control_name="FSPerfGDDArenaSmoothGrowth"
@@ -11073,7 +11176,7 @@
                      left="15"
                      name="fs_fsperfgddarenasmoothgrowth"
                      tool_tip="EXPERIMENTAL. With &quot;Size internal memory to the graphics card and the scene&quot; on: the memory GPU-driven drawing copies meshes into grows before it is full, at the start of a frame, one part at a time and in video memory only. Growing it all at once in a busy scene stalled the viewer for most of a second."
-                     top="2913"
+                     top="3045"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <!-- <FS:Trish> FSPerfAnimationLOD -->
@@ -11084,7 +11187,7 @@
                      layout="topleft"
                      left="15"
                      name="perf_heading_animationlod"
-                     top="2955"
+                     top="3087"
                      width="340">
                         Avatar animation detail
                     </text>
@@ -11096,7 +11199,7 @@
                      left="370"
                      name="reset_perf_heading_animationlod"
                      tool_tip="Set every option in &quot;Avatar animation detail&quot; back to its default value."
-                     top="2954"
+                     top="3086"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -11111,7 +11214,7 @@
                      left="15"
                      name="fs_fsperfanimationlod"
                      tool_tip="EXPERIMENTAL. Avatars that are small on screen (far away, unless the camera is zoomed onto them) work out their animations only every 2nd, 3rd or 4th frame instead of every frame, spread over the frames. They still move and turn smoothly every frame and their animations keep their timing; only the pose itself steps, and never by more than an eighth of a second. Your own avatar, avatars sitting on the same object as you, the avatar you select or focus the camera on, worn animated objects and avatars that just arrived, sat down or stood up stay at every frame, and everyone does in mouselook and while a snapshot window is open. Saves main thread time in crowds; compare the frame rate with it on and off and watch distant dancers."
-                     top="2981"
+                     top="3113"
                      width="475" />
                     <text
                      enabled_control="FSPerfAnimationLOD"
@@ -11121,7 +11224,7 @@
                      left="35"
                      name="fs_fsperfanimationlodscreensize_label"
                      tool_tip="How big an avatar has to be on screen, as a share of the screen height, to be animated every frame. Below it every 2nd frame, below half of it every 3rd, below a quarter every 4th. Larger values throttle more avatars and save more; smaller ones keep more at every frame."
-                     top="3009"
+                     top="3141"
                      width="285">
                         Every frame above this share of the screen
                     </text>
@@ -11138,7 +11241,7 @@
                      min_val="0.05"
                      name="fs_fsperfanimationlodscreensize"
                      tool_tip="How big an avatar has to be on screen, as a share of the screen height, to be animated every frame. Below it every 2nd frame, below half of it every 3rd, below a quarter every 4th. Larger values throttle more avatars and save more; smaller ones keep more at every frame."
-                     top="3007"
+                     top="3139"
                      width="100" />
                     <text
                      enabled_control="FSPerfAnimationLOD"
@@ -11148,7 +11251,7 @@
                      left="35"
                      name="fs_fsperfanimationlodmaxperiod_label"
                      tool_tip="The most frames between two poses of the smallest avatars on screen. 2 is the gentlest; 4 saves the most."
-                     top="3037"
+                     top="3169"
                      width="285">
                         Most frames between poses
                     </text>
@@ -11165,7 +11268,7 @@
                      min_val="2"
                      name="fs_fsperfanimationlodmaxperiod"
                      tool_tip="The most frames between two poses of the smallest avatars on screen. 2 is the gentlest; 4 saves the most."
-                     top="3035"
+                     top="3167"
                      width="100" />
                     <!-- </FS:Trish> -->
                 </panel>

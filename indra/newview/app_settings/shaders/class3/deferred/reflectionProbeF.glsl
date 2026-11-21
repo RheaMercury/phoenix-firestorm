@@ -964,6 +964,18 @@ void sampleProbesAmbientAndGloss(vec3 pos, vec3 norm, vec3 refDir, float lod, ve
 uniform vec4 clipPlane;
 uniform samplerCubeArray   heroProbes;
 
+// <FS:Trish> FSRenderMirrorPlanar (fsmirrorplanar.cpp): a flat mirror rendered as one view from the
+// reflected eye. fs_hero_planar_mat takes a world space direction to that view's x, y and w;
+// fs_hero_planar_params: x the mode (1 to 2 the planar view, with x - 1 its weight, which is below 1
+// for a mirror tiny on screen; 0 the cube; -1 neither), y the cube's mip
+// count - 1, z the cube's texel angle over the planar view's, w the width of the edge fade.
+#if defined(FS_HERO_PLANAR)
+uniform sampler2D fs_hero_planar;
+uniform mat4 fs_hero_planar_mat;
+uniform vec4 fs_hero_planar_params;
+#endif
+// </FS:Trish>
+
 void tapHeroProbe(inout vec3 glossenv, vec3 pos, vec3 norm, float glossiness)
 {
     // No mirror in range (see LLHeroProbeManager::updateUniforms), or a surface too rough for
@@ -996,6 +1008,33 @@ void tapHeroProbe(inout vec3 glossenv, vec3 pos, vec3 norm, float glossiness)
     clipDist = clamp(clipDist * falloffMult, 0, 1);
     w = clamp(w * falloffMult * clipDist, 0, 1);
     w = mix(0, w, clamp(glossiness - 0.75, 0, 1) * 4); // We only generate a quarter of the mips for the hero probes.  Linearly interpolate between normal probes and hero probes based upon glossiness.
+    // <FS:Trish> FSRenderMirrorPlanar: the same world space direction the cube is read along, in the
+    // planar view. Directions outside it (normal maps, the very edge) fade to the ordinary reflection.
+#if defined(FS_HERO_PLANAR)
+    if (fs_hero_planar_params.x > 0.5)
+    {
+        vec4 fs_clip = fs_hero_planar_mat * vec4(env_mat * refnormpersp, 0.0);
+        if (fs_clip.w <= 1e-6)
+        {
+            return;
+        }
+        vec2 fs_uv = fs_clip.xy / fs_clip.w * 0.5 + 0.5;
+        vec2 fs_edge = min(fs_uv, vec2(1.0) - fs_uv);
+        float fs_fade = clamp(min(fs_edge.x, fs_edge.y) / max(fs_hero_planar_params.w, 1e-4), 0.0, 1.0);
+        // The cube's blur for this roughness, as an angle, in the planar view's texels: sharp when
+        // glossy instead of the cube's pre-blurred texels, as soft as the cube when rough
+        float fs_rough = clamp(1.0 - glossiness, 0.0, 1.0);
+        float fs_lod = log2(1.0 + fs_hero_planar_params.z * (exp2(fs_rough * fs_hero_planar_params.y) - 1.0));
+        fs_fade *= clamp(fs_hero_planar_params.x - 1.0, 0.0, 1.0);
+        glossenv = mix(glossenv, textureLod(fs_hero_planar, clamp(fs_uv, vec2(0.0), vec2(1.0)), max(fs_lod, 0.0)).rgb, w * fs_fade);
+        return;
+    }
+    else if (fs_hero_planar_params.x < -0.5)
+    {
+        return;
+    }
+#endif
+    // </FS:Trish>
     // <FS:Trish> heroMipCount is the mip chain's length, log2(res); mip i was filtered for roughness
     // i / (heroMipCount - 1) (LLHeroProbeManager::generateRadiance), so that is the scale. Every mip
     // down to heroMipCount - 1 is written (the first quarter GGX filtered, the rest box filtered) and

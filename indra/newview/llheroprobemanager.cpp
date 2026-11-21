@@ -41,8 +41,10 @@
 #include "llviewerwindow.h"
 #include "llviewerjoystick.h"
 #include "llviewermediafocus.h"
+#include "fsmirrorplanar.h" // <FS:Trish/>
 
 extern bool gCubeSnapshot;
+extern bool gSnapshot; // <FS:Trish/>
 extern bool gTeleportDisplay;
 
 // get the next highest power of two of v (or v if v is already a power of two)
@@ -137,6 +139,12 @@ void LLHeroProbeManager::update()
         // Find our nearest hero candidate.
         float last_distance = 99999.f;
         float camera_center_distance = 99999.f;
+        // <FS:Trish> FSRenderMirrorPlanar: the mirror that fills the most of the view, not the first one
+        // nearer by both measures, with a bonus for the current one so two similar mirrors don't flip
+        const bool fs_planar = FSMirrorPlanar::enabled();
+        F32 fs_best_score = -1.f;
+        const LLVOVolume* fs_previous_hero = mNearestHero.get();
+        // </FS:Trish>
         mNearestHero = nullptr;
         // <FS:Trish> Unregistering erases from mHeroVOList, so collect the stale entries and drop them after the loop
         std::vector<LLPointer<LLVOVolume>> stale_vos;
@@ -171,6 +179,27 @@ void LLHeroProbeManager::update()
                 }
                 // </FS:Beq>
 
+                // <FS:Trish> FSRenderMirrorPlanar
+                if (fs_planar)
+                {
+                    if (visible)
+                    {
+                        F32 score = FSMirrorPlanar::selectionScore(vo, reflection_normal, camera_pos);
+                        if (vo.get() == fs_previous_hero)
+                        {
+                            score *= 1.25f;
+                        }
+                        if (score > fs_best_score)
+                        {
+                            fs_best_score = score;
+                            probe_present = true;
+                            mNearestHero = vo;
+                            mMirrorNormal = reflection_normal;
+                        }
+                    }
+                }
+                else
+                // </FS:Trish>
                 if (distance < last_distance && center_distance < camera_center_distance && visible)
                 {
                     probe_present = true;
@@ -295,6 +324,22 @@ void LLHeroProbeManager::renderProbes()
             LL_PROFILE_ZONE_NUM(rate);
 
             bool dynamic = mNearestHero->getReflectionProbeIsDynamic() && sDetail() > 0;
+            // <FS:Trish> FSRenderMirrorPlanar: a flat mirror as one view fitted to it instead of the cube faces
+            bool fs_planar_done = false;
+            if (FSMirrorPlanar::enabled())
+            {
+                LLVector3 virtual_eye(mProbes[0]->mOrigin.getF32ptr());
+                fs_planar_done = FSMirrorPlanar::render(mNearestHero, mMirrorPosition, mMirrorNormal, virtual_eye, mTexture,
+                                                        dynamic, mProbeResolution, (U32)mMipChain.size());
+            }
+            if (!fs_planar_done && FSMirrorPlanar::useCube(mProbeResolution, mMirrorPosition, mMirrorNormal))
+            {
+                rate = 1; // the cube wasn't rendered while the planar view was in use: every face at once
+            }
+            // A snapshot only renders mirrors for the planar view; the cube keeps its last frame
+            if (!fs_planar_done && !gSnapshot)
+            {
+            // </FS:Trish>
 
             // <FS:Trish> Faces that only look behind the mirror plane are never sampled by the mirror surface.
             // Refresh them every HIDDEN_FACE_REFRESH frames and whenever the mirror, its orientation or the
@@ -342,6 +387,7 @@ void LLHeroProbeManager::renderProbes()
                 }
             }
             generateRadiance(mProbes[0]);
+            } // <FS:Trish/> !fs_planar_done
         }
 
         mRenderingMirror = false;
@@ -727,6 +773,7 @@ void LLHeroProbeManager::initReflectionMaps()
 
 void LLHeroProbeManager::cleanup()
 {
+    FSMirrorPlanar::cleanup(); // <FS:Trish/>
     mVertexBuffer = nullptr;
     mRenderTarget.release();
 

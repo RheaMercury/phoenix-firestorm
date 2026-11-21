@@ -396,6 +396,7 @@ public:
         FS_INDIRECT_BENT_HISTORY,           // "fs_indirect_bent_history"
         FS_FADE_HIDE,                       // "fs_fade_hide" <FS:Trish/> fade-in (FSRenderFadeIn)
         // </FS:Trish>
+        FS_HERO_PLANAR_MAP,                 // "fs_hero_planar" <FS:Trish/> planar mirror view (FSRenderMirrorPlanar)
         END_RESERVED_UNIFORMS
     } eGLSLReservedUniforms;
     // clang-format on

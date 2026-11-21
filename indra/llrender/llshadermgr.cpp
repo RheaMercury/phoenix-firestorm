@@ -2125,6 +2125,7 @@ void LLShaderMgr::initAttribsAndUniforms()
     mReservedUniforms.push_back("fs_indirect_bent_history");
     // </FS:Trish>
     mReservedUniforms.push_back("fs_fade_hide"); // <FS:Trish/> fade-in
+    mReservedUniforms.push_back("fs_hero_planar"); // <FS:Trish/> planar mirror view
 
     llassert(mReservedUniforms.size() == END_RESERVED_UNIFORMS);
 

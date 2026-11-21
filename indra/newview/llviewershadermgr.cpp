@@ -1494,6 +1494,13 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     if (mirrors)
     {
         attribs["HERO_PROBES"] = "1";
+
+        // <FS:Trish> Flat mirrors read a planar view (fsmirrorplanar.cpp)
+        if (gSavedSettings.getBOOL("FSRenderMirrorPlanar"))
+        {
+            attribs["FS_HERO_PLANAR"] = "1";
+        }
+        // </FS:Trish>
     }
 
     { // PBR terrain
