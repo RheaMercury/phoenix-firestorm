@@ -30,6 +30,7 @@
 #include <boost/lexical_cast.hpp>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fsphotoshadows.h" // <FS:Trish/> FSRenderPhotoShadows
 #include "fslensflare.h" // <FS:Trish/> FSRenderLensFlareHQ
 extern U32 gFrameCount; // <FS:Trish/> FSRenderCreaseAO: the noise offset while TAA runs
 #include "fstaajitter.h" // <FS:Trish/> FSRenderTAATextureBias
@@ -2084,6 +2085,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSDynResUpscaleProgram.unload(); // <FS:Trish/> Dynamic resolution
         gFSNISUpscaleProgram.unload(); // <FS:Trish/> NVIDIA Image Scaling
         gFSTAAResolveProgram.unload(); // <FS:Trish/> FSRenderTAA
+        // <FS:Trish> FSRenderPhotoShadows
+        gFSPhotoShadowAccumProgram.unload();
+        gFSPhotoShadowApplyProgram.unload();
+        // </FS:Trish>
         gFSTAASharpenProgram.unload(); // <FS:Trish/> FSRenderTAA
         gFSTAAOverlayDepthProgram.unload(); // <FS:Trish/> FSRenderTAA
         gFSTAADepthCopyProgram.unload(); // <FS:Trish/> FSRenderTAA
@@ -4061,6 +4066,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSAvatarMatteProgram,      "FS Avatar Matte",       "deferred/fsAvatarMatteF.glsl",      false },
             { &gFSDynResUpscaleProgram,    "FS Dynamic Resolution Upscale", "deferred/fsDynResUpscaleF.glsl", false }, // <FS:Trish/>
             { &gFSTAAResolveProgram,       "FS TAA Resolve",        "deferred/fsTAAResolveF.glsl",       false }, // <FS:Trish/> FSRenderTAA
+            // <FS:Trish> FSRenderPhotoShadows: the blend of the sun shadow over frames, and its write back
+            { &gFSPhotoShadowAccumProgram, "FS Photo Shadow Blend", "deferred/fsPhotoShadowAccumF.glsl", true },
+            { &gFSPhotoShadowApplyProgram, "FS Photo Shadow Apply", "deferred/fsPhotoShadowApplyF.glsl", false },
+            // </FS:Trish>
             { &gFSTAASharpenProgram,       "FS TAA Sharpen",        "deferred/fsTAASharpenF.glsl",       false }, // <FS:Trish/> FSRenderTAA
             { &gFSTAAOverlayDepthProgram,  "FS TAA Overlay Depth",  "deferred/fsTAAOverlayDepthF.glsl",  false }, // <FS:Trish/> FSRenderTAA: depth for the overlays after the resolve
             { &gFSTAADepthCopyProgram,     "FS TAA Depth Copy",     "deferred/fsTAADepthCopyF.glsl",     false }, // <FS:Trish/> FSRenderTAA: that depth for the outlines after the present

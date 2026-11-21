@@ -165,6 +165,7 @@
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fsphotoshadows.h" // <FS:Trish/> FSRenderPhotoShadows
 #include "fslensflare.h" // <FS:Trish/> FSRenderLensFlareHQ
 
 #if LL_CLANG
@@ -1733,6 +1734,7 @@ void LLPipeline::releaseGLBuffers()
     FSShadowDepthFit::release(); // <FS:Trish/>
     FSShadowScreenFilter::release(); // <FS:Trish/>
     FSTAA::release(); // <FS:Trish/> FSRenderTAA
+    FSPhotoShadows::release(); // <FS:Trish/> FSRenderPhotoShadows
 
     mWaterExclusionMask.release();
 
@@ -12251,10 +12253,28 @@ static void fs_bind_contact_shadow(LLGLSLShader& shader, bool apply_here)
     }
     static const LLStaticHashedString sContactShadow("fs_contact_shadow");
     static const LLStaticHashedString sContactHere("fs_contact_here");
-    // The march's noise moves on every frame only while TAA blends the frames; a still pattern otherwise
-    const F32 noise_offset = FSTAA::frameActive() ? (F32)fmod((F64)gFrameCount * 0.6180339887, 1.0) : 0.f;
+    // The march's noise moves on every frame while TAA or the photo shadows (FSRenderPhotoShadows) blend
+    // the frames; a still pattern otherwise. While the photo shadows blend, the ray also leaves for this
+    // frame's point of the sun's disc, as the shadow maps do, and takes twice the steps.
+    const bool photo = FSPhotoShadows::frameActive() && !gCubeSnapshot;
+    const F32 noise_offset = photo ? FSPhotoShadows::noiseOffset()
+                                   : (FSTAA::frameActive() ? (F32)fmod((F64)gFrameCount * 0.6180339887, 1.0) : 0.f);
     shader.uniform4f(sContactShadow, llclamp((F32)contact_length, 0.05f, 2.f), llclamp((F32)contact_strength, 0.f, 1.f),
-                     noise_offset, 24.f);
+                     noise_offset, photo ? 48.f : 24.f);
+    static const LLStaticHashedString sContactLightJitter("fs_contact_light_jitter");
+    LLVector3 jitter_view;
+    if (photo)
+    {
+        // toward the light, in agent space, then its change into view space
+        LLVector3 to_light(LLEnvironment::instance().getIsSunUp() ? gPipeline.mSunDir : gPipeline.mMoonDir);
+        to_light.normVec();
+        const LLVector3 moved = -FSPhotoShadows::jitterLightDir(0, -to_light);
+        const glm::vec3 d = glm::mat3(get_current_modelview()) * glm::vec3(moved.mV[VX] - to_light.mV[VX],
+                                                                           moved.mV[VY] - to_light.mV[VY],
+                                                                           moved.mV[VZ] - to_light.mV[VZ]);
+        jitter_view.set(d.x, d.y, d.z);
+    }
+    shader.uniform3fv(sContactLightJitter, 1, jitter_view.mV);
     shader.uniform1i(sContactHere, (apply_here && !gCubeSnapshot) ? 1 : 0);
     // the blur program isn't in the environment's shader list, so it doesn't get this otherwise
     shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, LLEnvironment::instance().getIsSunUp() ? 1 : 0);
@@ -13072,6 +13092,14 @@ void LLPipeline::renderDeferredLighting()
             deferred_light_target->flush();
             unbindDeferredShader(gDeferredBlurLightProgram);
         }
+
+        // <FS:Trish> FSRenderPhotoShadows: this frame's sun shadow blended with the frames before it
+        if (mRT == &mMainRT && !gCubeSnapshot && !isAvatarOnlyRender() && FSPhotoShadows::frameActive() &&
+            ((RenderDeferredSSAO && !gCubeSnapshot) || RenderShadowDetail > 0))
+        {
+            FSPhotoShadows::accumulate(*deferred_light_target, mRT->deferredScreen, mScreenTriangleVB);
+        }
+        // </FS:Trish>
 
         screen_target->bindTarget();
         // clear color buffer here - zeroing alpha (glow) is important or it will accumulate against sky
@@ -19721,7 +19749,8 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
             //get a temporary view projection
             // <FS:Trish> FSPerfShadowStaticCache: cached far cascades follow the sun in small steps
             //view[j] = look(camera.getOrigin(), lightDir, -up);
-            view[j] = look(camera.getOrigin(), fsShadowCacheLightDir(j, lightDir), -up);
+            // and FSRenderPhotoShadows: the near cascades take this frame's point of the sun's disc
+            view[j] = look(camera.getOrigin(), FSPhotoShadows::jitterLightDir(gCubeSnapshot ? 4U : (U32)j, fsShadowCacheLightDir(j, lightDir)), -up);
             // </FS:Trish>
 
             std::vector<LLVector3> wpf;
@@ -20043,6 +20072,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                     }
                 }
             }
+
+            // <FS:Trish> FSRenderPhotoShadows: the near cascades' maps shifted by this frame's fraction of a texel
+            if (!gCubeSnapshot)
+            {
+                FSPhotoShadows::jitterProjection((U32)j, proj[j], shadow_map_width, shadow_map_height);
+            }
+            // </FS:Trish>
 
             //shadow_cam.setFar(128.f);
             shadow_cam.setOriginAndLookAt(eye, up, center);

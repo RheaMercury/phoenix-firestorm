@@ -238,6 +238,7 @@
 #include "lggcontactsets.h"
 #include "fspanellogin.h"
 #include "fsdynamicresolution.h" // <FS:Trish/> Dynamic resolution
+#include "fsphotoshadows.h" // <FS:Trish/> FSRenderPhotoShadows
 
 #include "lltracerecording.h"
 
@@ -6705,6 +6706,21 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw *raw, S32 image_width, S32 image_hei
                     display(do_rebuild, scale_factor, subfield, true);
 
                     LLPipeline::setAvatarOnlyPass(LLPipeline::AVATAR_ONLY_WHITE);
+                    gDisplaySwapBuffers = false;
+                }
+                // </FS:Trish>
+                // <FS:Trish> FSRenderPhotoShadows: frames drawn first, each with the sun shadow from another
+                // point of the sun's disc, blended into this tile's shadows. display() doesn't run the
+                // world's updates, so the scene holds still between them; they are never swapped.
+                if (!avatars_only)
+                {
+                    FSPhotoShadows::beginSnapshotTile();
+                    const U32 photo_frames = FSPhotoShadows::snapshotExtraFrames();
+                    for (U32 photo_frame = 0; photo_frame < photo_frames; ++photo_frame)
+                    {
+                        gDisplaySwapBuffers = false;
+                        display(do_rebuild, scale_factor, subfield, true);
+                    }
                     gDisplaySwapBuffers = false;
                 }
                 // </FS:Trish>

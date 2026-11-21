@@ -30,6 +30,7 @@
 #include "fsmirrorplanar.h" // <FS:Trish/>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fsphotoshadows.h" // <FS:Trish/> FSRenderPhotoShadows
 
 #include "fsyspath.h"
 #include "hexdump.h"
@@ -1003,6 +1004,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
             FSReverseZ::applyState();
             // </FS:Trish>
             FSTAA::beginFrame(gPipeline.mRT->screen); // <FS:Trish/> FSRenderTAA: whether it runs this frame, and its jitter
+            FSPhotoShadows::beginFrame(gPipeline.mRT->screen); // <FS:Trish/> FSRenderPhotoShadows: whether this frame blends, its sun disc point
 
             LLGLState::checkStates();
 

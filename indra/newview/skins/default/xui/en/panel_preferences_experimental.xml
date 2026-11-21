@@ -6720,7 +6720,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="1800"
+                 height="1956"
                  layout="topleft"
                  left="0"
                  name="experimental_shadows_settings"
@@ -7987,6 +7987,122 @@
                      tool_tip="Largest width and height, in pixels, of the projector shadow maps, which otherwise follow the screen width. Default 2048. 0: no limit, as standard."
                      top="1758"
                      width="100" />
+                    <!-- <FS:Trish> -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_photo_shadows"
+                     top="1800"
+                     width="340">
+                        Photo shadows
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_photo_shadows"
+                     tool_tip="Set every option in &quot;Photo shadows&quot; back to its default value."
+                     top="1799"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderPhotoShadows,FSRenderPhotoShadowsFrames,FSRenderPhotoShadowsSnapshotFrames,FSRenderPhotoShadowsSoftness" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderPhotoShadows"
+                     follows="left|top"
+                     height="20"
+                     label="Photo shadows (blend shadows while the camera is still)"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderphotoshadows"
+                     tool_tip="EXPERIMENTAL. While the camera is still, and in snapshots, the sun shadows near the camera are drawn every frame with the light from another point of the sun&apos;s disc and blended over the frames. In a second or two they settle into the sun&apos;s real soft shadow: sharp where things touch, softer the further they fall, with no stair steps. Contact shadows blend along. Starts over when the camera moves. Costs nothing while moving; snapshots take longer (see below)."
+                     top="1826"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderphotoshadowsframes_label"
+                     tool_tip="EXPERIMENTAL. How many frames photo shadows blend at most while the camera is still. More is smoother; fewer follows the sun and moving shadows sooner."
+                     top="1856"
+                     width="285">
+                        Frames blended
+                    </text>
+                    <spinner
+                     control_name="FSRenderPhotoShadowsFrames"
+                     decimal_digits="0"
+                     enabled_control="FSRenderPhotoShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="4"
+                     layout="topleft"
+                     left="330"
+                     max_val="1024"
+                     min_val="4"
+                     name="fs_fsrenderphotoshadowsframes"
+                     tool_tip="EXPERIMENTAL. How many frames photo shadows blend at most while the camera is still. More is smoother; fewer follows the sun and moving shadows sooner."
+                     top="1854"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderphotoshadowssnapshotframes_label"
+                     tool_tip="EXPERIMENTAL. Frames a snapshot draws before each part it reads, for photo shadows. Each one costs a frame of rendering at the snapshot&apos;s size, the snapshot preview included. 0 keeps the normal shadows in snapshots."
+                     top="1884"
+                     width="285">
+                        Snapshot frames
+                    </text>
+                    <spinner
+                     control_name="FSRenderPhotoShadowsSnapshotFrames"
+                     decimal_digits="0"
+                     enabled_control="FSRenderPhotoShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="4"
+                     layout="topleft"
+                     left="330"
+                     max_val="256"
+                     min_val="0"
+                     name="fs_fsrenderphotoshadowssnapshotframes"
+                     tool_tip="EXPERIMENTAL. Frames a snapshot draws before each part it reads, for photo shadows. Each one costs a frame of rendering at the snapshot&apos;s size, the snapshot preview included. 0 keeps the normal shadows in snapshots."
+                     top="1882"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderphotoshadowssoftness_label"
+                     tool_tip="EXPERIMENTAL. Size of the sun&apos;s disc for photo shadows, times the size the sky draws it with. 1 is the real sun; larger gives softer shadows."
+                     top="1912"
+                     width="285">
+                        Sun disc size
+                    </text>
+                    <spinner
+                     control_name="FSRenderPhotoShadowsSoftness"
+                     decimal_digits="1"
+                     enabled_control="FSRenderPhotoShadows"
+                     follows="left|top"
+                     height="20"
+                     increment="0.1"
+                     layout="topleft"
+                     left="330"
+                     max_val="8.0"
+                     min_val="0.0"
+                     name="fs_fsrenderphotoshadowssoftness"
+                     tool_tip="EXPERIMENTAL. Size of the sun&apos;s disc for photo shadows, times the size the sky draws it with. 1 is the real sun; larger gives softer shadows."
+                     top="1910"
+                     width="100" />
+                    <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>
         </panel>

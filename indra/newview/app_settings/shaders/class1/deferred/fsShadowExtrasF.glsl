@@ -144,6 +144,9 @@ uniform vec4 fs_contact_shadow;
 // so thin it disappeared; so where the blur runs, its second pass applies the term to the
 // blurred result (blurLightF), and the sun pass does it only where the blur is off.
 uniform int fs_contact_here;
+// FSRenderPhotoShadows: added to the light direction (view space) so the ray leaves for this frame's
+// point of the sun's disc, as the shadow maps do; 0 otherwise
+uniform vec3 fs_contact_light_jitter;
 
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 float getDepth(vec2 pos_screen);
@@ -305,7 +308,7 @@ float fsContactShadowTerm(float shadow, vec3 pos, vec3 norm)
     {
         return shadow;
     }
-    vec3 light_dir = normalize((sun_up_factor == 1) ? sun_dir : moon_dir);
+    vec3 light_dir = normalize(normalize((sun_up_factor == 1) ? sun_dir : moon_dir) + fs_contact_light_jitter);
     return shadow * fsContactShadow(pos, norm, light_dir);
 }
 #endif // FS_CONTACT_SHADOWS

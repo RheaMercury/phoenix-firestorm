@@ -29594,6 +29594,50 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderPhotoShadows</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Photo shadows: while the camera is still, and in snapshots, the sun shadows near the camera are drawn every frame with the light from another point of the sun's disc and the shadow map shifted by a fraction of a texel, and blended over the frames (up to FSRenderPhotoShadowsFrames). They settle in a second or two into the sun's real soft shadow: sharp where things touch, softer the further they fall, without stair steps. Contact shadows blend along. Starts over when the camera moves; moving shadows start over where they move. Costs nothing while the camera moves; snapshots take FSRenderPhotoShadowsSnapshotFrames frames more per tile.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderPhotoShadowsFrames</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. How many frames photo shadows (FSRenderPhotoShadows) blend at most while the camera is still, 4 to 1024. More is smoother; fewer follows the sun and moving shadows sooner.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>64</integer>
+    </map>
+    <key>FSRenderPhotoShadowsSnapshotFrames</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Frames a snapshot draws before each part it reads, for photo shadows (FSRenderPhotoShadows), 0 to 256. Each one costs a frame of rendering at the snapshot's size, also for the snapshot preview. 0: snapshots keep the normal shadows.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>24</integer>
+    </map>
+    <key>FSRenderPhotoShadowsSoftness</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Size of the sun's disc for photo shadows (FSRenderPhotoShadows), times the size the sky draws it with (0 to 8; 1 is the real sun). Larger gives softer shadows.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
     <key>FSRenderHeightFog</key>
     <map>
       <key>Comment</key>
