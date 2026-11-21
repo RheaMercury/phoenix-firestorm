@@ -34,20 +34,20 @@
     <real>0.15</real>
     <key>FSRenderBloomThreshold</key>
     <real>1.0</real>
-    <key>FSRenderCloudShadowStrength</key>
-    <real>0.6</real>
     <key>FSRenderCloudShadows</key>
     <boolean>1</boolean>
+    <key>FSRenderCloudShadowStrength</key>
+    <real>0.6</real>
     <key>FSRenderColoredShadowAbsorption</key>
     <real>0.25</real>
     <key>FSRenderColoredShadows</key>
     <boolean>1</boolean>
     <key>FSRenderContactShadowLength</key>
     <real>0.5</real>
-    <key>FSRenderContactShadowStrength</key>
-    <real>0.8</real>
     <key>FSRenderContactShadows</key>
     <boolean>1</boolean>
+    <key>FSRenderContactShadowStrength</key>
+    <real>0.8</real>
     <key>FSRenderGTAO</key>
     <boolean>1</boolean>
     <key>FSRenderGTAOIntensity</key>
@@ -56,6 +56,12 @@
     <real>1.0</real>
     <key>FSRenderGTAOSlices</key>
     <integer>4</integer>
+    <key>FSRenderMultiscatter</key>
+    <boolean>1</boolean>
+    <key>FSRenderProbeBlendSmooth</key>
+    <real>1.0</real>
+    <key>FSRenderShadowBiasMetric</key>
+    <boolean>1</boolean>
     <key>FSRenderShadowSmoothFade</key>
     <boolean>1</boolean>
     <key>FSRenderShadowTexelSnap</key>
@@ -74,10 +80,10 @@
     <integer>32</integer>
     <key>RenderAlphaBlendShadows</key>
     <boolean>1</boolean>
-    <key>RenderScreenSpaceReflections</key>
-    <boolean>1</boolean>
     <key>RenderScreenSpaceReflectionGlossySamples</key>
     <integer>4</integer>
+    <key>RenderScreenSpaceReflections</key>
+    <boolean>1</boolean>
     <key>RenderShadowMinCasterTexels</key>
     <real>0.0</real>
     <key>RenderShadowPCSS</key>

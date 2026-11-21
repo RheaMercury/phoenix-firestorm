@@ -10,21 +10,17 @@
     <boolean>1</boolean>
     <key>FSAvatarRetryEmptyAppearance</key>
     <boolean>1</boolean>
-    <key>FSBuildClientUndo</key>
-    <boolean>1</boolean>
-    <key>FSChatHistoryLinesShown</key>
-    <integer>50</integer>
     <key>FSDecodedTextureCache</key>
     <boolean>1</boolean>
     <key>FSFastSelfRez</key>
-    <boolean>1</boolean>
-    <key>FSFetchOfflineIMsWhileOnline</key>
     <boolean>1</boolean>
     <key>FSImpostorMinInterval</key>
     <real>2.0</real>
     <key>FSPerfAlphaGlowSkip</key>
     <boolean>1</boolean>
     <key>FSPerfAlphaResortOnly</key>
+    <boolean>1</boolean>
+    <key>FSPerfAnimationLOD</key>
     <boolean>1</boolean>
     <key>FSPerfAttachmentExtentsCache</key>
     <boolean>1</boolean>
@@ -43,6 +39,10 @@
     <key>FSPerfDiskThread</key>
     <boolean>1</boolean>
     <key>FSPerfDSATextureBinds</key>
+    <boolean>1</boolean>
+    <key>FSPerfFastRiggedPick</key>
+    <boolean>1</boolean>
+    <key>FSPerfGDDArenaSmoothGrowth</key>
     <boolean>1</boolean>
     <key>FSPerfGPUDrivenAlpha</key>
     <boolean>1</boolean>
@@ -87,7 +87,7 @@
     <key>FSPerfInventoryIdleThrottle</key>
     <boolean>1</boolean>
     <key>FSPerfInventoryLazySort</key>
-    <integer>1</integer>
+    <boolean>1</boolean>
     <key>FSPerfLightRescanThrottle</key>
     <boolean>1</boolean>
     <key>FSPerfOpenJPEGBufferCacheMB</key>
@@ -111,7 +111,7 @@
     <key>FSPerfParallelSkinPalettes</key>
     <boolean>1</boolean>
     <key>FSPerfParallelTextureEncode</key>
-    <integer>1</integer>
+    <boolean>1</boolean>
     <key>FSPerfParallelTexturePriority</key>
     <boolean>1</boolean>
     <key>FSPerfProbeFastLights</key>
@@ -139,6 +139,8 @@
     <key>FSPerfRebuildNearestFirst</key>
     <boolean>1</boolean>
     <key>FSPerfRebuildTimeBudget</key>
+    <boolean>1</boolean>
+    <key>FSPerfRenderThreadKeepVAOState</key>
     <boolean>1</boolean>
     <key>FSPerfRepresentativeFragmentTest</key>
     <boolean>1</boolean>
@@ -179,7 +181,7 @@
     <key>FSPerfVertexArrayObjects</key>
     <boolean>1</boolean>
     <key>FSPrioritizeTextureDecodes</key>
-    <integer>0</integer>
+    <boolean>1</boolean>
     <key>FSRenderAvatarShadowCascades</key>
     <integer>1</integer>
     <key>FSRenderAvatarShadowDistance</key>
@@ -193,14 +195,30 @@
     <key>FSRenderClusteredLights</key>
     <boolean>1</boolean>
     <key>FSRenderDynamicResolution</key>
-    <integer>0</integer>
+    <boolean>0</boolean>
     <key>FSRenderDynamicResolutionMinScale</key>
     <real>0.85</real>
     <key>FSRenderDynamicResolutionTargetFPS</key>
     <real>60.0</real>
+    <key>FSRenderGPUOcclusionCulling</key>
+    <boolean>1</boolean>
     <key>FSRenderGTAOHalfRes</key>
     <boolean>1</boolean>
     <key>FSRenderMergePostPasses</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingLODHold</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingProbeHold</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingRebuildBudget</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingShadowCache</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingShadowHold</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingShadowReduce</key>
+    <boolean>1</boolean>
+    <key>FSRenderMovingTextureBiasHold</key>
     <boolean>1</boolean>
     <key>FSRenderOcclusionAfterOpaque</key>
     <boolean>1</boolean>
@@ -215,6 +233,8 @@
     <key>FSRenderShadowReduceWhileMoving</key>
     <boolean>1</boolean>
     <key>FSRenderSkinBakesOnly</key>
+    <boolean>1</boolean>
+    <key>FSRenderSkinOnce</key>
     <boolean>1</boolean>
     <key>FSRenderSkinTapLOD</key>
     <boolean>1</boolean>
@@ -232,6 +252,8 @@
     <boolean>1</boolean>
     <key>FSRenderVRSPeriphery</key>
     <real>0.0</real>
+    <key>FSTextureOccludedDiscard</key>
+    <boolean>1</boolean>
     <key>RenderAMDDisableTextureThreading</key>
     <boolean>1</boolean>
     <key>RenderGLMultiThreadedTexturesNVIDIA</key>

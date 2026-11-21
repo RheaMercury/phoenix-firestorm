@@ -26,21 +26,29 @@
     <boolean>1</boolean>
     <key>FSPerfShadowMergedBatches</key>
     <boolean>1</boolean>
+    <key>FSPrioritizeTextureDecodes</key>
+    <boolean>1</boolean>
     <key>FSRenderBloom</key>
     <boolean>1</boolean>
     <key>FSRenderBloomStrength</key>
     <real>0.12</real>
     <key>FSRenderBloomThreshold</key>
     <real>1.0</real>
-    <key>FSRenderCloudShadowStrength</key>
-    <real>0.5</real>
     <key>FSRenderCloudShadows</key>
     <boolean>1</boolean>
+    <key>FSRenderCloudShadowStrength</key>
+    <real>0.5</real>
     <key>FSRenderContactShadowLength</key>
     <real>0.5</real>
+    <key>FSRenderContactShadows</key>
+    <boolean>1</boolean>
     <key>FSRenderContactShadowStrength</key>
     <real>0.8</real>
-    <key>FSRenderContactShadows</key>
+    <key>FSRenderMultiscatter</key>
+    <boolean>1</boolean>
+    <key>FSRenderProbeBlendSmooth</key>
+    <real>1.0</real>
+    <key>FSRenderShadowBiasMetric</key>
     <boolean>1</boolean>
     <key>FSRenderShadowFadeLength</key>
     <real>0.2</real>
