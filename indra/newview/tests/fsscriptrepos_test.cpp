@@ -100,6 +100,8 @@ namespace tut
         ensure("extra path", !parseRepoRef("o/r/extra", "", r));
         ensure("other host", !parseRepoRef("https://gitlab.com/o/r", "", r));
         ensure("bad char", !parseRepoRef("o/r?x", "", r));
+        ensure("bad branch", !parseRepoRef("o/r", "../../user", r));
+        ensure("bad tree ref", !parseRepoRef("https://github.com/o/r/tree/a..b", "", r));
     }
 
     // classify: what counts
@@ -279,5 +281,42 @@ namespace tut
         ensure_equals(back[1].ref.owner, "p");
         ensure_equals(back[1].files.size(), 0U);
         ensure("empty llsd", fromLLSD(LLSD()).empty());
+    }
+
+    // git ref names
+    template<> template<> void fsscriptrepos_object::test<12>()
+    {
+        ensure("branch", isValidRef("main"));
+        ensure("nested", isValidRef("feature/x-1.2"));
+        ensure("tag", isValidRef("v1.0.0"));
+        ensure("dotdot", !isValidRef("a..b"));
+        ensure("up", !isValidRef("../x"));
+        ensure("space", !isValidRef("a b"));
+        ensure("query", !isValidRef("a?b"));
+        ensure("reflog", !isValidRef("a@{1}"));
+        ensure("lock", !isValidRef("a.lock"));
+        ensure("hidden part", !isValidRef("a/.b"));
+        ensure("double slash", !isValidRef("a//b"));
+        ensure("empty", !isValidRef(""));
+    }
+
+    // in-world names: as the inventory stores them
+    template<> template<> void fsscriptrepos_object::test<13>()
+    {
+        ensure_equals(inWorldName("  door|opener "), "door opener");
+        ensure_equals(inWorldName("caf\xc3\xa9"), "caf");
+        ensure_equals(inWorldName(std::string(80, 'a')).size(), MAX_NAME_BYTES);
+
+        Entry e = classify("my|lib/sub dir/long|name.lsl", "x", {}, false);
+        ensure("kept", e.kind == Kind::LSL);
+        ensure_equals(e.name, "long name");
+        ensure_equals(e.folder, "my lib/sub dir");
+
+        e = classify(std::string(70, 'f') + "/a.lsl", "x", {}, false);
+        ensure_equals(e.folder, std::string(MAX_NAME_BYTES, 'f'));
+
+        e = classify("\xe6\x97\xa5/a.lsl", "x", {}, false);
+        ensure("unusable folder", e.kind == Kind::SKIPPED);
+        ensure("no usable name", classify("\xe6\x97\xa5.lsl", "x", {}, false).kind == Kind::SKIPPED);
     }
 }

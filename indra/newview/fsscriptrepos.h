@@ -22,6 +22,7 @@ namespace FSScriptRepos
     constexpr size_t MAX_ZIP_BYTES = 52428800;  // 50 MB per zipball
     constexpr size_t MAX_ZIP_ENTRIES = 10000;
     constexpr size_t MAX_TEXT_BYTES = 65536;    // script and notecard text
+    constexpr size_t MAX_NAME_BYTES = 63;       // inventory names (DB_INV_ITEM_NAME_STR_LEN)
     const std::string DEFAULT_IGNORE("*.test.*");
 
     struct RepoRef
@@ -34,13 +35,19 @@ namespace FSScriptRepos
 
     // "owner/repo" or "https://github.com/owner/repo[.git][/tree/<ref>]". A non-empty branch wins over the URL's ref.
     bool parseRepoRef(const std::string& text, const std::string& branch, RepoRef& out);
+    // A name git accepts for a branch or tag (no "..", spaces, control characters, ~^:?*[\ or "@{").
+    bool isValidRef(const std::string& ref);
+
+    // The name the inventory keeps for an item or folder called name (as LLInventoryObject::correctInventoryName:
+    // characters outside printable ASCII and '|' become spaces, trimmed, at most MAX_NAME_BYTES).
+    std::string inWorldName(const std::string& name);
 
     enum class Kind { LSL, LUA, NOTECARD, IMAGE, SKIPPED };
 
     struct Entry
     {
         std::string path;           // repo-relative, '/' separated
-        std::string folder;         // repo-relative directory, "" at the root
+        std::string folder;         // in-world folder path under the repository folder, '/' separated, "" at the root
         std::string name;           // in-world name
         std::string data;
         std::string md5;

@@ -179,11 +179,56 @@ bool parseRepoRef(const std::string& text, const std::string& branch, RepoRef& o
     {
         ref += (i > 3 ? "/" : "") + parts[i];
     }
+    if (!ref_override.empty())
+    {
+        ref = ref_override;
+    }
+    if (!ref.empty() && !isValidRef(ref))
+    {
+        return false;
+    }
 
     out.owner = parts[0];
     out.repo = repo;
-    out.ref = ref_override.empty() ? ref : ref_override;
+    out.ref = ref;
     return true;
+}
+
+bool isValidRef(const std::string& ref)
+{
+    if (ref.empty() || ref.size() > 255 || ref[0] == '/' || ref[0] == '-' || ref.back() == '/' ||
+        ref.back() == '.' || ref.find("..") != std::string::npos || ref.find("//") != std::string::npos ||
+        ref.find("@{") != std::string::npos || endsWith(ref, ".lock"))
+    {
+        return false;
+    }
+    for (char c : ref)
+    {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (u <= 0x20 || u == 0x7f || c == '~' || c == '^' || c == ':' || c == '?' || c == '*' || c == '[' ||
+            c == '\\')
+        {
+            return false;
+        }
+    }
+    for (const std::string& part : splitPath(ref))
+    {
+        if (!part.empty() && part[0] == '.')
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string inWorldName(const std::string& name)
+{
+    std::string out = name;
+    LLStringUtil::replaceNonstandardASCII(out, ' ');
+    LLStringUtil::replaceChar(out, '|', ' ');
+    LLStringUtil::trim(out);
+    LLStringUtil::truncate(out, MAX_NAME_BYTES);
+    return out;
 }
 
 std::vector<std::string> splitIgnore(const std::string& csv)
@@ -265,7 +310,6 @@ Entry classify(const std::string& path, std::string data, const std::vector<std:
     e.data = std::move(data);
 
     const size_t slash = path.rfind('/');
-    e.folder = slash == std::string::npos ? std::string() : path.substr(0, slash);
     const std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
     std::string lower = file;
     LLStringUtil::toLower(lower);
@@ -328,10 +372,24 @@ Entry classify(const std::string& path, std::string data, const std::vector<std:
         return skip("not a script, notecard or image");
     }
 
-    e.name = file.substr(0, file.size() - ending);
+    // Named as the inventory will name them, so the folders, items and same-named scripts in objects are found
+    e.name = inWorldName(file.substr(0, file.size() - ending));
     if (e.name.empty())
     {
         return skip("no name");
+    }
+    if (slash != std::string::npos)
+    {
+        std::vector<std::string> folders = splitPath(path.substr(0, slash));
+        for (std::string& folder : folders)
+        {
+            folder = inWorldName(folder);
+            if (folder.empty())
+            {
+                return skip("a folder name has no usable characters");
+            }
+            e.folder += (e.folder.empty() ? "" : "/") + folder;
+        }
     }
 
     if (e.kind == Kind::IMAGE)
