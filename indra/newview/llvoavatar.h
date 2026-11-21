@@ -526,6 +526,15 @@ public:
     bool                fsDeferAttachmentMoves(bool& visible);
     void                fsMoveDeferredAttachments();
     // </FS:Trish>
+    // <FS:Trish> FSPerfAnimationLOD: animation detail by on-screen size, see fsanimationlod.cpp
+    U8                  mFSAnimLODPeriod = 1;       // frames between pose evaluations, 1 to 4
+    U8                  mFSAnimLODWarmup = 0;       // poses evaluated since the avatar appeared or its sitting changed
+    bool                mFSAnimLODSitting = false;  // isSitting() when last asked
+    bool                mFSAnimLODSkip = false;     // set during the root update of a frame whose pose is skipped
+    F64                 mFSAnimLODLastPose = 0.0;   // LLFrameTimer::getElapsedSeconds() of the last evaluated pose
+    void                fsAnimLODSkippedFrame();
+    friend class FSAnimationLOD;
+    // </FS:Trish>
 
     S32                 mLastSkeletonSerialNum;
 

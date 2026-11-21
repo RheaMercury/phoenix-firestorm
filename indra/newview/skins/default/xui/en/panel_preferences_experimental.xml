@@ -9170,7 +9170,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2960"
+                 height="3075"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -10742,6 +10742,98 @@
                      tool_tip="EXPERIMENTAL. With &quot;Size internal memory to the graphics card and the scene&quot; on: the memory GPU-driven drawing copies meshes into grows before it is full, at the start of a frame, one part at a time and in video memory only. Growing it all at once in a busy scene stalled the viewer for most of a second."
                      top="2913"
                      width="475" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> FSPerfAnimationLOD -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="perf_heading_animationlod"
+                     top="2955"
+                     width="340">
+                        Avatar animation detail
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_perf_heading_animationlod"
+                     tool_tip="Set every option in &quot;Avatar animation detail&quot; back to its default value."
+                     top="2954"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSPerfAnimationLOD,FSPerfAnimationLODScreenSize,FSPerfAnimationLODMaxPeriod" />
+                    </button>
+                    <check_box
+                     control_name="FSPerfAnimationLOD"
+                     follows="left|top"
+                     height="20"
+                     label="Animate distant avatars at a lower rate"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfanimationlod"
+                     tool_tip="EXPERIMENTAL. Avatars that are small on screen (far away, unless the camera is zoomed onto them) work out their animations only every 2nd, 3rd or 4th frame instead of every frame, spread over the frames. They still move and turn smoothly every frame and their animations keep their timing; only the pose itself steps, and never by more than an eighth of a second. Your own avatar, avatars sitting on the same object as you, the avatar you select or focus the camera on, worn animated objects and avatars that just arrived, sat down or stood up stay at every frame, and everyone does in mouselook and while a snapshot window is open. Saves main thread time in crowds; compare the frame rate with it on and off and watch distant dancers."
+                     top="2981"
+                     width="475" />
+                    <text
+                     enabled_control="FSPerfAnimationLOD"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsperfanimationlodscreensize_label"
+                     tool_tip="How big an avatar has to be on screen, as a share of the screen height, to be animated every frame. Below it every 2nd frame, below half of it every 3rd, below a quarter every 4th. Larger values throttle more avatars and save more; smaller ones keep more at every frame."
+                     top="3009"
+                     width="285">
+                        Every frame above this share of the screen
+                    </text>
+                    <spinner
+                     control_name="FSPerfAnimationLODScreenSize"
+                     decimal_digits="2"
+                     enabled_control="FSPerfAnimationLOD"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1"
+                     min_val="0.05"
+                     name="fs_fsperfanimationlodscreensize"
+                     tool_tip="How big an avatar has to be on screen, as a share of the screen height, to be animated every frame. Below it every 2nd frame, below half of it every 3rd, below a quarter every 4th. Larger values throttle more avatars and save more; smaller ones keep more at every frame."
+                     top="3007"
+                     width="100" />
+                    <text
+                     enabled_control="FSPerfAnimationLOD"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsperfanimationlodmaxperiod_label"
+                     tool_tip="The most frames between two poses of the smallest avatars on screen. 2 is the gentlest; 4 saves the most."
+                     top="3037"
+                     width="285">
+                        Most frames between poses
+                    </text>
+                    <spinner
+                     control_name="FSPerfAnimationLODMaxPeriod"
+                     decimal_digits="0"
+                     enabled_control="FSPerfAnimationLOD"
+                     follows="left|top"
+                     height="20"
+                     increment="1"
+                     layout="topleft"
+                     left="330"
+                     max_val="4"
+                     min_val="2"
+                     name="fs_fsperfanimationlodmaxperiod"
+                     tool_tip="The most frames between two poses of the smallest avatars on screen. 2 is the gentlest; 4 saves the most."
+                     top="3035"
+                     width="100" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

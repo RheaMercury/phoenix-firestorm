@@ -128,6 +128,7 @@
 #include "fsdiscordconnect.h" // <FS:LO> tapping a place that happens on landing in world to start up discord
 #include "fslslbridge.h" // <FS:PP> Movelock position refresh
 #include "fsparallelavatar.h" // <FS:Trish/> FSPerfParallelAvatarUpdate
+#include "fsanimationlod.h" // <FS:Trish/> FSPerfAnimationLOD
 #include "fslodfade.h" // <FS:Trish/> FSRenderFadeLOD
 #include "lfsimfeaturehandler.h"    // <FS:CR> Opensim
 #include "lggcontactsets.h"
@@ -5749,7 +5750,17 @@ void LLVOAvatar::updateOrientation(LLAgent& agent, F32 speed, F32 delta_time)
 
     F32 u = llclamp((delta_time / pelvis_lag_time), 0.0f, 1.0f);
 
-            mRoot->setWorldRotation( slerp(u, mRoot->getWorldRotation(), wQv) );
+    // <FS:Trish> FSPerfAnimationLOD: on a frame whose pose is skipped, leave a root that would turn by
+    // less than about a sixth of a degree alone: a touched root recomputes every joint matrix and
+    // rebuilds the rigged mesh palettes. The next evaluated pose turns it the rest of the way.
+            //mRoot->setWorldRotation( slerp(u, mRoot->getWorldRotation(), wQv) );
+    const LLQuaternion cur_root_rot = mRoot->getWorldRotation();
+    const LLQuaternion new_root_rot = slerp(u, cur_root_rot, wQv);
+    if (!mFSAnimLODSkip || fabsf(dot(cur_root_rot, new_root_rot)) < 0.999999f)
+    {
+        mRoot->setWorldRotation(new_root_rot);
+    }
+    // </FS:Trish>
 }
 
 //------------------------------------------------------------------------
@@ -5910,6 +5921,13 @@ void LLVOAvatar::updateRootPositionAndRotation(LLAgent& agent, F32 speed, bool w
         else
         {
             LLVector3 newPosition = gAgent.getPosAgentFromGlobal(root_pos);
+            // <FS:Trish> FSPerfAnimationLOD: updateCharacter() adds the ground sit hover offset to the root
+            // after the pose; a skipped pose does not, so add it here or the root bobs every skipped frame
+            if (mFSAnimLODSkip && !getParent() && (isSitting() || was_sit_ground_constrained))
+            {
+                newPosition.mV[VZ] += (F32)LLVector3d(getHoverOffset()).mdV[VZ];
+            }
+            // </FS:Trish>
             // if (!isSelf() && !isControlAvatar())
             // {
             //  LL_DEBUGS("Avatar") << "av " << getFullname()
@@ -5943,7 +5961,15 @@ void LLVOAvatar::updateRootPositionAndRotation(LLAgent& agent, F32 speed, bool w
         pos += getHoverOffset() * mDrawable->getRotation();
         // SL-315
         mRoot->setPosition(pos);
-        mRoot->setRotation(mDrawable->getRotation());
+        // <FS:Trish> FSPerfAnimationLOD: on a skipped pose frame, don't touch the root (and with it every
+        // joint matrix) when the seat did not turn
+        //mRoot->setRotation(mDrawable->getRotation());
+        const LLQuaternion& seat_rot = mDrawable->getRotation();
+        if (!mFSAnimLODSkip || mRoot->getRotation() != seat_rot)
+        {
+            mRoot->setRotation(seat_rot);
+        }
+        // </FS:Trish>
     }
 }
 
@@ -6081,6 +6107,11 @@ bool LLVOAvatar::updateCharacter(LLAgent &agent)
     // animation gets toggled during this update.
     bool was_sit_ground_constrained = isMotionActive(ANIM_AGENT_SIT_GROUND_CONSTRAINED);
 
+    // <FS:Trish> FSPerfAnimationLOD: decided before the root update, which then leaves a root that
+    // would not move untouched
+    mFSAnimLODSkip = visible && mSpecialRenderMode == 0 && FSAnimationLOD::skipPose(this);
+    // </FS:Trish>
+
     //--------------------------------------------------------------------
     // This does a bunch of state updating, including figuring out
     // whether av is in the air, setting mRoot position and rotation
@@ -6094,6 +6125,14 @@ bool LLVOAvatar::updateCharacter(LLAgent &agent)
     //-------------------------------------------------------------------------
     // store data relevant to motions
     mSpeed = speed;
+
+    // <FS:Trish> FSPerfAnimationLOD: this frame keeps the last pose, moved along with the root
+    if (mFSAnimLODSkip)
+    {
+        fsAnimLODSkippedFrame();
+        return visible;
+    }
+    // </FS:Trish>
 
     // <FS:Trish> FSPerfParallelAvatarUpdate: evaluate the pose together with the other avatars on
     // worker threads, FSParallelAvatar runs the rest of this function once that is done
@@ -6150,6 +6189,28 @@ bool LLVOAvatar::updateCharacter(LLAgent &agent)
 
     return visible;
 }
+
+// <FS:Trish> FSPerfAnimationLOD (fsanimationlod.cpp): the rest of updateCharacter() on a frame whose pose
+// evaluation is skipped
+void LLVOAvatar::fsAnimLODSkippedFrame()
+{
+    mFSAnimLODSkip = false;
+
+    // Keep the animation clock, stops and ease outs going, as for an avatar out of view, so the next
+    // evaluated pose is at the right point of every animation
+    updateMotions(LLCharacter::HIDDEN_UPDATE);
+
+    // Carry the last pose along with a root that moved or turned. Joints that did not move keep their
+    // matrices and serials, so the rigged mesh palettes built from them are reused.
+    const S32 joint_updates = LLJoint::sNumUpdates;
+    mRoot->updateWorldMatrixChildren();
+    if (LLJoint::sNumUpdates != joint_updates)
+    {
+        // System avatar mesh vertices need to be reskinned.
+        mNeedsSkin = true;
+    }
+}
+// </FS:Trish>
 
 //-----------------------------------------------------------------------------
 // updateHeadOffset()
@@ -11941,7 +12002,11 @@ const LLVOAvatar::MatrixPaletteCache& LLVOAvatar::updateSkinInfoMatrixPalette(co
 
     // <FS:Trish> Rebuild only when a joint in the palette was recomputed since the last build
     static LLCachedControl<bool> rigged_palette_cache(gSavedSettings, "FSPerfRiggedPaletteCache", false);
-    if (rigged_palette_cache && entry.mFrame != gFrameCount && entry.mUsesLocalOrigin == use_local_origin)
+    // FSPerfAnimationLOD: an avatar posed only every few frames keeps its joints in between, reuse its
+    // palettes then too
+    const bool reuse_palette = rigged_palette_cache || (mFSAnimLODPeriod > 1 && FSAnimationLOD::isActive());
+    //if (rigged_palette_cache && entry.mFrame != gFrameCount && entry.mUsesLocalOrigin == use_local_origin)
+    if (reuse_palette && entry.mFrame != gFrameCount && entry.mUsesLocalOrigin == use_local_origin)
     {
         U32 count = LLSkinningUtil::getMeshJointCount(skin);
         bool unchanged = count > 0 && count == entry.mJointSerials.size() && count == entry.mMatrixPalette.size();
@@ -11997,7 +12062,8 @@ const LLVOAvatar::MatrixPaletteCache& LLVOAvatar::updateSkinInfoMatrixPalette(co
         LLSkinningUtil::initSkinningMatrixPalette(&(entry.mMatrixPalette[0]), count, skin, this);
 
         // <FS:Trish> Remember which joint state this palette was built from
-        if (rigged_palette_cache && skin->mJointNums.size() >= count && skin->mInvBindMatrix.size() >= count)
+        //if (rigged_palette_cache && skin->mJointNums.size() >= count && skin->mInvBindMatrix.size() >= count)
+        if (reuse_palette && skin->mJointNums.size() >= count && skin->mInvBindMatrix.size() >= count) // FSPerfAnimationLOD
         {
             entry.mJointSerials.resize(count);
             for (U32 j = 0; j < count; ++j)

@@ -92,6 +92,7 @@
 #include "fsassetblacklist.h"
 #include "fsparcelderender.h" // <FS:Trish/> Parcel derender
 #include "fsparallelavatar.h" // <FS:Trish/> FSPerfParallelAvatarUpdate
+#include "fsanimationlod.h" // <FS:Trish/> FSPerfAnimationLOD
 #include "fsobjectupdatedecoder.h" // <FS:Trish/> FSPerfThreadedObjectUpdates
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval
 #include "fsfloaterimport.h"
@@ -1359,6 +1360,8 @@ void LLViewerObjectList::update(LLAgent &agent)
     }
 
     std::vector<LLViewerObject*>::iterator idle_end = idle_list.begin()+idle_count;
+
+    FSAnimationLOD::beginFrame(); // <FS:Trish/> FSPerfAnimationLOD
 
     // <FS:Ansariel> Speed up debug settings
     //if (gSavedSettings.getBOOL("FreezeTime"))

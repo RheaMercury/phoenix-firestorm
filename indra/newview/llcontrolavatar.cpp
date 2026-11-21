@@ -238,7 +238,15 @@ void LLControlAvatar::matchVolumeTransform()
             }
 #endif
             setRotation(bind_rot*obj_rot);
-            mRoot->setWorldRotation(bind_rot*obj_rot);
+            // <FS:Trish> FSPerfAnimationLOD: on a frame whose pose is skipped, don't touch the root (and with it
+            // every joint matrix and rigged palette) when the object did not turn
+            //mRoot->setWorldRotation(bind_rot*obj_rot);
+            const LLQuaternion root_rot = bind_rot * obj_rot;
+            if (!mFSAnimLODSkip || mRoot->getRotation() != root_rot)
+            {
+                mRoot->setWorldRotation(root_rot);
+            }
+            // </FS:Trish>
             if (getRegion() && !isDead())
             {
                 setPositionAgent(vol_pos);

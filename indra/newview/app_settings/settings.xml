@@ -27405,6 +27405,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSPerfAnimationLOD</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Avatars that are small on screen (far away, unless the camera is zoomed onto them) evaluate their animations only every 2nd, 3rd or 4th frame instead of every frame. Their position and turning still update every frame and their animations keep their timing; only the pose steps. Your own avatar, avatars sitting on the same object as you, selected avatars, the avatar the camera is focused on, impostors, worn animated objects and avatars that just appeared or sat down or stood up stay at every frame, and everyone does in mouselook and while a snapshot window is open. Off: every avatar drawn in full is posed every frame, as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSPerfAnimationLODScreenSize</key>
+    <map>
+      <key>Comment</key>
+      <string>FSPerfAnimationLOD: share of the screen height (0.01 to 2) an avatar has to cover to be posed every frame. Below it, every 2nd frame; below half of it, every 3rd; below a quarter, every 4th (limited by FSPerfAnimationLODMaxPeriod). The size is that of the avatar's bounding sphere, so it follows the camera zoom.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.3</real>
+    </map>
+    <key>FSPerfAnimationLODMaxPeriod</key>
+    <map>
+      <key>Comment</key>
+      <string>FSPerfAnimationLOD: the most frames (1 to 4) between two poses of a small avatar. No avatar goes longer than an eighth of a second without a pose, whatever the frame rate.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>4</integer>
+    </map>
     <key>FSPerfInventoryIdleThrottle</key>
     <map>
       <key>Comment</key>

@@ -104,6 +104,7 @@ set(viewer_SOURCE_FILES
     fsprimfeedauth.cpp
     exogroupmutelist.cpp
     floatermedialists.cpp
+    fsanimationlod.cpp
     fsareasearch.cpp
     fsareasearchmenu.cpp
     fsassetblacklist.cpp
@@ -1046,6 +1047,7 @@ set(viewer_HEADER_FILES
     fsprimfeedauth.h
     exogroupmutelist.h
     floatermedialists.h
+    fsanimationlod.h
     fsareasearch.h
     fsareasearchmenu.h
     fsassetblacklist.h
