@@ -173,6 +173,8 @@ private:
     bool resolveGrowth();           // true when no growth is waiting any more
     void commitGrowth();
     void dropGrowth();
+    // FSPerfGDDArenaSmoothGrowth (fsgddarena.cpp): grows before the arena is full, at the start of a frame
+    void growEarly(U32 frame);
     void setBufferBytes(U64& buffer_bytes, U64 bytes);
     void fail(U32 reason, U32* out);
     void noteFull(U32 frame);

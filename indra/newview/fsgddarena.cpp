@@ -121,6 +121,29 @@ namespace
         return auto_size;
     }
 
+    // FSPerfGDDArenaSmoothGrowth. A growth of a big arena stalled the render thread for most of a second
+    // (736 ms with 209516 page faults when the PBR arena went from 10 to 15 million vertices, about 860 MB):
+    //  - The new buffers are made with immutable storage and no client access (glBufferStorage, flags 0, GL 4.4)
+    //    rather than glBufferData: the driver can place them in video memory only, instead of backing them with
+    //    system memory it then has to commit and fill (the page faults, a few hundred MB in one go).
+    //  - An arena grows before it is full: at the start of a frame (before its first lookup) once it uses
+    //    FS_GDD_EARLY_GROW_PERCENT of its vertices or indices, after dropping copies not drawn for a while, so
+    //    the growth doesn't land in the middle of a busy frame with the arena already turning copies away.
+    //  - Growths are spread out: an early growth at most every FS_GDD_EARLY_GROW_SPACING frames over all
+    //    arenas, none after a frame that took FS_GDD_EARLY_GROW_SLOW_FRAME seconds, and at most one growth
+    //    put in place (the copy of the old contents, on the GPU) per frame over all arenas.
+    constexpr U32 FS_GDD_EARLY_GROW_PERCENT = 85;
+    constexpr U32 FS_GDD_EARLY_GROW_SPACING = 30;
+    constexpr F32 FS_GDD_EARLY_GROW_SLOW_FRAME = 0.1f;
+    U32 sEarlyGrowFrame = 0;            // frame of the last early growth, any arena
+    U32 sCommitFrame = U32_MAX;         // frame the last growth was put in place, any arena
+
+    bool fs_smooth_growth()
+    {
+        static LLCachedControl<bool> smooth(gSavedSettings, "FSPerfGDDArenaSmoothGrowth", false);
+        return smooth;
+    }
+
     // Seconds since the agent arrived in its region or was last teleporting. The region pointer is only
     // compared, never followed.
     F64 fs_since_region_change(F64 now)
@@ -412,7 +435,14 @@ GLuint FSGDDArena::allocBuffer(U32 new_bytes, bool& checked)
     {
         clear_glerror();
     }
-    glBufferData(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, GL_STATIC_DRAW);
+    if (glBufferStorage && fs_smooth_growth())
+    {   // FSPerfGDDArenaSmoothGrowth: video memory only; the arena is only ever written by copies on the GPU
+        glBufferStorage(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, 0);
+    }
+    else
+    {
+        glBufferData(GL_COPY_WRITE_BUFFER, new_bytes, nullptr, GL_STATIC_DRAW);
+    }
     const bool failed = check && glGetError() != GL_NO_ERROR;
     glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
     if (failed)
@@ -496,6 +526,16 @@ bool FSGDDArena::resolveGrowth()
             mGrowBlockedUntil = LLFrameTimer::getElapsedSeconds() + FS_GDD_GROW_BLOCK_SECONDS;
             return true;
         }
+    }
+    if (fs_smooth_growth())
+    {
+        // FSPerfGDDArenaSmoothGrowth: one growth put in place per frame over all arenas; this one keeps
+        // drawing from its old buffers until a frame no other arena grew in
+        if (sCommitFrame == mFrame)
+        {
+            return false;
+        }
+        sCommitFrame = mFrame;
     }
     commitGrowth();
     return true;
@@ -811,6 +851,94 @@ void FSGDDArena::beginFrame(U32 frame)
             notePeak(now);
             fitWhenTight(now);
         }
+    }
+    if (fs_smooth_growth())
+    {
+        growEarly(frame);
+    }
+}
+
+// FSPerfGDDArenaSmoothGrowth: grows the arena before it is full (see FS_GDD_EARLY_GROW_PERCENT), sized as a
+// growth in allocate would be. At the start of a frame, before its first lookup, like the sweep.
+void FSGDDArena::growEarly(U32 frame)
+{
+    if (!fs_auto_size() || !mGrowBuffers.empty() || !mVerts.capacity() || !mIndices.capacity() ||
+        frame - sEarlyGrowFrame < FS_GDD_EARLY_GROW_SPACING || LLFrameTimer::getFrameDeltaTimeF32() > FS_GDD_EARLY_GROW_SLOW_FRAME)
+    {
+        return;
+    }
+    const F64 now = LLFrameTimer::getElapsedSeconds();
+    if (now < mGrowBlockedUntil ||
+        (mSlot < FS_GDD_CHECK_SLOTS && sGrowChecked[mSlot].load(std::memory_order_acquire) != mGrowChecksAsked))
+    {
+        return;
+    }
+    auto high = [](const FSGDDRangeAllocator& range)
+    {
+        return (U64)range.used() * 100 >= (U64)range.capacity() * FS_GDD_EARLY_GROW_PERCENT;
+    };
+    if (!high(mVerts) && !high(mIndices))
+    {
+        return;
+    }
+    // copies no pass drew for a while go first, as before a growth in allocate
+    U64 stale_bytes = 0;
+    if (mStaleEvictFrame != frame)
+    {
+        mStaleEvictFrame = frame;
+        const U64 before = usedBytes();
+        evict(frame, FS_GDD_STALE_EVICT_AFTER);
+        stale_bytes = before - usedBytes();
+    }
+    const bool verts = high(mVerts);
+    if (!verts && !high(mIndices))
+    {
+        return;
+    }
+    U32 max_verts = 0;
+    U32 max_indices = 0;
+    limits(frame, max_verts, max_indices);
+    U32 first_verts = FS_GDD_FIRST_VERTS;
+    U32 first_indices = FS_GDD_FIRST_INDICES;
+    firstSize(first_verts, first_indices);
+    const FSGDDRangeAllocator& range = verts ? mVerts : mIndices;
+    const bool slow_growth = mGLBytes >= FS_GDD_SLOW_GROWTH_BYTES;
+    const U32 grown = slow_growth ? range.capacity() + range.capacity() / 2 : range.capacity() * 2;
+    const U32 want = llmin(verts ? max_verts : max_indices,
+                           llmax(llmax(grown, verts ? mRefillVerts : mRefillIndices), verts ? first_verts : first_indices));
+    if (want <= range.capacity())
+    {
+        return; // at its limit: allocate drops old copies when it fills
+    }
+    U64 grow_bytes = 0;
+    if (verts)
+    {
+        for (U32 type : mTypes)
+        {
+            grow_bytes += (U64)want * LLVertexBuffer::sTypeSize[type];
+        }
+    }
+    else
+    {
+        grow_bytes = (U64)want * sizeof(U16);
+    }
+    constexpr F32 GROW_HEADROOM_MB = 256.f; // as in allocate
+    if ((F32)(grow_bytes >> 20) + GROW_HEADROOM_MB > LLViewerTexture::sFreeVRAMMegabytes)
+    {
+        return;
+    }
+    const U32 capacity_before = range.capacity();
+    const U32 used_before = range.used();
+    const U64 bytes_before = mGLBytes;
+    sEarlyGrowFrame = frame;
+    startGrowth(verts, want);
+    if (!mGrowBuffers.empty() || range.capacity() > capacity_before)
+    {
+        LL_INFOS("FSGPUDriven") << mName << ": its " << (verts ? "vertices" : "indices") << " grow early from " << capacity_before
+                                << " to " << want << " (" << (U32)(bytes_before >> 20) << " MB allocated, "
+                                << (U32)((U64)used_before * 100 / llmax(capacity_before, 1u)) << "% of them in use after dropping "
+                                << (U32)(stale_bytes >> 20) << " MB of copies not drawn for " << FS_GDD_STALE_EVICT_AFTER
+                                << " frames) (FSPerfGDDArenaSmoothGrowth)" << LL_ENDL;
     }
 }
 

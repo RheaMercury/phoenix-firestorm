@@ -10573,7 +10573,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfRenderThreadKeepVAOState,FSPerfFastRiggedPick" />
+                         parameter="FSPerfRenderThreadKeepVAOState,FSPerfFastRiggedPick,FSPerfGDDArenaSmoothGrowth" />
                     </button>
                     <check_box
                      control_name="FSPerfRenderThreadKeepVAOState"
@@ -10597,6 +10597,18 @@
                      name="fs_fsperffastriggedpick"
                      tool_tip="EXPERIMENTAL. A right click on an avatar or a worn mesh (or the edit tools on one) worked out every vertex of every rigged mesh along the mouse ray, a third of a second over a few detailed avatars. Now only the parts the ray can reach are worked out, parts already worked out for the same pose are reused, and a hovered worn mesh is worked out a few times a second at most. What gets clicked is the same."
                      top="2891"
+                     width="475" />
+                    <check_box
+                     control_name="FSPerfGDDArenaSmoothGrowth"
+                     enabled_control="FSAutoSizeResources"
+                     follows="left|top"
+                     height="20"
+                     label="Grow GPU-driven memory early, one part at a time"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperfgddarenasmoothgrowth"
+                     tool_tip="EXPERIMENTAL. With &quot;Size internal memory to the graphics card and the scene&quot; on: the memory GPU-driven drawing copies meshes into grows before it is full, at the start of a frame, one part at a time and in video memory only. Growing it all at once in a busy scene stalled the viewer for most of a second."
+                     top="2913"
                      width="475" />
                     <!-- </FS:Trish> -->
                 </panel>

@@ -544,6 +544,7 @@ namespace
         { "FSPerfHoverPickThrottle", CS, VN },
         { "FSPerfFastRiggedPick", CS, VN },
         { "FSPerfRenderThreadKeepVAOState", CS, VN },
+        { "FSPerfGDDArenaSmoothGrowth", CS, VN },
         { "FSPerfVertexArrayObjects", CS, VN },
         { "FSPerfDSATextureBinds", CS, VN },
         { "FSPerfRebuildNearestFirst", CS, VN },
