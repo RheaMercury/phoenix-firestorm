@@ -499,7 +499,10 @@ void main()
     // Sunlight focused by the waves onto surfaces under the water, on the diffuse albedo and
     // under the same sun shadow (fsCausticsF.glsl). Taken before the branches below modify scol.
     vec3 fs_caustics = vec3(0);
-    if (needs_atmos)
+    // <FS:Trish> Not under a full sun shadow, where the pattern would be multiplied by 0
+    //if (needs_atmos)
+    if (needs_atmos && scol > 0.0)
+    // </FS:Trish>
     {
         vec3 fs_albedo = is_pbr ? baseColor.rgb * (1.0 - spec.b) : srgb_to_linear(baseColor.rgb) * (1.0 - baseColor.a);
         fs_caustics = fsWaterCaustics(pos.xyz, gb.normal, light_dir, waterPlane) * scol * sunlit_linear * fs_albedo;

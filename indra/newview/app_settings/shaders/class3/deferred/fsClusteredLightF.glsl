@@ -59,7 +59,9 @@ vec3 clampRadiance(vec3 c);
 float fsMicroShadow(float nl, float ao); // deferredUtil.glsl: normal-map micro-shadows, 1 when off
 float unpackRoughness(vec2 p);
 float calcLegacyDistanceAttenuation(float distance, float falloff);
-vec4 getPosition(vec2 pos_screen);
+float getDepth(vec2 pos_screen);
+bool isFarDepth(float d);
+vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 vec2 getScreenCoord(vec4 clip);
 vec3 srgb_to_linear(vec3 c);
 
@@ -100,8 +102,6 @@ vec3 fsSkinAlbedo(GBufferInfo gb);
 uniform vec4 fs_pl_shadow;          // x: lights shadowed, y: march length (m), z: strength 0-1
 uniform mat4 fs_pl_shadow_proj;     // this view's projection (eye to clip)
 
-float getDepth(vec2 pos_screen);
-bool isFarDepth(float d);
 float ndcZFromScreenDepth(float d);
 
 #define FS_PLS_MIN_STEPS   4
@@ -221,7 +221,15 @@ void main()
 {
     vec3 final_color = vec3(0, 0, 0);
     vec2 tc          = getScreenCoord(vary_fragcoord);
-    vec3 pos         = getPosition(tc).xyz;
+    // The sky has no surface to light. It fell in the last depth slice, so it walked that
+    // slice's lights only to find every one out of range (or a far plane at infinity). The
+    // debug heat map still covers it.
+    float depth      = getDepth(tc);
+    if (isFarDepth(depth) && fs_cl_debug == 0)
+    {
+        discard;
+    }
+    vec3 pos         = getPositionWithDepth(tc, depth).xyz;
 
     int cluster = clusterOf(tc, -pos.z);
     int first = int(texelFetch(fs_cl_lists, cluster * 2).r);

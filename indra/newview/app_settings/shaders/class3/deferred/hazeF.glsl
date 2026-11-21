@@ -75,8 +75,9 @@ void main()
     // <FS:Trish> This pass needs additive and atten alone, which the linear variant passes through
     // unchanged; its normal (a G-buffer fetch and decode) and the linear ambient and sunlight were
     // thrown away. The same values without them. (Compilers may drop the dead part already.)
+    // Taken below the sky's early return, which reads neither.
     //calcAtmosphericVarsLinear(pos.xyz, norm.xyz, light_dir, sunlit, amblit, additive, atten);
-    calcAtmosphericVars(pos.xyz, light_dir, 1.0, sunlit, amblit, additive, atten);
+    //calcAtmosphericVars(pos.xyz, light_dir, 1.0, sunlit, amblit, additive, atten);
     // </FS:Trish>
 
     // mask off atmospherics below water (when camera is under water)
@@ -111,6 +112,10 @@ void main()
         discard;
 #endif
     }
+
+    // <FS:Trish> The sky returned above without these
+    calcAtmosphericVars(pos.xyz, light_dir, 1.0, sunlit, amblit, additive, atten);
+    // </FS:Trish>
 
    float alpha = 0.0;
 

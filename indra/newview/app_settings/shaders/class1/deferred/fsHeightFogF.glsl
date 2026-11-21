@@ -172,9 +172,12 @@ float fsHeightFogPhase(float cos_theta, float g)
     return min((1.0 - g2) / (denom * sqrt(denom)), 16.0);
 }
 
-// Linear HDR colour of the light the fog scatters toward the camera along view_dir. amb_scale and
-// sun_scale (0-1) dim the ambient and the sun or moon light, for air under a roof.
-vec3 fsHeightFogColor(vec3 view_dir, float amb_scale, float sun_scale)
+// The sky's light the fog scatters toward the camera along view_dir, before the dimming for air
+// under a roof: blue_light and haze_light are the sky's blue and haze horizon colours by their
+// weights, cs the sun or moon light through the atmosphere, amb the ambient and lobe the
+// scattering lobe toward the camera. fsHeightFogColor takes the colour from them, so the fog
+// indoors evaluates them once for its near and far stretches.
+void fsHeightFogLight(vec3 view_dir, out vec3 blue_light, out vec3 haze_light, out vec3 cs, out vec3 amb, out float lobe)
 {
     // The sun or moon light through the atmosphere, as calcAtmosphericVars has it
     vec3 sunlight = (sun_up_factor == 1) ? sunlight_color : moonlight_color;
@@ -185,18 +188,28 @@ vec3 fsHeightFogColor(vec3 view_dir, float amb_scale, float sun_scale)
     vec3 blue_weight = blue_density / combined_haze;
     vec3 haze_weight = vec3(haze_density) / combined_haze;
 
-    vec3 amb = ambient_color + (vec3(1.0) - ambient_color) * cloud_shadow * 0.5;
-    vec3 cs = sunlight * (1.0 - cloud_shadow);
-    amb *= clamp(amb_scale, 0.0, 1.0);
-    cs *= clamp(sun_scale, 0.0, 1.0);
+    amb = ambient_color + (vec3(1.0) - ambient_color) * cloud_shadow * 0.5;
+    cs = sunlight * (1.0 - cloud_shadow);
 
     vec3 light_dir = (sun_up_factor == 1) ? sun_dir : moon_dir;
     float g = clamp(fs_height_fog_scatter.x, 0.0, 0.95);
-    float phase = fsHeightFogPhase(dot(view_dir, normalize(light_dir)), g);
+    lobe = fsHeightFogPhase(dot(view_dir, normalize(light_dir)), g);
+
+    blue_light = blue_horizon * blue_weight;
+    haze_light = haze_horizon * haze_weight;
+}
+
+// Linear HDR colour of the light the fog scatters toward the camera, from fsHeightFogLight's
+// terms. amb_scale and sun_scale (0-1) dim the ambient and the sun or moon light, for air under a
+// roof.
+vec3 fsHeightFogColor(vec3 blue_light, vec3 haze_light, vec3 cs, vec3 amb, float lobe, float amb_scale, float sun_scale)
+{
+    amb *= clamp(amb_scale, 0.0, 1.0);
+    cs *= clamp(sun_scale, 0.0, 1.0);
 
     // The sky's haze colour with the sun's share scattered by the lobe, converted the way
     // atmosFragLighting converts the haze
-    vec3 col = blue_horizon * blue_weight * (cs + amb) + haze_horizon * haze_weight * (cs * phase + amb);
+    vec3 col = blue_light * (cs + amb) + haze_light * (cs * lobe + amb);
     // Clamp after the conversion and by the peak channel, so a bright lobe keeps its hue.
     // 1174 is srgb_to_linear(20), the old per channel cap of 10 doubled.
     col = srgb_to_linear(col * 2.0);
@@ -242,8 +255,11 @@ vec4 fsHeightFog(vec3 pos, bool sky)
         float near_opacity = fsHeightFogOpacity(ha, hb, d1 - d0, wind);
         float far_opacity = fsHeightFogOpacity(hb, h0 + rise * dist, dist - d1, wind);
 
-        vec3 near_color = fsHeightFogColor(view_dir, 1.0 - fs_height_fog_interior.z, 1.0 - fs_height_fog_interior.w);
-        vec3 far_color = fsHeightFogColor(view_dir, 1.0, 1.0);
+        vec3 blue_light, haze_light, cs, amb;
+        float lobe;
+        fsHeightFogLight(view_dir, blue_light, haze_light, cs, amb, lobe);
+        vec3 near_color = fsHeightFogColor(blue_light, haze_light, cs, amb, lobe, 1.0 - fs_height_fog_interior.z, 1.0 - fs_height_fog_interior.w);
+        vec3 far_color = fsHeightFogColor(blue_light, haze_light, cs, amb, lobe, 1.0, 1.0);
 
         // Near stretch over the far one, premultiplied, then held to the maximum opacity
         vec3 premul = near_color * near_opacity + far_color * far_opacity * (1.0 - near_opacity);
@@ -259,7 +275,10 @@ vec4 fsHeightFog(vec3 pos, bool sky)
     float h1 = h0 + rise * dist;
     float opacity = fsHeightFogOpacity(h0, h1, dist, wind);
 
-    return vec4(fsHeightFogColor(view_dir, 1.0, 1.0), opacity);
+    vec3 blue_light, haze_light, cs, amb;
+    float lobe;
+    fsHeightFogLight(view_dir, blue_light, haze_light, cs, amb, lobe);
+    return vec4(fsHeightFogColor(blue_light, haze_light, cs, amb, lobe, 1.0, 1.0), opacity);
 }
 
 // Forward rendered colour at view space position pos, seen through the fog
