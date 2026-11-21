@@ -75,12 +75,34 @@ vec4 fsWaterFoamDetail(vec2 view_offset, float cover, vec2 flow, float footprint
 
 vec4 applyWaterFogViewLinearNoClip(vec3 pos, vec4 color);
 
+// <FS:Trish> Snell's window: soft rim, dispersion, and total reflection at grazing angles
 // Snell's window: from below, light from above the water only gets through within the critical
-// angle of the surface normal (48.6 degrees for water into air), a cone about 97 degrees wide.
-// Toward its rim the surface reflects more and more (Fresnel from the water side), and past it
-// the reflection is total: the underside of the surface mirrors the depths. The waves tilt the
-// normal, so the rim ripples. Returns how much of the view from above gets through.
-float fsSnellTransmission(vec3 pos, vec3 wavef)
+// angle of the surface normal (48.6 degrees for water into air), a cone about 97 degrees wide
+// centred straight above the eye, whatever way the camera faces. Toward its rim the surface
+// reflects more and more (Fresnel from the water side), and past it the reflection is total: the
+// underside of the surface mirrors the depths. The waves tilt the normal, so the rim ripples.
+
+// Water's index for red, green and blue light: blue bends more, so its critical angle is a little
+// smaller and the rim has a faint fringe, red on the outside.
+const vec3 FS_SNELL_ETA = vec3(1.3310, 1.3335, 1.3400);
+// How wide the rim's blur is, in radians: the many small wave slopes under one pixel smear it
+const float FS_SNELL_RIM = 0.05;
+
+// Fresnel transmission from water into air at cosine c to the normal, for each colour. At and
+// past the critical angle the refracted cosine is 0, which makes both reflectances 1: no branch
+// is needed.
+vec3 fsSnellFresnel(vec3 c, vec3 eta)
+{
+    c = clamp(c, vec3(1e-4), vec3(1.0));
+    vec3 ct = sqrt(max(vec3(1.0) - eta * eta * (1.0 - c * c), vec3(0.0)));
+    vec3 rs = (eta * c - ct) / (eta * c + ct);
+    vec3 rp = (eta * ct - c) / (eta * ct + c);
+    return vec3(1.0) - 0.5 * (rs * rs + rp * rp);
+}
+
+// How much of the view from above gets through, per colour. footprint is how much the angle to
+// the vertical changes across the pixel, so a distant rim stays smooth instead of stair-stepped.
+vec3 fsSnellTransmission(vec3 pos, vec3 wavef, float footprint)
 {
     vec3 n = normalize(waterPlane.xyz);
     vec3 t = cross(n, vec3(0.0, 0.0, 1.0));
@@ -91,19 +113,19 @@ float fsSnellTransmission(vec3 pos, vec3 wavef)
     float c = dot(normalize(pos), n);         // cosine of the angle to the normal, inside the water
     if (c <= 0.0)
     {
-        return 1.0;                           // not looking up at the surface
+        // Grazing the surface far away, where a wave tilts away from the eye: still well past the
+        // critical angle, so a mirror. Letting it through speckled the far waterline.
+        return vec3(0.0);
     }
-    const float eta = 1.333;
-    float sin_t2 = eta * eta * (1.0 - c * c);
-    if (sin_t2 >= 1.0)
-    {
-        return 0.0;
-    }
-    float ct = sqrt(1.0 - sin_t2);
-    float rs = (eta * c - ct) / (eta * c + ct);
-    float rp = (eta * ct - c) / (eta * ct + c);
-    return 1.0 - 0.5 * (rs * rs + rp * rp);
+    float theta = acos(min(c, 1.0));
+    float h = 0.5 * (FS_SNELL_RIM + footprint);
+    vec3 crit = asin(vec3(1.0) / FS_SNELL_ETA);
+    // Fresnel up to just inside the rim, then a smooth fall to total reflection across it
+    vec3 inner = cos(min(vec3(theta), crit - h));
+    vec3 rim = vec3(1.0) - smoothstep(crit - h, crit + h, vec3(theta));
+    return fsSnellFresnel(inner, FS_SNELL_ETA) * rim;
 }
+// </FS:Trish>
 void mirrorClip(vec3 position);
 
 void main()
@@ -179,8 +201,16 @@ void main()
     if (fs_snell_window > 0.0)
     {
         // Outside the window the surface mirrors the deep water below it
-        float transmit = fsSnellTransmission(vary_position, wavef);
-        transmit = mix(1.0, transmit, clamp(fs_snell_window, 0.0, 1.0) * water_mask);
+        // <FS:Trish> Soft, slightly coloured rim: the pixel's footprint in angle to the vertical
+        // (a derivative, fine here as the branch is on a uniform), from the flat surface so the
+        // wave detail does not widen it
+        //float transmit = fsSnellTransmission(vary_position, wavef);
+        //transmit = mix(1.0, transmit, clamp(fs_snell_window, 0.0, 1.0) * water_mask);
+        float fs_snell_cos = dot(normalize(vary_position), normalize(waterPlane.xyz));
+        float fs_snell_fw = fwidth(acos(clamp(fs_snell_cos, -1.0, 1.0)));
+        vec3 transmit = fsSnellTransmission(vary_position, wavef, min(fs_snell_fw, 0.1));
+        transmit = mix(vec3(1.0), transmit, clamp(fs_snell_window, 0.0, 1.0) * water_mask);
+        // </FS:Trish>
         fb.rgb = mix(waterFogColorLinear, fb.rgb, transmit);
     }
 
