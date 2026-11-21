@@ -4776,7 +4776,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2416"
+                 height="2570"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -6429,6 +6429,122 @@
                      name="fs_fsrendertaatexturebias"
                      tool_tip="EXPERIMENTAL. Objects, avatars and the classic terrain sample their textures this many mip levels sharper while TAA runs, since the blended frames resolve finer detail than a single frame. Lower is sharper but can shimmer on fine patterns. 0 turns it off. Shadows, reflections, HUDs and the UI are not affected."
                      top="2374"
+                     width="100" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_crease_occlusion"
+                     top="2416"
+                     width="340">
+                        Corner and crease occlusion
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_crease_occlusion"
+                     tool_tip="Set every option in &quot;Corner and crease occlusion&quot; back to its default value."
+                     top="2415"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderCreaseAO,FSRenderCreaseAORadius,FSRenderCreaseAOStrength,FSRenderAOFullRange" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderCreaseAO"
+                     enabled_control="RenderDeferredSSAO"
+                     follows="left|top"
+                     height="20"
+                     label="Crease occlusion"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendercreaseao"
+                     tool_tip="EXPERIMENTAL. A second, short range ambient occlusion at full resolution, on top of GTAO or the classic one, that darkens inside corners, creases, folds and the seams between objects, which the wider search barely sees. Needs Ambient Occlusion enabled. About 20 depth reads per pixel. Rebuilds the lighting shader."
+                     top="2442"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendercreaseaoradius_label"
+                     tool_tip="EXPERIMENTAL. How far crease occlusion looks around each point, in metres. Also capped at 24 pixels on screen. Smaller keeps it to tight creases; larger reaches into wider corners."
+                     top="2472"
+                     width="285">
+                        Crease occlusion radius (m)
+                    </text>
+                    <spinner
+                     control_name="FSRenderCreaseAORadius"
+                     decimal_digits="2"
+                     enabled_control="FSRenderCreaseAO"
+                     follows="left|top"
+                     height="20"
+                     increment="0.01"
+                     layout="topleft"
+                     left="330"
+                     max_val="1.0"
+                     min_val="0.02"
+                     name="fs_fsrendercreaseaoradius"
+                     tool_tip="EXPERIMENTAL. How far crease occlusion looks around each point, in metres. Also capped at 24 pixels on screen. Smaller keeps it to tight creases; larger reaches into wider corners."
+                     top="2470"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrendercreaseaostrength_label"
+                     tool_tip="EXPERIMENTAL. How dark crease occlusion makes corners and creases, 0 to 1."
+                     top="2500"
+                     width="285">
+                        Crease occlusion strength
+                    </text>
+                    <spinner
+                     control_name="FSRenderCreaseAOStrength"
+                     decimal_digits="2"
+                     enabled_control="FSRenderCreaseAO"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1.0"
+                     min_val="0.0"
+                     name="fs_fsrendercreaseaostrength"
+                     tool_tip="EXPERIMENTAL. How dark crease occlusion makes corners and creases, 0 to 1."
+                     top="2498"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderaofullrange_label"
+                     tool_tip="EXPERIMENTAL. How far ambient occlusion may darken the ambient light and reflections. At 0 (the standard look) a fully occluded point still keeps about half of that light, so corners and creases never get properly dark, and reflection probes glow in them; at 1 full occlusion takes all of it. Works with every kind of ambient occlusion. No shader rebuild."
+                     top="2528"
+                     width="305">
+                        Ambient occlusion depth
+                    </text>
+                    <spinner
+                     control_name="FSRenderAOFullRange"
+                     decimal_digits="2"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="1.0"
+                     min_val="0.0"
+                     name="fs_fsrenderaofullrange"
+                     tool_tip="EXPERIMENTAL. How far ambient occlusion may darken the ambient light and reflections. At 0 (the standard look) a fully occluded point still keeps about half of that light, so corners and creases never get properly dark, and reflection probes glow in them; at 1 full occlusion takes all of it. Works with every kind of ambient occlusion. No shader rebuild."
+                     top="2526"
                      width="100" />
                     <!-- </FS:Trish> -->
                 </panel>

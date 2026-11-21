@@ -30,6 +30,7 @@
 #include <boost/lexical_cast.hpp>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+extern U32 gFrameCount; // <FS:Trish/> FSRenderCreaseAO: the noise offset while TAA runs
 #include "fstaajitter.h" // <FS:Trish/> FSRenderTAATextureBias
 
 #include "llfeaturemanager.h"
@@ -2867,6 +2868,14 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gFSGTAOHalfProgram.unload();
         }
         // </FS:Trish>
+        // <FS:Trish> FSRenderCreaseAO: short range occlusion of corners and creases, on top of GTAO or SSAO
+        static LLCachedControl<bool> fs_crease_ao(gSavedSettings, "FSRenderCreaseAO", false);
+        if (use_ao && fs_crease_ao)
+        {
+            gDeferredSunProgram.mShaderFiles.push_back(make_pair("deferred/fsCreaseAOF.glsl", GL_FRAGMENT_SHADER));
+            gDeferredSunProgram.addPermutation("FS_CREASE_AO", "1");
+        }
+        // </FS:Trish>
 
         // <Vulkanstorm> PCSS: the sun program alone (not the probe variant) filters with
         // the PCSS build of shadowUtil.glsl
@@ -5184,6 +5193,22 @@ static void fs_upload_shading_occlusion(LLGLSLShader& shader)
 
     shader.uniform1f(sSpecularOcclusion, spec_occ ? llclamp((F32)spec_occ_strength, 0.f, 1.f) : 0.f);
     shader.uniform1f(sMicroShadow, micro ? llclamp((F32)micro_strength, 0.f, 1.f) : 0.f);
+
+    // FSRenderAOFullRange (softenLightF.glsl): how far the ambient occlusion may darken, 0 as standard
+    static LLCachedControl<F32> ao_full_range(gSavedSettings, "FSRenderAOFullRange", 0.f);
+    static LLStaticHashedString sAOFullRange("fs_ao_full_range");
+    shader.uniform1f(sAOFullRange, llclamp((F32)ao_full_range, 0.f, 1.f));
+
+    // FSRenderCreaseAO (fsCreaseAOF.glsl, only in the sun program built with it): radius (m), strength,
+    // largest radius in pixels, and a noise offset that moves on every frame only while TAA blends them
+    if (shader.mDefines.count("FS_CREASE_AO"))
+    {
+        static LLCachedControl<F32> crease_radius(gSavedSettings, "FSRenderCreaseAORadius", 0.2f);
+        static LLCachedControl<F32> crease_strength(gSavedSettings, "FSRenderCreaseAOStrength", 1.f);
+        static LLStaticHashedString sCreaseAO("fs_crease_ao");
+        const F32 noise_offset = FSTAA::frameActive() ? (F32)fmod((F64)gFrameCount * 0.6180339887, 1.0) : 0.f;
+        shader.uniform4f(sCreaseAO, llclamp((F32)crease_radius, 0.02f, 1.f), llclamp((F32)crease_strength, 0.f, 1.f), 24.f, noise_offset);
+    }
 }
 // </FS:Trish>
 

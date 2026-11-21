@@ -368,11 +368,44 @@ void adjustIrradiance(inout vec3 irradiance, float ambocc)
 // ssao_irradiance_max is deliberately not folded in either. It bounds a radiometric quantity in
 // the diffuse expression -- there is nothing for it to bound here, and the value it would have
 // to be compared against is radiance rather than irradiance.
-float ssaoVisibility(float ambocc)
+// <FS:Trish> FSRenderAOFullRange (0 to 1, 0 when off): how much of the light left at full
+// occlusion the occlusion may take as well. The response above keeps about half of the ambient
+// light and reflections however occluded a pixel is (ssao_irradiance_scale times the value
+// factor), so the inside of a corner or a crease could never get darker than that.
+uniform float fs_ao_full_range;
+
+float fsAOFloor()
 {
 #if defined(HAS_SSAO)
     float value_factor = dot(ssao_effect_mat * vec3(1.0), vec3(1.0 / 3.0));
-    float occluded = clamp(ssao_irradiance_scale * value_factor, 0.0, 1.0);
+    return clamp(ssao_irradiance_scale * value_factor, 0.0, 1.0);
+#else
+    return 1.0;
+#endif
+}
+
+// The full range visibility over the standard one, for the legacy diffuse ambient, which
+// adjustIrradiance darkens on its own curve: 1 when off
+float fsAORangeScale(float ambocc)
+{
+    float range = clamp(fs_ao_full_range, 0.0, 1.0);
+    if (range <= 0.0)
+    {
+        return 1.0;
+    }
+    float occluded = fsAOFloor();
+    return mix(occluded * (1.0 - range), 1.0, ambocc) / max(mix(occluded, 1.0, ambocc), 1e-3);
+}
+// </FS:Trish>
+
+float ssaoVisibility(float ambocc)
+{
+#if defined(HAS_SSAO)
+    // <FS:Trish> FSRenderAOFullRange
+    //float value_factor = dot(ssao_effect_mat * vec3(1.0), vec3(1.0 / 3.0));
+    //float occluded = clamp(ssao_irradiance_scale * value_factor, 0.0, 1.0);
+    float occluded = fsAOFloor() * (1.0 - clamp(fs_ao_full_range, 0.0, 1.0));
+    // </FS:Trish>
     return clamp(mix(occluded, 1.0, ambocc), 0.0, 1.0);
 #else
     return 1.0;
@@ -660,6 +693,9 @@ void main()
 #endif
 
         adjustIrradiance(irradiance, ambocc);
+#if defined(HAS_SSAO)
+        irradiance *= fsAORangeScale(ambocc); // <FS:Trish/> FSRenderAOFullRange
+#endif
         // <FS:Trish> Skin: the occluded ambient comes back red first (FSRenderSkinWarmShadows)
 #ifdef FS_SKIN_WARM_SHADOWS
         if (fs_skin > 0.0)

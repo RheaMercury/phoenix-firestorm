@@ -63,6 +63,11 @@ float calcAmbientOcclusion(vec4 pos, vec3 norm, vec2 pos_screen);
 #ifdef FS_GTAO
 float fsCalcGTAO(vec3 pos, vec3 norm, vec2 pos_screen);
 #endif
+// <FS:Trish> FSRenderCreaseAO: short range occlusion of corners and creases (fsCreaseAOF.glsl)
+#ifdef FS_CREASE_AO
+float fsCreaseAO(vec3 pos, vec3 norm, vec2 tc);
+#endif
+// </FS:Trish>
 vec3 getGeoNorm(vec2 pos_screen);
 
 void main()
@@ -106,6 +111,11 @@ void main()
 #else
     col.g = calcAmbientOcclusion(pos, getGeoNorm(pos_screen), pos_screen);
 #endif
+    // <FS:Trish> FSRenderCreaseAO: the corners and creases the wider search above barely sees, on top
+#ifdef FS_CREASE_AO
+    col.g *= fsCreaseAO(pos.xyz, getGeoNorm(pos_screen), pos_screen);
+#endif
+    // </FS:Trish>
     col.b = spot_shadow_inactive.x != 0 ? 1.0 : sampleSpotShadow(pos.xyz, norm.xyz, 0, pos_screen);
     col.a = spot_shadow_inactive.y != 0 ? 1.0 : sampleSpotShadow(pos.xyz, norm.xyz, 1, pos_screen);
 
