@@ -366,6 +366,11 @@ FSTextureFaceBias FSTextureFaceBias::current()
     bias.mGLTFScale = gltf_scale;
     bias.mGrace = llmax((F32)hidden_grace, 0.f);
     bias.mNow = LLFrameTimer::getElapsedSeconds();
+    static LLCachedControl<bool> bias_ramp(gSavedSettings, "FSTextureBiasRamp", true);
+    bias.mBiasRamp = bias_ramp;
+    static LLCachedControl<bool> map_reduce(gSavedSettings, "FSTextureMaterialMapReduce", true);
+    static LLCachedControl<F32> map_reduce_distance(gSavedSettings, "FSTextureMaterialMapDistance", 16.f);
+    bias.mMapReduceDistance = map_reduce ? llclamp((F32)map_reduce_distance, 0.f, 256.f) : -1.f;
     static LLCachedControl<bool> avatar_small_parts(gSavedSettings, "FSTextureAvatarSmallParts", false);
     static LLCachedControl<U32> avatar_small_parts_size(gSavedSettings, "FSTextureAvatarSmallPartsSize", 128);
     if (avatar_small_parts)
@@ -415,9 +420,55 @@ bool FSTextureFaceBias::occluded(const LLFace* face) const
 // static
 F32 FSTextureFaceBias::vsizeBias(F32 max_discard, F32 desired_bias)
 {
+    return (F32)llroundf(powf(4, biasLevel(max_discard, desired_bias) - 1.f));
+}
+
+// static
+F32 FSTextureFaceBias::biasLevel(F32 max_discard, F32 desired_bias)
+{
     //F32 bias = llclamp(max_discard - 2.f, 1.f, desired_bias);
-    const F32 bias = llclamp(max_discard - 2.f + llclamp(desired_bias - 4.f, 0.f, 2.f), 1.f, desired_bias);
-    return (F32)llroundf(powf(4, bias - 1.f));
+    return llclamp(max_discard - 2.f + llclamp(desired_bias - 4.f, 0.f, 2.f), 1.f, desired_bias);
+}
+
+F32 FSTextureFaceBias::faceDivisor(bool in_view, F32 importance, F32 vsize_bias, F32 bias_level, F32 desired_bias) const
+{
+    // apply bias to offscreen faces all the time, but only to onscreen faces when bias is large
+    if (!in_view)
+    {
+        return vsize_bias;
+    }
+    if (!mBiasRamp)
+    {
+        // use mImportanceToCamera to make bias switch a bit more gradual
+        return desired_bias > 1.9f + importance / 2.f ? vsize_bias : 1.f;
+    }
+    // FSTextureBiasRamp: levels taken off grow with the bias, from 0 at bias 1 for the least important faces.
+    // Important faces are spared the first level (up to bias 2), and less of it as the bias climbs, so at
+    // bias 4 (the stock cap) every face takes the whole bias as before. The per texture floor(log4) and the
+    // drop deadband then step each texture at its own point instead of the whole scene at 1.9.
+    const F32 spared = importance * llclamp((4.f - desired_bias) * 0.5f, 0.f, 1.f);
+    const F32 levels = llclamp(desired_bias - 1.f - spared, 0.f, bias_level - 1.f);
+    return levels > 0.f ? exp2f(2.f * levels) : 1.f;
+}
+
+F32 FSTextureFaceBias::materialMapScale(U32 channel, const LLFace* face, const LLViewerObject* objp, bool reducible,
+                                        bool occluded) const
+{
+    if (mMapReduceDistance < 0.f || !reducible || occluded)
+    {
+        return 1.f;
+    }
+    if (channel != LLRender::NORMAL_MAP && channel != LLRender::SPECULAR_MAP
+        && channel != LLRender::METALLIC_ROUGHNESS_MAP && channel != LLRender::GLTF_NORMAL_MAP)
+    {
+        return 1.f;
+    }
+    // world volumes only: the sky uses channel 1 for its second colour texture, and HUDs keep their detail
+    if (objp->getPCode() != LL_PCODE_VOLUME || objp->isHUDAttachment())
+    {
+        return 1.f;
+    }
+    return face->getFSCameraDistance() > mMapReduceDistance ? OCCLUDED_VSIZE_SCALE : 1.f;
 }
 
 F32 FSTextureFaceBias::scale(const LLViewerObject* objp, const LLTextureEntry* te, S32 te_offset, U32 channel,
@@ -484,6 +535,10 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
     LLImageGL* img = imagep->getGLTexture();
     F32 max_discard = F32(img ? img->getMaxDiscardLevel() : MAX_DISCARD_LEVEL);
     const F32 bias = FSTextureFaceBias::vsizeBias(max_discard, p.mDiscardBias);
+    const F32 bias_level = FSTextureFaceBias::biasLevel(max_discard, p.mDiscardBias);
+    // FSTextureMaterialMapReduce: as in updateImageDecodePriority
+    const bool map_reducible = imagep->getType() == LLViewerTexture::LOD_TEXTURE
+                               && imagep->getBoostLevel() == LLViewerTexture::BOOST_NONE;
 
     for (U32 i = 0; i < LLRender::NUM_TEXTURE_CHANNELS; ++i)
     {
@@ -515,10 +570,10 @@ void FSParallelTexture::reduceFaces(LLViewerFetchedTexture* imagep, const Params
                 // FSTexturePriorityGLTFScale and texture animations: as in updateImageDecodePriority
                 vsize /= p.mFaceBias.scale(objp, te, te_offset, i, p.mScaleMin, p.mScaleMax);
 
-                if (!in_view || p.mDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
-                {
-                    vsize /= bias;
-                }
+                // FSTextureBiasRamp: as in updateImageDecodePriority
+                vsize /= p.mFaceBias.faceDivisor(in_view, face->mImportanceToCamera, bias, bias_level, p.mDiscardBias);
+                // FSTextureMaterialMapReduce: as in updateImageDecodePriority
+                vsize *= p.mFaceBias.materialMapScale(i, face, objp, map_reducible, occluded);
 
                 if (in_view)
                 {

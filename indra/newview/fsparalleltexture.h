@@ -54,6 +54,13 @@ class LLViewerFetchedTexture;
 //    size of its faces, so only one whose every face in the view is hidden that way is reduced; such a texture
 //    is also reconsidered at every sweep (mOnlyOccluded), as off screen ones are while the bias is up, or the
 //    size it had before would hold. A face found visible again counts in full at once (no grace that way).
+//  - FSTextureBiasRamp: an in view face takes the texture bias in proportion to how far the bias is above 1
+//    (less the face's importance to the camera), instead of all of it once the bias crosses 1.9 (2.4 for the
+//    most important faces). A bias drifting across 1.9 no longer flips the whole mid and far scene between
+//    full and quarter resolution; each texture steps by its own size as the bias moves.
+//  - FSTextureMaterialMapReduce: a normal, specular or metallic-roughness map on a face further than
+//    FSTextureMaterialMapDistance from the camera is wanted one level below its colour texture. Only unboosted
+//    LOD textures on world objects (not HUDs); not on top of FSTextureOccludedDiscard's level.
 struct FSTextureFaceBias
 {
     // FSTextureOccludedDiscard: an occluded face's virtual size is multiplied by this, one discard level
@@ -65,6 +72,8 @@ struct FSTextureFaceBias
     F32 mGrace = 0.f;
     F64 mNow = 0.0;
     F32 mAvatarFloor = 0.f; // FSTextureAvatarSmallParts: virtual size floor, 0 when off
+    bool mBiasRamp = false; // FSTextureBiasRamp
+    F32 mMapReduceDistance = -1.f; // FSTextureMaterialMapReduce: metres, below 0 when off
 
     static FSTextureFaceBias current();
     // face->mInFrustum, unless hidden as above
@@ -86,6 +95,17 @@ struct FSTextureFaceBias
     // is max_discard. FSTextureMaxDiscardBias: each step of desired_bias above 4 lets a texture go one level
     // deeper (a 2048 one 512 -> 256 -> 128), as below 4 the per texture limit already stops it at the same size.
     static F32 vsizeBias(F32 max_discard, F32 desired_bias);
+    // The bias level vsizeBias() turns into a divisor (1 or more)
+    static F32 biasLevel(F32 max_discard, F32 desired_bias);
+    // What a face's virtual size is divided by for the texture bias: vsize_bias (vsizeBias()) for a face out of
+    // view; for one in view, vsize_bias once desired_bias is over 1.9 + importance / 2, or 1 below that (the
+    // stock rule), or with FSTextureBiasRamp a smooth part of it (bias_level is biasLevel()).
+    F32 faceDivisor(bool in_view, F32 importance, F32 vsize_bias, F32 bias_level, F32 desired_bias) const;
+    // FSTextureMaterialMapReduce: what the virtual size of a face showing the texture in channel is multiplied
+    // by: OCCLUDED_VSIZE_SCALE for a material map far from the camera, else 1. reducible: the texture is an
+    // unboosted LOD texture. occluded: the face already takes FSTextureOccludedDiscard's level.
+    F32 materialMapScale(U32 channel, const LLFace* face, const LLViewerObject* objp, bool reducible,
+                         bool occluded) const;
 };
 
 // What the face loop of LLViewerTextureList::updateImageDecodePriority produces for one texture:

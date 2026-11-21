@@ -7519,7 +7519,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="727"
+                 height="795"
                  layout="topleft"
                  left="0"
                  name="experimental_textures_settings"
@@ -7800,9 +7800,25 @@
                      left="15"
                      name="texture_memory_heading"
                      top="452"
-                     width="475">
+                     width="340">
                         Texture memory
                     </text>
+                    <!-- <FS:Trish> FSTextureBiasRamp, FSTextureMaterialMapReduce -->
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_texture_memory_heading"
+                     tool_tip="Set every option in &quot;Texture memory&quot; back to its default value."
+                     top="451"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="RenderTextureMemoryUsageBias,TextureFetchPipelineDiagnostics,FSTextureFetchSelfHeal,FSTexturePriorityHiddenFaces,FSTexturePriorityHiddenGrace,FSTexturePriorityGLTFScale,FSTextureAvatarSmallParts,FSTextureAvatarSmallPartsSize,FSTextureOccludedDiscard,FSTextureBiasRamp,FSTextureMaterialMapReduce,FSTextureMaterialMapDistance" />
+                    </button>
+                    <!-- </FS:Trish> -->
                     <text
                      follows="left|top"
                      height="18"
@@ -7946,6 +7962,57 @@
                      tool_tip="EXPERIMENTAL. A texture whose every surface in view has been hidden behind other objects for a few seconds (the seconds set above, also without that option) is wanted at half its width and height. As soon as any of its surfaces is visible again it counts in full and sharpens as fast as it loads. Saves video memory in busy scenes; it takes effect once textures are being reduced to save memory."
                      top="675"
                      width="475" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> FSTextureBiasRamp, FSTextureMaterialMapReduce -->
+                    <check_box
+                     control_name="FSTextureBiasRamp"
+                     follows="left|top"
+                     height="20"
+                     label="Reduce textures in view gradually when memory runs short"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstexturebiasramp"
+                     tool_tip="When video memory fills up and textures are being reduced, textures in view are reduced a little at a time as memory gets fuller, far away and off to the side ones first. Off: the whole mid and far scene switches between sharp and quarter resolution each time the reduction crosses a fixed point, so textures go soft and sharp again over and over."
+                     top="699"
+                     width="475" />
+                    <check_box
+                     control_name="FSTextureMaterialMapReduce"
+                     follows="left|top"
+                     height="20"
+                     label="Load far material maps one size below their colour texture"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstexturematerialmapreduce"
+                     tool_tip="Normal, specular and metallic-roughness maps on surfaces further away than the distance below load at half the width and height of their colour texture. Their fine detail is hardly visible that far away, and the video memory saved lets colour textures everywhere stay sharp. Not added on top of the option above for textures behind other objects."
+                     top="723"
+                     width="475" />
+                    <text
+                     enabled_control="FSTextureMaterialMapReduce"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fstexturematerialmapdistance_label"
+                     tool_tip="Surfaces further from the camera than this, in metres, load their normal, specular and metallic-roughness maps one size smaller. 16 matches the distance within which textures get the close-up boost."
+                     top="749"
+                     width="285">
+                        Distance for smaller material maps (m)
+                    </text>
+                    <spinner
+                     control_name="FSTextureMaterialMapDistance"
+                     decimal_digits="0"
+                     enabled_control="FSTextureMaterialMapReduce"
+                     follows="left|top"
+                     height="20"
+                     increment="4"
+                     layout="topleft"
+                     left="330"
+                     max_val="256"
+                     min_val="0"
+                     name="fs_fstexturematerialmapdistance"
+                     tool_tip="Surfaces further from the camera than this, in metres, load their normal, specular and metallic-roughness maps one size smaller. 16 matches the distance within which textures get the close-up boost."
+                     top="747"
+                     width="100" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

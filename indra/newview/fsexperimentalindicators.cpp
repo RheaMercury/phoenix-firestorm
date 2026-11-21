@@ -430,6 +430,9 @@ namespace
         { "FSTextureAvatarSmallParts", CL, VM },
         { "FSTextureAvatarSmallPartsSize", CL, VN },
         { "FSTextureOccludedDiscard", CL, VN },
+        { "FSTextureBiasRamp", CL, VL },
+        { "FSTextureMaterialMapReduce", CS, VM },
+        { "FSTextureMaterialMapDistance", CS, VN },
 
         // Avatar
         { "FSExperimentalRepairAnimations", CL, VN },

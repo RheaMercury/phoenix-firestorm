@@ -125,6 +125,7 @@ public:
     void            setPixelArea(F32 area)  { mPixelArea = area; }
     F32             getVirtualSize() const { return mVSize; }
     F32             getPixelArea() const { return mPixelArea; }
+    F32             getFSCameraDistance() const { return mFSCameraDistance; } // <FS:Trish/> FSTextureMaterialMapReduce
 
     S32             getIndexInTex(U32 ch) const      { llassert(ch < LLRender::NUM_TEXTURE_CHANNELS); return mIndexInTex[ch]; }
     void            setIndexInTex(U32 ch, S32 index) { llassert(ch < LLRender::NUM_TEXTURE_CHANNELS); mIndexInTex[ch] = index; }
@@ -329,6 +330,11 @@ private:
     F32         mCosAngleToViewDir = 1.f;
     F32         mPixelRadius = 0.f;
     bool        mPixelAreaInFrustum = true;
+    // </FS:Trish>
+
+    // <FS:Trish> FSTextureMaterialMapReduce: distance from the camera to the face's bounding sphere, in metres,
+    // from the last full calcPixelArea() (0 until then)
+    F32         mFSCameraDistance = 0.f;
     // </FS:Trish>
 
     // virtual size of face in texture area  (mPixelArea adjusted by texture repeats)

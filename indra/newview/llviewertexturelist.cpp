@@ -1090,6 +1090,10 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
         //// convert bias into a vsize scaler
         //bias = (F32) llroundf(powf(4, bias - 1.f));
         const F32 bias = FSTextureFaceBias::vsizeBias(max_discard, LLViewerTexture::sDesiredDiscardBias);
+        const F32 fs_bias_level = FSTextureFaceBias::biasLevel(max_discard, LLViewerTexture::sDesiredDiscardBias); // FSTextureBiasRamp
+        // FSTextureMaterialMapReduce: only unboosted LOD textures (others never shrink back anyway)
+        const bool fs_map_reducible = imagep->getType() == LLViewerTexture::LOD_TEXTURE
+                                      && imagep->getBoostLevel() == LLViewerTexture::BOOST_NONE;
         // </FS:Trish>
 
         // <FS:Trish> FSTexturePriorityHiddenFaces, FSTexturePriorityGLTFScale (the face loop of
@@ -1162,13 +1166,18 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
 
                     // apply bias to offscreen faces all the time, but only to onscreen faces when bias is large
                     // use mImportanceToCamera to make bias switch a bit more gradual
-                    // <FS:Trish> FSTexturePriorityHiddenFaces
+                    // <FS:Trish> FSTexturePriorityHiddenFaces, FSTextureBiasRamp (a smooth part of the bias for
+                    // faces in view instead of the 1.9 cliff; the same rule as before when off), and
+                    // FSTextureMaterialMapReduce (material maps far away one level below their colour texture).
+                    // FSParallelTexture::reduceFaces does the same.
                     //if (!face->mInFrustum || LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
-                    if (!in_view || LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
+                    //{
+                    //    vsize /= bias;
+                    //}
+                    vsize /= face_bias.faceDivisor(in_view, face->mImportanceToCamera, bias, fs_bias_level,
+                                                   LLViewerTexture::sDesiredDiscardBias);
+                    vsize *= face_bias.materialMapScale(i, face, objp, fs_map_reducible, fs_occluded);
                     // </FS:Trish>
-                    {
-                        vsize /= bias;
-                    }
 
                     // boost resolution of textures that are important to the camera
                     // <FS:Trish> FSTexturePriorityHiddenFaces
