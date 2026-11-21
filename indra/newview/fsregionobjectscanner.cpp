@@ -389,12 +389,19 @@ void FSRegionObjectScanner::processPropertyRequestQueue()
             continue;
         }
         LLViewerObject* object = gObjectList.findObject(id);
-        if (object && object->isSelected())
+        if (!object || object->isDead() || object->getRegion() != region)
+        {
+            // Gone, or left the region: its old local ID may now name another object (perhaps one the user has
+            // selected). Not asked for; it stays unresolved until the retries run out.
+            continue;
+        }
+        if (object->isSelected())
         {
             found->second.property_request = PropertyRequestState::DEFERRED;
             continue;
         }
         found->second.property_request = PropertyRequestState::SENT;
+        found->second.local_id = object->getLocalID();
         request_ids.push_back(found->second.local_id);
     }
 
@@ -518,7 +525,9 @@ void FSRegionObjectScanner::onIdle(void* userdata)
             self->finishObjectScan();
         }
     }
-    else if (!self->mWaitingForInterestList && !(self->isReconcilePaused && self->isReconcilePaused()) &&
+    // Also while a scan runs (as Mass Object Edit did before the scan moved here): objects that stream in, and
+    // deferred ones the user has since deselected, join the running scan
+    if (!self->mWaitingForInterestList && !(self->isReconcilePaused && self->isReconcilePaused()) &&
         self->mRegionID.notNull() &&
         self->mReconcileTimer.getElapsedTimeF32() >= OBJECT_RECONCILE_INTERVAL)
     {
@@ -532,6 +541,9 @@ FSRegionObjectScanner::ContentsResult FSRegionObjectScanner::fetchContents(const
     bool force_server, contents_f on_contents, progress_f on_progress, retry_f on_retry,
     std::function<bool()> cancelled, S32 min_workers)
 {
+    // The workers' "done" posts share one mail drop: each wait must take its post off it, or the first post wakes
+    // every later wait and this returns while workers still run (and still use on_contents' captures)
+    LLCoros::OverrideConsuming consume(true);
     ContentsResult result;
     result.total = static_cast<S32>(targets.size());
     // Shared with the workers, so nothing they touch lives on this frame
@@ -572,7 +584,8 @@ FSRegionObjectScanner::ContentsResult FSRegionObjectScanner::fetchContents(const
             work[static_cast<size_t>(i % worker_count)].push_back(pass_targets[static_cast<size_t>(i)]);
         }
 
-        // Shared with the workers; they finish before this frame returns (each posts once to done)
+        // Shared with the workers; they finish before this frame returns (each posts once to done, and every wait
+        // below consumes one post)
         auto retry_ids = std::make_shared<uuid_vec_t>();
         LLEventMailDrop done("FSRegionScanDone-" + LLUUID::generateNewID().asString(), true);
         const std::string done_name = done.getName();
