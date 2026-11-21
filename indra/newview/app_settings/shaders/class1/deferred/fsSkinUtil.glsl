@@ -494,6 +494,12 @@ vec3 fsSkinAlbedo(GBufferInfo gb)
 // visibility, as glTF's KHR_materials_sheen has it; the ambient part a rim, rising toward
 // grazing, on the ambient light. Its colour is the skin's own hue, lightened, times
 // fs_skin_sheen.
+// Both fade out over the last stretch to the silhouette (fsSkinSheenEdge). Neubelt's visibility
+// does not fall to zero at grazing as the full Charlie visibility does: N.L times it stays at a
+// quarter all along the silhouette, up to the terminator. And at a silhouette the interpolated
+// normal often already faces away from the eye, which the rim read as fully grazing. Together
+// they drew a hard, full strength line around every outline, including the scalp's under mesh
+// hair, which showed through the hair's fine strands as a bright edge around the hair.
 uniform float fs_skin_sheen;        // strength
 #define FS_SKIN_SHEEN_ALPHA 0.25    // sheen roughness 0.5, squared
 
@@ -503,25 +509,33 @@ vec3 fsSkinSheenColor(vec3 albedo)
     return mix(vec3(1.0), albedo / max(mx, 1e-3), 0.5) * clamp(fs_skin_sheen, 0.0, 1.0);
 }
 
-// Charlie distribution times Neubelt visibility (no N.L)
+// 0 where the normal faces away from the eye, rising to 1 by N.V 0.15 (about 81 degrees off
+// face on): on a rounded part that is the outermost pixel or two of its outline
+float fsSkinSheenEdge(float nv)
+{
+    return smoothstep(0.0, 0.15, nv);
+}
+
+// Charlie distribution times Neubelt visibility (no N.L), faded at the silhouette
 float fsSkinSheenBRDF(vec3 n, vec3 v, vec3 l)
 {
     vec3 h = normalize(l + v);
     float nh = clamp(dot(n, h), 0.0, 1.0);
     float nl = clamp(dot(n, l), 0.0, 1.0);
-    float nv = clamp(abs(dot(n, v)), 0.001, 1.0);
+    float nv_raw = dot(n, v);
+    float nv = clamp(abs(nv_raw), 0.001, 1.0);
     float inv_a = 1.0 / FS_SKIN_SHEEN_ALPHA;
     float sin2h = max(1.0 - nh * nh, 0.0078125);
     float d = (2.0 + inv_a) * pow(sin2h, inv_a * 0.5) / (2.0 * 3.14159265);
-    float vis = 1.0 / (4.0 * (nl + nv - nl * nv));
-    return d * vis;
+    float vis = 1.0 / (4.0 * max(nl + nv - nl * nv, 1e-3));
+    return d * vis * fsSkinSheenEdge(nv_raw);
 }
 
-// How much of the ambient light the sheen returns at view angle nv: about nothing face on, a
-// quarter at grazing
+// How much of the ambient light the sheen returns at view angle nv: about nothing face on, rising
+// toward grazing to about a seventh, then fading at the silhouette itself
 float fsSkinSheenRim(float nv)
 {
     float f = 1.0 - clamp(nv, 0.0, 1.0);
-    return 0.25 * f * f * f;
+    return 0.25 * f * f * f * fsSkinSheenEdge(nv);
 }
 #endif
