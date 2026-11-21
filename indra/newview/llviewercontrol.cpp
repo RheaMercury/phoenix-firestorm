@@ -106,6 +106,8 @@
 #include "fsfloaterteleporthistory.h"
 #include "fslslbridge.h"
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
+#include "llfocusmgr.h" // <FS:Trish/> coalesced shader reloads: a held slider
+#include "llsdutil.h" // <FS:Trish/> coalesced shader reloads: llsd_equals
 #include "fsradar.h"
 #include "llavataractions.h"
 #include "lldiskcache.h"
@@ -281,6 +283,19 @@ static LLTimer sShaderReloadTimer;
 // fs_revert_shader_settings_after_failure is putting settings back; setShaders, its caller, loads again
 // afterwards, so a control's change must not reload (or rebuild the bump cache) once per control
 static bool sShaderSettingsReverting = false;
+// A reload was asked for without a noted setting change (a commit callback, a handler that does more than
+// reload): it runs even when every noted setting is back to its loaded value
+static bool sShaderReloadUnnoted = false;
+// handleSetShaderChanged is running as the listener of a setting whose change was noted
+// (setting_setup_signal_listener)
+static bool sFSNotedShaderCallback = false;
+// Since the first change of the pending reload: a slider or spinner held down keeps it waiting, but not
+// longer than SHADER_RELOAD_MAX_HOLD_SECONDS
+static constexpr F32 SHADER_RELOAD_MAX_HOLD_SECONDS = 3.f;
+static LLTimer sShaderReloadSince;
+// Describes the settings changed since the last load (name, old -> new) in text; false when every one of
+// them is back at the value that load used (defined with the noted changes below)
+static bool fs_pending_shader_changes(std::string& text);
 // </FS:Trish>
 
 // <FS:Ansariel> Expose handleSetShaderChanged()
@@ -296,8 +311,16 @@ bool handleSetShaderChanged(const LLSD& newvalue)
     if (!sShaderReloadRunning && gPipeline.isInit() && gPipeline.mShadersLoaded &&
         LLViewerShaderMgr::sInitialized && !LLViewerShaderMgr::sSkipReload)
     {
+        if (!sShaderReloadPending)
+        {
+            sShaderReloadSince.reset();
+        }
         sShaderReloadPending = true;
         sShaderReloadTimer.reset();
+        if (!sFSNotedShaderCallback)
+        {
+            sShaderReloadUnnoted = true;
+        }
         return true;
     }
     // </FS:Trish>
@@ -325,7 +348,28 @@ void process_deferred_shader_reload()
     {
         return;
     }
+    // A slider or spinner held down is still moving its setting: reloading at a pause in the drag froze
+    // the viewer for seconds, and the value it was let go at reloaded a second time
+    if (gFocusMgr.getMouseCapture() && sShaderReloadSince.getElapsedTimeF32() < SHADER_RELOAD_MAX_HOLD_SECONDS)
+    {
+        return;
+    }
     sShaderReloadPending = false;
+    const bool unnoted = sShaderReloadUnnoted;
+    sShaderReloadUnnoted = false;
+    std::string changes;
+    if (!fs_pending_shader_changes(changes) && !unnoted)
+    {
+        // Every setting changed since the last load is back at the value it loaded with (switched off and
+        // on again before it loaded, a reload already run for it): the loaded
+        // shaders are the ones these settings want
+        LL_INFOS("Shader") << "Shader reload skipped: the settings that asked for it are back at their loaded values"
+                           << (changes.empty() ? std::string() : " (" + changes + ")") << LL_ENDL;
+        fs_shader_load_succeeded();
+        return;
+    }
+    LL_INFOS("Shader") << "Reloading shaders for: " << (changes.empty() ? std::string("a reload asked for directly") : changes)
+                       << (unnoted && !changes.empty() ? ", and a reload asked for directly" : "") << LL_ENDL;
     sShaderReloadRunning = true;
     handleSetShaderChanged(LLSD());
     sShaderReloadRunning = false;
@@ -679,6 +723,7 @@ void fs_end_settings_batch()
         // The batch also changed settings that reload the shaders: that reload, now, loads them for
         // the probe settings as well, in one go
         sShaderReloadPending = false;
+        sShaderReloadUnnoted = false;
         sShaderReloadRunning = true;
         handleSetShaderChanged(LLSD());
         sShaderReloadRunning = false;
@@ -1446,6 +1491,25 @@ void fs_shader_load_succeeded()
     sFSPendingShaderChanges.clear();
 }
 
+// Coalesced shader reloads: the settings noted since the last load, and whether any is not at its loaded value
+static bool fs_pending_shader_changes(std::string& text)
+{
+    bool changed = false;
+    for (const auto& change : sFSPendingShaderChanges)
+    {
+        const LLSD now = change.first->getValue();
+        const bool same = llsd_equals(now, change.second);
+        changed = changed || !same;
+        if (!text.empty())
+        {
+            text += ", ";
+        }
+        text += change.first->getName();
+        text += same ? " (back at " + now.asString() + ")" : " " + change.second.asString() + " -> " + now.asString();
+    }
+    return changed;
+}
+
 bool fs_revert_shader_settings_after_failure(const char* phase)
 {
     std::vector<std::pair<LLPointer<LLControlVariable>, LLSD>> changes;
@@ -1499,6 +1563,12 @@ void setting_setup_signal_listener(LLControlGroup& group, const std::string& set
         if (fs_shader_reload)
         {
             fs_note_shader_change(control, old_val);
+            // coalesced shader reloads: this request comes with a noted change
+            const bool was_noted = sFSNotedShaderCallback;
+            sFSNotedShaderCallback = true;
+            callback(new_val);
+            sFSNotedShaderCallback = was_noted;
+            return;
         }
         callback(new_val);
     });
