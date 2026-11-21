@@ -30544,6 +30544,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderFadeLOD</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderFadeIn: when an object changes detail level (its LOD, or a better mesh LOD arriving), its old and new shapes cross-dissolve over FSRenderFadeInTime with the fade-in's screen-door pattern instead of switching in one frame, and an avatar the rank cut turns from impostor to full detail dissolves its impostor away over it. Opaque and alpha-masked surfaces of objects in the main view; not attachments, animated objects, blended alpha or glow. Off: as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderProbeRefreshBlend</key>
     <map>
       <key>Comment</key>

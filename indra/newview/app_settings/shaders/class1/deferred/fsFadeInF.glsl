@@ -11,14 +11,17 @@
 // The part of the object being drawn that is still hidden: 1 just arrived, 0 fully shown. Set per
 // batch by LLRenderPass::applyModelMatrix; programs that never set it (GPU-driven multi-draws, which
 // leave fading batches to the stock path) read 0 and show everything.
+// Negative (FSRenderFadeLOD): a batch of an object's old shape after a detail change, minus the part of
+// its new shape still hidden; it keeps exactly the fragments the new shape discards, so each pixel
+// shows one of the two and the shapes cross-dissolve.
 uniform float fs_fade_hide;
 
 void fsFadeIn()
 {
-    if (fs_fade_hide > 0.0)
+    if (fs_fade_hide != 0.0)
     {
         float threshold = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-        if (threshold < fs_fade_hide)
+        if (fs_fade_hide > 0.0 ? threshold < fs_fade_hide : threshold >= -fs_fade_hide)
         {
             discard;
         }

@@ -644,6 +644,17 @@ F32 LLRenderPass::fsFadeInHidden(const LLDrawInfo& params)
     static LLCachedControl<F32> fade_time(gSavedSettings, "FSRenderFadeInTime", 0.6f);
     const F32 duration = fade_time;
     const F32 elapsed = (F32)gFrameTimeSeconds - params.mFSFadeStart;
+    // FSRenderFadeLOD: a batch of an object's old shape shows where its new shape is still hidden, given
+    // as minus that part (never 0, which would show it whole)
+    if (params.mFSFadeOut)
+    {
+        if (duration <= 0.f || elapsed >= duration)
+        {
+            return -1.e-4f;
+        }
+        const F32 x = llmax(elapsed, 0.f) / duration;
+        return -llmax(1.f - x * x * (3.f - 2.f * x), 1.e-4f);
+    }
     if (duration <= 0.f || elapsed >= duration)
     {
         return 0.f;

@@ -298,6 +298,7 @@ namespace
         { "FSRenderTerrainAntiTilingNoRotation", CL, VN },
         { "FSRenderFadeIn", CL, VM },
         { "FSRenderFadeInTime", CL, VM },
+        { "FSRenderFadeLOD", CL, VM },
         { "FSRenderClusteredLights", CS, VN },
         { "FSRenderPointLightShadows", CM, VM },
         { "FSRenderPointLightShadowCount", CM, VL },

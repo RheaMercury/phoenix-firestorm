@@ -782,6 +782,9 @@ public:
     // change in idle updates, so cache them per drawable frame (LLDrawable::getCurrentFrame())
     bool        isImpostorThisFrame();
     AvatarOverallAppearance getOverallAppearanceThisFrame() const;
+    // FSRenderFadeLOD: for a moment after the rank cut turned this avatar from impostor to fully
+    // drawn, the part of its impostor still shown over it (1 to 0); 0 otherwise
+    F32         fsImpostorFadeOut() const;
 private:
     S32         mImpostorCacheFrame = S32_MIN;
     bool        mImpostorCache = false;

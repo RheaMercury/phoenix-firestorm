@@ -36,6 +36,11 @@ uniform sampler2D specularMap;
 
 in vec2 vary_texcoord0;
 
+// <FS:Trish> FSRenderFadeLOD: above 0, the part of an impostor still shown while it dissolves away over
+// its avatar, now drawn in full (LLDrawPoolAvatar::renderAvatars); 0 shows it whole, as before
+uniform float fs_impostor_fade;
+// </FS:Trish>
+
 vec3 linear_to_srgb(vec3 c);
 
 vec4 encodeNormal(vec3 n, float env, float gbuffer_flag);
@@ -48,6 +53,17 @@ void main()
     {
         discard;
     }
+
+    // <FS:Trish> FSRenderFadeLOD: the same screen-door pattern as the fade-in (fsFadeInF.glsl)
+    if (fs_impostor_fade > 0.0)
+    {
+        float threshold = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        if (threshold >= fs_impostor_fade)
+        {
+            discard;
+        }
+    }
+    // </FS:Trish>
 
     vec4 norm = texture(normalMap,   vary_texcoord0.xy);
     vec4 spec = texture(specularMap, vary_texcoord0.xy);

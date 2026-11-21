@@ -62,6 +62,7 @@
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingShadowCache
 #include "fsshadowcacheoffenders.h" // <FS:Trish/> FSPerfShadowStaticCacheFilter, FSPerfShadowStaticCacheDemote
+#include "fslodfade.h" // <FS:Trish/> FSRenderFadeLOD
 // </FS:Beq>
 
 extern bool gShiftFrame;
@@ -151,6 +152,7 @@ LLSpatialGroup::~LLSpatialGroup()
 
 void LLSpatialGroup::clearDrawMap()
 {
+    FSLODFade::onClearDrawMap(this); // <FS:Trish/> FSRenderFadeLOD: an old shape kept from this map starts fading out
     mDrawMap.clear();
 }
 

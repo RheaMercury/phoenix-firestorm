@@ -104,6 +104,7 @@
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
 #include "fsriggedpick.h" // <FS:Trish/> FSPerfFastRiggedPick
+#include "fslodfade.h" // <FS:Trish/> FSRenderFadeLOD
 
 const F32 FORCE_SIMPLE_RENDER_AREA = 512.f;
 const F32 FORCE_CULL_AREA = 8.f;
@@ -2587,10 +2588,16 @@ bool LLVOVolume::lodOrSculptChanged(LLDrawable *drawable, bool &compiled, bool &
     old_num_faces = old_volumep->getNumFaces();
     old_volumep = NULL;
 
+    FSLODFade::capture(drawable); // <FS:Trish/> FSRenderFadeLOD: the batches of the shape about to change
+
     {
         const LLVolumeParams &volume_params = getVolume()->getParams();
         setVolume(volume_params, 0);
     }
+
+    // <FS:Trish> FSRenderFadeLOD: kept to fade out if the detail changed (a LOD switch, or a mesh LOD arriving)
+    FSLODFade::commit(drawable, getVolume() && (getVolume()->getDetail() != old_lod || mSculptChanged));
+    // </FS:Trish>
 
     new_volumep = getVolume();
     new_lod = new_volumep->getDetail();
@@ -6071,6 +6078,11 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
         if (fade_in && !pObj->isAttachment() && (F32)gFrameTimeSeconds - drawable->mFSFadeStart < (F32)fade_time)
         {
             fade_start = drawable->mFSFadeStart;
+        }
+        // FSRenderFadeLOD: the new shape of an object that just changed detail fades in as its old one fades out
+        else if (fade_in && !pObj->isAttachment())
+        {
+            fade_start = FSLODFade::fadeInStart(drawable, type);
         }
     }
     // </FS:Trish>

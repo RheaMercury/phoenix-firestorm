@@ -140,6 +140,7 @@
 #include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "fsshadowscreenfilter.h" // <FS:Trish/>
 #include "fsshadowbias.h" // <FS:Trish/> FSRenderShadowBiasMetric, FSRenderShadowCascadeBand
+#include "fslodfade.h" // <FS:Trish/> FSRenderFadeLOD
 
 #include "llenvironment.h"
 
@@ -1000,6 +1001,7 @@ void LLPipeline::destroyGL()
     stop_glerror();
     unloadShaders();
     mHighlightFaces.clear();
+    FSLODFade::clear(); // <FS:Trish/> FSRenderFadeLOD: the old shapes it keeps hold vertex buffers
 
     resetDrawOrders();
 
@@ -4589,6 +4591,8 @@ void LLPipeline::postSort(LLCamera &camera)
         }
     }
     }
+
+    FSLODFade::pushFadingOut(sCull); // <FS:Trish/> FSRenderFadeLOD: old shapes still fading out (main view only)
 
     /*bool use_transform_feedback = gTransformPositionProgram.mProgramObject && !mMeshDirtyGroup.empty();
 

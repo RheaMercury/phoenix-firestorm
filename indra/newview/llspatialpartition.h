@@ -155,6 +155,9 @@ public:
     // <FS:Trish> Fade-in (FSRenderFadeIn): while the faces of this batch are fading into view, when
     // their object's fade began (LLDrawable::mFSFadeStart); -1 for a batch that isn't fading
     F32 mFSFadeStart = -1.f;
+    // FSRenderFadeLOD (fslodfade.h): a batch of an object's old shape, kept after its group was rebuilt
+    // for a new detail level; it fades out from mFSFadeStart as the new batches fade in
+    bool mFSFadeOut = false;
     // </FS:Trish>
     // <FS:Trish> Skin SSS (FSRenderSkinBakesOnly): the faces of this batch are textured with one of the
     // avatar's bakes (Bakes on Mesh: an IMG_USE_BAKED_* diffuse, or PBR base colour), set by registerFace,

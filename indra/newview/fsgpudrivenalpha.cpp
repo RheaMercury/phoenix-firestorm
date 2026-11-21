@@ -523,7 +523,7 @@ namespace
         // fs_fade_hide is set per draw) stay stock
         if (params.mGLTFMaterial.notNull() || !params.mCount || params.mVertexBuffer.isNull() ||
             params.mBlendFuncSrc != LLRender::BF_SOURCE_ALPHA || params.mBlendFuncDst != LLRender::BF_ONE_MINUS_SOURCE_ALPHA ||
-            LLRenderPass::fsFadeInHidden(params) > 0.f)
+            LLRenderPass::fsFadeInHidden(params) != 0.f) // fading in, or out (FSRenderFadeLOD)
         {
             return;
         }

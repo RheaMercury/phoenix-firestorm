@@ -183,6 +183,7 @@ set(viewer_SOURCE_FILES
     fslighterwhilemoving.cpp
     fslinknumbers.cpp
     fslinksetinventoryloader.cpp
+    fslodfade.cpp
     fslslbridge.cpp
     fslslbridgerequest.cpp
     fslslpreproc.cpp
@@ -1129,6 +1130,7 @@ set(viewer_HEADER_FILES
     fslighterwhilemoving.h
     fslinknumbers.h
     fslinksetinventoryloader.h
+    fslodfade.h
     fslslbridge.h
     fslslbridgerequest.h
     fslslpreproc.h

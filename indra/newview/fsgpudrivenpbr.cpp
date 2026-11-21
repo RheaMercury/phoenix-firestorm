@@ -1567,8 +1567,8 @@ namespace
             {
                 reason = R_EMPTY;
             }
-            else if (LLRenderPass::fsFadeInHidden(params) > 0.f)
-            {   // <FS:Trish/> fade-in: its fs_fade_hide uniform is set per batch, the stock way
+            else if (LLRenderPass::fsFadeInHidden(params) != 0.f)
+            {   // <FS:Trish/> fade-in, or out (FSRenderFadeLOD): its fs_fade_hide uniform is set per batch, the stock way
                 reason = R_FADING;
             }
             else

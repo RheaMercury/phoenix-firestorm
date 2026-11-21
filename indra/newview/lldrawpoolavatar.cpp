@@ -74,6 +74,7 @@ static bool is_deferred_render = false;
 static bool is_post_deferred_render = false;
 
 extern bool gUseGLPick;
+extern bool gCubeSnapshot; // <FS:Trish/> FSRenderFadeLOD
 
 F32 CLOTHING_GRAVITY_EFFECT = 0.7f;
 F32 CLOTHING_ACCEL_FORCE_FACTOR = 0.2f;
@@ -914,6 +915,32 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
             }
             avatarp->renderImpostor(avatarp->getMutedAVColor(), sDiffuseChannel);
         }
+        // <FS:Trish> FSRenderFadeLOD: an avatar the rank cut just turned from impostor to fully drawn
+        // keeps its impostor for a moment, dissolving away over it (impostorF.glsl), instead of the
+        // sprite vanishing in one frame. The main view's G-buffer pass only.
+        else if (!impostor && sVertexProgram == &gDeferredImpostorProgram && !LLPipeline::sReflectionRender &&
+                 !LLPipeline::sShadowRender && !LLPipeline::sImpostorRender && !gCubeSnapshot &&
+                 avatarp->mImpostor.isComplete() && LLVOAvatar::AOA_NORMAL == avatarp->getOverallAppearance())
+        {
+            const F32 fade = avatarp->fsImpostorFadeOut();
+            if (fade > 0.f)
+            {
+                static LLStaticHashedString s_impostor_fade("fs_impostor_fade");
+                const U32 num_tex = avatarp->mImpostor.getNumTextures();
+                if (normal_channel > -1 && num_tex >= 3)
+                {
+                    avatarp->mImpostor.bindTexture(2, normal_channel);
+                }
+                if (specular_channel > -1 && num_tex >= 2)
+                {
+                    avatarp->mImpostor.bindTexture(1, specular_channel);
+                }
+                sVertexProgram->uniform1f(s_impostor_fade, fade);
+                avatarp->renderImpostor(avatarp->getMutedAVColor(), sDiffuseChannel);
+                sVertexProgram->uniform1f(s_impostor_fade, 0.f);
+            }
+        }
+        // </FS:Trish>
         return;
     }
 

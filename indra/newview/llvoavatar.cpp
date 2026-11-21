@@ -128,6 +128,7 @@
 #include "fsdiscordconnect.h" // <FS:LO> tapping a place that happens on landing in world to start up discord
 #include "fslslbridge.h" // <FS:PP> Movelock position refresh
 #include "fsparallelavatar.h" // <FS:Trish/> FSPerfParallelAvatarUpdate
+#include "fslodfade.h" // <FS:Trish/> FSRenderFadeLOD
 #include "lfsimfeaturehandler.h"    // <FS:CR> Opensim
 #include "lggcontactsets.h"
 #include "llcontrol.h"
@@ -13156,6 +13157,27 @@ bool LLVOAvatar::shouldImpostor(const F32 rank_factor)
     return mFSRankImpostor;
     // </FS:Trish>
 }
+
+// <FS:Trish> FSRenderFadeLOD: the impostor dissolves away over the avatar now drawn in full, over
+// FSRenderFadeInTime from the moment the rank cut changed (shouldImpostor). Never 0 while it lasts,
+// which the impostor shader reads as "no dissolve".
+F32 LLVOAvatar::fsImpostorFadeOut() const
+{
+    if (mFSRankImpostor || mFSRankImpostorChanged <= 0.0 || !FSLODFade::active())
+    {
+        return 0.f;
+    }
+    static LLCachedControl<F32> fade_time(gSavedSettings, "FSRenderFadeInTime", 0.6f);
+    const F32 duration = fade_time;
+    const F32 elapsed = (F32)(LLFrameTimer::getElapsedSeconds() - mFSRankImpostorChanged);
+    if (duration <= 0.f || elapsed >= duration)
+    {
+        return 0.f;
+    }
+    const F32 x = llmax(elapsed, 0.f) / duration;
+    return llmax(1.f - x * x * (3.f - 2.f * x), 1.e-4f);
+}
+// </FS:Trish>
 
 bool LLVOAvatar::needsImpostorUpdate() const
 {
