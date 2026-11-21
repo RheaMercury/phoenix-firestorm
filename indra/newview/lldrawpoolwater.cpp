@@ -230,24 +230,33 @@ static S32 fs_bind_water_foam(LLGLSLShader* shader, LLRenderTarget& water_dis)
 {
     static LLCachedControl<F32> width(gSavedSettings, "FSRenderWaterFoamWidth", 0.6f);
     static LLCachedControl<F32> strength(gSavedSettings, "FSRenderWaterFoamStrength", 0.8f);
+    static LLCachedControl<bool> detail_setting(gSavedSettings, "FSRenderWaterFoamDetail", true);
     static LLStaticHashedString s_params("fs_foam_params");
     static LLStaticHashedString s_foam_depth("fs_foam_depth");
 
-    if (!fs_water_foam_enabled() || shader->getUniformLocation(s_params) < 0)
+    // fsWaterFoamF.glsl is also linked for the ripples' churned-water foam, which takes the phase
+    // and the detail setting from here with the shoreline foam off too
+    if (shader->getUniformLocation(s_params) < 0)
     {
         return -1;
     }
+    const F32 detail = detail_setting ? 1.f : 0.f;
 
     // Wrapped so the phase keeps its precision; the pattern jumps once an hour
     const F32 phase = (F32)fmod(LLFrameTimer::getElapsedSeconds(), 3600.0);
-    shader->uniform4f(s_params, llclamp((F32)strength, 0.f, 1.f), llclamp((F32)width, 0.05f, 5.f), phase, 0.f);
+    if (!fs_water_foam_enabled())
+    {
+        shader->uniform4f(s_params, 0.f, llclamp((F32)width, 0.05f, 5.f), phase, detail); // no shoreline foam
+        return -1;
+    }
+    shader->uniform4f(s_params, llclamp((F32)strength, 0.f, 1.f), llclamp((F32)width, 0.05f, 5.f), phase, detail);
 
     LLRenderTarget* depth = fs_water_opaque_depth(water_dis);
     const S32 unit = shader->mActiveTextureChannels;
     if (shader->getUniformLocation(s_foam_depth) < 0 || unit >= llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS))
     {
         // no depth to find the shore with: strength 0, or the foam would read whatever the unit holds
-        shader->uniform4f(s_params, 0.f, llclamp((F32)width, 0.05f, 5.f), phase, 0.f);
+        shader->uniform4f(s_params, 0.f, llclamp((F32)width, 0.05f, 5.f), phase, detail);
         return -1;
     }
     shader->uniform1i(s_foam_depth, unit);

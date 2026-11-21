@@ -27617,13 +27617,24 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderWaterFoamStrength</key>
     <map>
       <key>Comment</key>
-      <string>Opacity of the shoreline foam (0 to 1).</string>
+      <string>How much shoreline foam there is (0 to 1): its opacity, and with FSRenderWaterFoamDetail how far the lace spreads from the edge (the edge itself stays dense).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
       <real>0.8</real>
+    </map>
+    <key>FSRenderWaterFoamDetail</key>
+    <map>
+      <key>Comment</key>
+      <string>Draws the shoreline foam and the ripples' churned-water foam as fine lace and bubbles that thin out into strands, instead of a flat white band. Uniforms only, no shader rebuild.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
     </map>
     <key>FSRenderWaterRipples</key>
     <map>

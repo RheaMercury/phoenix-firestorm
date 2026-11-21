@@ -2781,7 +2781,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSRenderWaterCaustics,FSRenderWaterCausticsStrength,FSRenderWaterCausticsScale,FSRenderWaterCausticsSpeed,FSRenderWaterFoam,FSRenderWaterFoamWidth,FSRenderWaterFoamStrength,FSRenderWaterRipples,FSRenderWaterRipplesStrength,FSRenderWaterRipplesSpeed,FSRenderWaterRipplesDamping,FSRenderWaterRipplesSplash,FSRenderWaterRipplesMaxSources,FSRenderWaterRipplesGridSize,FSRenderWaterRipplesResolution,FSRenderWaterRippleFoam,FSRenderWaterRippleFoamStrength,FSRenderWaterWindStrength,FSRenderWaterRippleObstacles,FSRenderWaterRippleObstacleWake,FSRenderWaterRippleWaterline,FSRenderWaterRippleWaterlineStrength,FSRenderSunGlints,FSRenderSunGlintsIntensity,FSRenderSunGlintsDensity,FSRenderWetShore,FSRenderWetShoreStrength,FSRenderWetShoreHeight,FSRenderWetShoreSwell,FSRenderWaterFogVariation,FSRenderWaterFogPatchSize" />
+                         parameter="FSRenderWaterCaustics,FSRenderWaterCausticsStrength,FSRenderWaterCausticsScale,FSRenderWaterCausticsSpeed,FSRenderWaterFoam,FSRenderWaterFoamWidth,FSRenderWaterFoamStrength,FSRenderWaterFoamDetail,FSRenderWaterRipples,FSRenderWaterRipplesStrength,FSRenderWaterRipplesSpeed,FSRenderWaterRipplesDamping,FSRenderWaterRipplesSplash,FSRenderWaterRipplesMaxSources,FSRenderWaterRipplesGridSize,FSRenderWaterRipplesResolution,FSRenderWaterRippleFoam,FSRenderWaterRippleFoamStrength,FSRenderWaterWindStrength,FSRenderWaterRippleObstacles,FSRenderWaterRippleObstacleWake,FSRenderWaterRippleWaterline,FSRenderWaterRippleWaterlineStrength,FSRenderSunGlints,FSRenderSunGlintsIntensity,FSRenderSunGlintsDensity,FSRenderWetShore,FSRenderWetShoreStrength,FSRenderWetShoreHeight,FSRenderWetShoreSwell,FSRenderWaterFogVariation,FSRenderWaterFogPatchSize" />
                     </button>
                     <check_box
                      control_name="FSRenderWaterCaustics"
@@ -2882,7 +2882,20 @@
                      name="fs_fsrenderwaterfoam"
                      tool_tip="EXPERIMENTAL. A soft, moving band of foam where the water meets land, rocks, boats and anything else standing in it, seen from above and below the surface. Needs transparent water."
                      top="2146"
-                     width="475" />
+                     width="200" />
+                    <!-- <FS:Trish> -->
+                    <check_box
+                     control_name="FSRenderWaterFoamDetail"
+                     follows="left|top"
+                     height="20"
+                     label="Detailed foam"
+                     layout="topleft"
+                     left="230"
+                     name="fs_fsrenderwaterfoamdetail"
+                     tool_tip="EXPERIMENTAL. Draws the shoreline foam and the white water of ripple wakes as fine lace and bubbles that thin out into strands and let the water show through, instead of a flat white band. Off gives the flat look of before. A little more GPU time, only on pixels with foam."
+                     top="2146"
+                     width="260" />
+                    <!-- </FS:Trish> -->
                     <text
                      follows="left|top"
                      height="18"

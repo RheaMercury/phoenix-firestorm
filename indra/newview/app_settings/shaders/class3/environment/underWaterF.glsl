@@ -66,6 +66,13 @@ vec2 fsWaterRipples(vec2 view_offset, out float foam);
 #endif
 // </FS:Trish>
 
+// <FS:Trish> Detailed foam (fsWaterFoamF.glsl, linked for the shoreline or the churned-water foam)
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
+#define FS_FOAM_DETAIL
+vec4 fsWaterFoamDetail(vec2 view_offset, float cover, vec2 flow, float footprint);
+#endif
+// </FS:Trish>
+
 vec4 applyWaterFogViewLinearNoClip(vec3 pos, vec4 color);
 
 // Snell's window: from below, light from above the water only gets through within the critical
@@ -122,6 +129,15 @@ void main()
 #endif
     // </FS:Trish>
 
+    // <FS:Trish> Detailed foam: the pixel's size on the water (a derivative, so taken in uniform
+    // control flow) and the tilt of the waves and ripples, which the foam rides
+#ifdef FS_FOAM_DETAIL
+    vec2 fs_foam_fw = fwidth(view.xy);
+    float fs_foam_footprint = max(fs_foam_fw.x, fs_foam_fw.y);
+    vec2 fs_foam_flow = wavef.xy * 0.05;
+#endif
+    // </FS:Trish>
+
     //figure out distortion vector (ripply)
     vec2 distort = screen_tc;
     distort = mix(distort, distort+wavef.xy*refScale, water_mask);
@@ -151,6 +167,11 @@ void main()
     if (foam > 0.0)
     {
         float luma = dot(fb.rgb, vec3(0.2126, 0.7152, 0.0722));
+        // <FS:Trish> Detailed foam: the lace's opacity in place of the plain coverage
+#ifdef FS_FOAM_DETAIL
+        foam = fsWaterFoamDetail(view.xy, foam, fs_foam_flow, fs_foam_footprint).a;
+#endif
+        // </FS:Trish>
         fb.rgb = mix(fb.rgb, vec3(luma * 1.4 + 0.02), foam * 0.7);
     }
 #endif

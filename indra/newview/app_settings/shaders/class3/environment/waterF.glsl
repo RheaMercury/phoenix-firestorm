@@ -122,6 +122,13 @@ float ndcZFromScreenDepth(float d); // <FS:Trish/> FSRenderReverseZ
 float fsWaterFoam(vec2 screen_tc, vec3 pos, vec3 up, vec2 view_offset);
 #endif
 
+// <FS:Trish> Detailed foam (fsWaterFoamF.glsl, linked for the shoreline or the churned-water foam)
+#if defined(FS_WATER_FOAM) || defined(FS_WATER_RIPPLE_FOAM)
+#define FS_FOAM_DETAIL
+vec4 fsWaterFoamDetail(vec2 view_offset, float cover, vec2 flow, float footprint);
+#endif
+// </FS:Trish>
+
 // <FS:Trish> Interactive ripples (fsWaterRipplesF.glsl)
 #ifdef FS_WATER_RIPPLES
 vec2 fsWaterRipples(vec2 view_offset, out float foam);
@@ -222,6 +229,15 @@ void main()
     float fs_ripple_foam = 0.0;
     vec2 fs_ripple_slope = fsWaterRipples(view.xy, fs_ripple_foam);
     wavef.xy -= fs_ripple_slope * wavef.z;
+#endif
+    // </FS:Trish>
+
+    // <FS:Trish> Detailed foam: the pixel's size on the water, taken here before any early return
+    // since it is a derivative, and the tilt of the waves and ripples, which the foam rides
+#ifdef FS_FOAM_DETAIL
+    vec2 fs_foam_fw = fwidth(view.xy);
+    float fs_foam_footprint = max(fs_foam_fw.x, fs_foam_fw.y);
+    vec2 fs_foam_flow = wavef.xy * 0.05;
 #endif
     // </FS:Trish>
 
@@ -409,7 +425,14 @@ void main()
     if (foam > 0.0)
     {
         vec3 foam_light = sunlit_linear * shadow * max(dot(up, normalize(light_dir)), 0.0) + amblit;
+        // <FS:Trish> Detailed foam: lace and bubbles from the coverage, see-through where thin
+#ifdef FS_FOAM_DETAIL
+        vec4 fs_foam = fsWaterFoamDetail(view.xy, foam, fs_foam_flow, fs_foam_footprint);
+        color = mix(color, foam_light * fs_foam.rgb, fs_foam.a);
+#else
         color = mix(color, foam_light * 0.85, foam);
+#endif
+        // </FS:Trish>
     }
 #endif
 

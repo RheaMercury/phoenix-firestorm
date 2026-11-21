@@ -204,6 +204,7 @@ namespace
         { "FSRenderWaterFoam", CL, VM },
         { "FSRenderWaterFoamWidth", CL, VM },
         { "FSRenderWaterFoamStrength", CL, VM },
+        { "FSRenderWaterFoamDetail", CL, VM },
         { "FSRenderWaterRipples", CL, VL },
         { "FSRenderWaterRipplesStrength", CL, VM },
         { "FSRenderWaterRipplesSpeed", CL, VM },
