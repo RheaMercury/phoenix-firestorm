@@ -61,6 +61,7 @@
 #include "llselectmgr.h"
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingShadowCache
+#include "fsshadowcacheoffenders.h" // <FS:Trish/> FSPerfShadowStaticCacheFilter, FSPerfShadowStaticCacheDemote
 // </FS:Beq>
 
 extern bool gShiftFrame;
@@ -319,8 +320,10 @@ void LLSpatialGroup::expandExtents(const LLVector4a* addingExtents, const LLXfor
 // are skipped: their batches are always drawn as dynamic.
 // no_depth_change: a rebuild that moved no vertex (FSPerfShadowStaticCacheStable, see fs_group_moves_vertices)
 // lod_only: a rebuild for detail changes only (FSRenderMovingShadowCache, see fs_group_lod_only)
+// who, kind: what changed, for FSPerfShadowBatchStats and FSPerfShadowStaticCacheDemote (fsshadowcacheoffenders.h)
 static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a* extents, bool no_depth_change = false,
-                                         bool lod_only = false)
+                                         bool lod_only = false, const LLDrawable* who = nullptr,
+                                         FSShadowCacheOffenders::EKind kind = FSShadowCacheOffenders::KIND_UNKNOWN)
 {
     if ((!gPipeline.mFSShadowCacheInUse && !gPipeline.mFSSpotCacheInUse) || !group || !extents)
     {
@@ -330,6 +333,14 @@ static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a
     if (!part || part->isBridge() ||
         (part->mPartitionType != LLViewerRegion::PARTITION_VOLUME && part->mPartitionType != LLViewerRegion::PARTITION_TERRAIN))
     {
+        return;
+    }
+    // FSPerfShadowStaticCacheFilter: a moving object's spatial bridge entering or leaving a static group changes
+    // nothing that is cached: its geometry is drawn with the dynamic casters. The object itself going active or
+    // static again is still noted, as its drawable leaves or joins the group.
+    if (who && who->isSpatialBridge() && FSShadowCacheOffenders::filterEnabled())
+    {
+        FSShadowCacheOffenders::noteBridgeSkipped();
         return;
     }
     // FSRenderMovingShadowCache: the group's size as a caster, before or after the change: the sun cascades leave
@@ -349,7 +360,36 @@ static void fs_note_static_shadow_change(LLSpatialGroup* group, const LLVector4a
             caster_size = FLT_MAX;
         }
     }
+    FSShadowCacheOffenders::setCulprit(who, kind);
     gPipeline.fsNoteShadowStaticChange(extents, no_depth_change, caster_size, lod_only);
+    FSShadowCacheOffenders::clearCulprit();
+}
+
+// The drawable a group rebuild is about, read before the rebuild clears the flags: the first one whose shape,
+// detail or vertices changed, else the first one rebuilt otherwise (colour, texture), else none: the group was
+// rebuilt only because drawables joined or left it (noted on their own as they did)
+static const LLDrawable* fs_group_culprit(LLSpatialGroup* group, FSShadowCacheOffenders::EKind& kind)
+{
+    const LLDrawable* recoloured = nullptr;
+    for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
+    {
+        const LLDrawable* drawablep = (LLDrawable*)(*i)->getDrawable();
+        if (!drawablep || drawablep->isSpatialBridge())
+        {
+            continue;
+        }
+        if (drawablep->isState(LLDrawable::REBUILD_VOLUME | LLDrawable::REBUILD_POSITION))
+        {
+            kind = FSShadowCacheOffenders::KIND_REBUILT;
+            return drawablep;
+        }
+        if (!recoloured && drawablep->isState(LLDrawable::REBUILD_ALL))
+        {
+            recoloured = drawablep;
+        }
+    }
+    kind = recoloured ? FSShadowCacheOffenders::KIND_RECOLOURED : FSShadowCacheOffenders::KIND_REGROUPED;
+    return recoloured;
 }
 
 // FSRenderMovingShadowCache: whether a group rebuild only applies detail changes, read before the rebuild clears the
@@ -428,7 +468,7 @@ bool LLSpatialGroup::addObject(LLDrawable *drawablep)
         return false;
     }
     {
-        fs_note_static_shadow_change(this, drawablep->getSpatialExtents()); // <FS:Trish/>
+        fs_note_static_shadow_change(this, drawablep->getSpatialExtents(), false, false, drawablep, FSShadowCacheOffenders::KIND_ADDED); // <FS:Trish/>
         drawablep->setGroup(this);
         setState(static_cast<U32>(OBJECT_DIRTY) | static_cast<U32>(GEOM_DIRTY));
         setOcclusionState(LLSpatialGroup::DISCARD_QUERY, LLSpatialGroup::STATE_MODE_ALL_CAMERAS);
@@ -456,12 +496,18 @@ void LLSpatialGroup::rebuildGeom()
         LLVector4a fs_before[2];
         bool fs_moves = true; // FSPerfShadowStaticCacheStable
         bool fs_lod_only = false; // FSRenderMovingShadowCache
+        const LLDrawable* fs_who = nullptr; // FSPerfShadowBatchStats, FSPerfShadowStaticCacheFilter
+        FSShadowCacheOffenders::EKind fs_kind = FSShadowCacheOffenders::KIND_UNKNOWN;
         if (fs_geom_dirty)
         {
             fs_before[0] = getObjectExtents()[0];
             fs_before[1] = getObjectExtents()[1];
             fs_moves = fs_group_moves_vertices(this);
             fs_lod_only = fs_group_lod_only(this);
+            if (gPipeline.mFSShadowCacheInUse)
+            {
+                fs_who = fs_group_culprit(this, fs_kind);
+            }
         }
         // </FS:Trish>
         getSpatialPartition()->rebuildGeom(this);
@@ -471,8 +517,14 @@ void LLSpatialGroup::rebuildGeom()
             //fs_note_static_shadow_change(this, getObjectExtents());
             LLVector4a fs_changed[2] = { getObjectExtents()[0], getObjectExtents()[1] };
             // FSPerfShadowStaticCacheStable: no vertex moved, and the bounds are the same
-            const bool fs_no_depth_change = !fs_moves && !fs_before[0].equals3(fs_before[1]) &&
-                                            fs_before[0].equals3(fs_changed[0]) && fs_before[1].equals3(fs_changed[1]);
+            //const bool fs_no_depth_change = !fs_moves && !fs_before[0].equals3(fs_before[1]) &&
+            //                                fs_before[0].equals3(fs_changed[0]) && fs_before[1].equals3(fs_changed[1]);
+            // FSPerfShadowStaticCacheFilter: a rebuild with no drawable of the group changed only re-batches the same
+            // triangles after drawables joined or left the group, which were noted as they did (moving objects'
+            // bridges aren't drawn into the cache): its bounds may have changed, its static depth has not
+            const bool fs_no_depth_change = (!fs_moves && !fs_before[0].equals3(fs_before[1]) &&
+                                             fs_before[0].equals3(fs_changed[0]) && fs_before[1].equals3(fs_changed[1])) ||
+                                            (fs_kind == FSShadowCacheOffenders::KIND_REGROUPED && FSShadowCacheOffenders::filterEnabled());
             if (!fs_before[0].equals3(fs_before[1]))    // a group never built has empty extents
             {
                 fs_changed[0].setMin(fs_before[0], fs_changed[0]);
@@ -481,7 +533,7 @@ void LLSpatialGroup::rebuildGeom()
             //fs_note_static_shadow_change(this, fs_changed);
             // FSRenderMovingShadowCache: detail changes only, with about the same bounds before and after
             fs_lod_only = fs_lod_only && !fs_before[0].equals3(fs_before[1]) && fs_extents_close(fs_before, getObjectExtents());
-            fs_note_static_shadow_change(this, fs_changed, fs_no_depth_change, fs_lod_only);
+            fs_note_static_shadow_change(this, fs_changed, fs_no_depth_change, fs_lod_only, fs_who, fs_kind);
         }
         // </FS:Trish>
 
@@ -500,7 +552,10 @@ void LLSpatialGroup::rebuildMesh()
         if (hasState(LLSpatialGroup::MESH_DIRTY))
         {
             //fs_note_static_shadow_change(this, getObjectExtents());
-            fs_note_static_shadow_change(this, getObjectExtents(), !fs_group_moves_vertices(this)); // FSPerfShadowStaticCacheStable
+            //fs_note_static_shadow_change(this, getObjectExtents(), !fs_group_moves_vertices(this)); // FSPerfShadowStaticCacheStable
+            FSShadowCacheOffenders::EKind fs_kind = FSShadowCacheOffenders::KIND_UNKNOWN;
+            const LLDrawable* fs_who = gPipeline.mFSShadowCacheInUse ? fs_group_culprit(this, fs_kind) : nullptr;
+            fs_note_static_shadow_change(this, getObjectExtents(), !fs_group_moves_vertices(this), false, fs_who, fs_kind); // FSPerfShadowStaticCacheStable
         }
         // </FS:Trish>
         getSpatialPartition()->rebuildMesh(this);
@@ -603,7 +658,7 @@ bool LLSpatialGroup::removeObject(LLDrawable *drawablep, bool from_octree)
         return false;
     }
 
-    fs_note_static_shadow_change(this, drawablep->getSpatialExtents()); // <FS:Trish/> FSPerfShadowStaticCache
+    fs_note_static_shadow_change(this, drawablep->getSpatialExtents(), false, false, drawablep, FSShadowCacheOffenders::KIND_REMOVED); // <FS:Trish/> FSPerfShadowStaticCache
     unbound();
     if (mOctreeNode && !from_octree)
     {

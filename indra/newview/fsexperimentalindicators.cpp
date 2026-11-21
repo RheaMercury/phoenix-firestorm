@@ -387,6 +387,8 @@ namespace
         { "FSPerfShadowStaticCache", CS, VN },
         { "FSPerfShadowStaticCacheSunAngle", CS, VN },
         { "FSPerfShadowStaticCacheStable", CS, VN },
+        { "FSPerfShadowStaticCacheFilter", CS, VN },
+        { "FSPerfShadowStaticCacheDemote", CS, VN },
         { "FSPerfShadowSinglePass", CS, VN },
         { "FSPerfSpotShadowCache", CS, VN },
         { "FSPerfSpotShadowSplit", CS, VN },

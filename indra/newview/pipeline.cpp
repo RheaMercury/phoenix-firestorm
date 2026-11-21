@@ -49,6 +49,7 @@
 #include "fsgputimers.h" // <FS:Trish/> FSRenderGPUTimings
 #include "fsgpuworkdiag.h" // <FS:Trish/> FSDiagnosticsGPUWork
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
+#include "fsshadowcacheoffenders.h" // <FS:Trish/> FSPerfShadowStaticCacheFilter, FSPerfShadowStaticCacheDemote
 #include "llstartup.h"
 #include "llwindow.h"   // swapBuffers()
 
@@ -14923,6 +14924,7 @@ void LLPipeline::fsReleaseShadowCache()
     mFSShadowDirtyChurn.clear();
     mFSShadowDirtySize.clear();
     mFSShadowDirtyLOD.clear();
+    FSShadowCacheOffenders::clearEntries();
     sFSDeferredShadowDirty.clear();
     mFSShadowDirtyAll = false;
     mFSShadowCacheInUse = false;
@@ -14951,6 +14953,7 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
         mFSShadowDirtySize.clear();
         mFSShadowDirtyLOD.clear();
         mFSShadowDirtyAll = false;
+        FSShadowCacheOffenders::reset();
         return;
     }
     mFSShadowCacheInUse = true;
@@ -14960,6 +14963,10 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
     // detail changes wait while the camera moves (see FSDeferredShadowDirty)
     const bool fs_filter = FSMoving::shadowCacheEnabled();
     const bool fs_defer = fs_filter && FSMoving::moving() && !mFSShadowDirtyAll;
+    // FSPerfShadowStaticCacheFilter: the size filter whether moving or not; FSPerfShadowBatchStats and
+    // FSPerfShadowStaticCacheDemote: which object dropped the cache (fsshadowcacheoffenders.cpp)
+    const bool fs_small_filter = fs_filter || FSShadowCacheOffenders::filterEnabled();
+    const bool fs_track = FSShadowCacheOffenders::tracking();
     FSMoving::Stats& motion_stats = FSMoving::stats();
     if (!sFSDeferredShadowDirty.empty())
     {
@@ -14999,6 +15006,10 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
             cache.mInvalidReason = FS_SC_MISS_DIRTY;
             continue;
         }
+        bool fs_dropped = false;    // FSPerfShadowBatchStats: the rest are only attributed
+        // The smaller of the size the map was drawn with and the cascade's size now: a map stored while walking
+        // (twice the size) must still see the changes of casters the still camera's cull draws
+        const F32 fs_min_caster = llmin(cache.mMinCasterSize, sFSCascadeMinCaster[(&cache - mFSShadowCache) + 2]);
         for (size_t i = 0; i + 1 < mFSShadowDirty.size(); i += 2)
         {
             if (stable && i / 2 < mFSShadowDirtyChurn.size() && mFSShadowDirtyChurn[i / 2])
@@ -15007,13 +15018,27 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
             }
             // FSRenderMovingShadowCache: a group too small to cast into the map, before and after the change,
             // can't change it (the cascade cull leaves out whole groups by this size, isShadowCasterTooSmall)
-            if (fs_filter && i / 2 < mFSShadowDirtySize.size() && mFSShadowDirtySize[i / 2] < cache.mMinCasterSize)
+            //if (fs_filter && i / 2 < mFSShadowDirtySize.size() && mFSShadowDirtySize[i / 2] < cache.mMinCasterSize)
+            //if (fs_small_filter && i / 2 < mFSShadowDirtySize.size() && mFSShadowDirtySize[i / 2] < cache.mMinCasterSize)
+            if (fs_small_filter && i / 2 < mFSShadowDirtySize.size() && mFSShadowDirtySize[i / 2] < fs_min_caster)
             {
                 ++motion_stats.mCacheSmallIgnored;
+                if (!fs_dropped)
+                {
+                    FSShadowCacheOffenders::noteSmallIgnored();
+                }
                 continue;
             }
             const LLVector4a& lo = mFSShadowDirty[i];
             const LLVector4a& hi = mFSShadowDirty[i + 1];
+            if (fs_dropped)
+            {
+                if (fs_extents_in_cache(cache.mClip, lo, hi))
+                {
+                    FSShadowCacheOffenders::noteInvalidation(i / 2, lo, hi, i / 2 < mFSShadowDirtySize.size() ? mFSShadowDirtySize[i / 2] : FLT_MAX);
+                }
+                continue;
+            }
             if (fs_extents_in_cache(cache.mClip, lo, hi))
             {
                 // FSRenderMovingShadowCache: a detail change waits while the camera moves
@@ -15031,7 +15056,13 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
                 }
                 cache.mValid = false;
                 cache.mInvalidReason = FS_SC_MISS_DIRTY;
-                break;
+                //break;
+                if (!fs_track)
+                {
+                    break;
+                }
+                FSShadowCacheOffenders::noteInvalidation(i / 2, lo, hi, i / 2 < mFSShadowDirtySize.size() ? mFSShadowDirtySize[i / 2] : FLT_MAX);
+                fs_dropped = true;
             }
         }
     }
@@ -15039,7 +15070,9 @@ void LLPipeline::fsShadowCacheBeginFrame(bool texel_snap)
     mFSShadowDirtyChurn.clear();
     mFSShadowDirtySize.clear();
     mFSShadowDirtyLOD.clear();
+    FSShadowCacheOffenders::clearEntries();
     mFSShadowDirtyAll = false;
+    FSShadowCacheOffenders::update();
 }
 
 LLVector3 LLPipeline::fsShadowCacheLightDir(S32 cascade, const LLVector3& light_dir)
@@ -15267,6 +15300,7 @@ void LLPipeline::fsNoteShadowStaticChange(const LLVector4a* extents, bool no_dep
     mFSShadowDirtySize.push_back(caster_size);
     mFSShadowDirtyLOD.resize(mFSShadowDirty.size() / 2 - 1, 0);
     mFSShadowDirtyLOD.push_back(lod_only ? 1 : 0);
+    FSShadowCacheOffenders::pushEntry(mFSShadowDirty.size() / 2 - 1); // who it was about, one per pair as well
 }
 
 // Called from renderShadow once the cascade's render map is sorted and its matrices are loaded, with the

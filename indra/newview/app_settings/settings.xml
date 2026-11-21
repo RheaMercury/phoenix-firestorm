@@ -27746,6 +27746,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSPerfShadowStaticCacheFilter</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSPerfShadowStaticCache, ignore static geometry changes that can't change the cached far shadows: a moving object's spatial bridge entering or leaving a static octree group (its geometry is drawn with the dynamic casters), the re-batching of a group after objects joined or left it (those are noted on their own; ignored with FSPerfShadowStaticCacheStable), and groups smaller than the cascade's smallest caster (also when FSRenderMovingShadowCache is off). Shadows look the same.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>FSPerfShadowStaticCacheDemote</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSPerfShadowStaticCache, an object that keeps throwing the far shadow cache away (3 times in 10 seconds while the camera is still, from a minute after arriving in a region), or that spins (target omega) or is flexible, is made active as moving objects are: it is then drawn with the dynamic casters every update and no longer invalidates the cache. Once it has been still for a minute (doubling each time it is demoted again, up to 16 minutes) it is made static again. Turning this off makes the demoted objects static again. FSPerfShadowBatchStats logs demotions.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>FSPerfSpotShadowCache</key>
     <map>
       <key>Comment</key>
