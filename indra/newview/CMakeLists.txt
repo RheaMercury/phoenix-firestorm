@@ -226,6 +226,7 @@ set(viewer_SOURCE_FILES
     fsprimfeedauth.cpp
     fsradar.cpp
     fsrenderthread.cpp
+    fsriggedpick.cpp
     fsstallwatch.cpp
     fsasyncfilewriter.cpp
     fsavatarcostlog.cpp
@@ -1170,6 +1171,7 @@ set(viewer_HEADER_FILES
     fsprimfeedauth.h
     fsradar.h
     fsrenderthread.h
+    fsriggedpick.h
     fsstallwatch.h
     fsasyncfilewriter.h
     fsavatarcostlog.h

@@ -10573,7 +10573,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfRenderThreadKeepVAOState" />
+                         parameter="FSPerfRenderThreadKeepVAOState,FSPerfFastRiggedPick" />
                     </button>
                     <check_box
                      control_name="FSPerfRenderThreadKeepVAOState"
@@ -10587,6 +10587,17 @@
                      tool_tip="EXPERIMENTAL. With the render thread on: after a shader build the main thread forgot what it knew of every mesh&apos;s buffers and waited for the render thread once for each on its next draw, thousands of waits in one frame. It now keeps what didn&apos;t change. The picture is the same; if something renders wrongly after changing a shader setting, turn it off."
                      top="2869"
                      width="455" />
+                    <check_box
+                     control_name="FSPerfFastRiggedPick"
+                     follows="left|top"
+                     height="20"
+                     label="Faster clicks on avatars and worn meshes"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsperffastriggedpick"
+                     tool_tip="EXPERIMENTAL. A right click on an avatar or a worn mesh (or the edit tools on one) worked out every vertex of every rigged mesh along the mouse ray, a third of a second over a few detailed avatars. Now only the parts the ray can reach are worked out, parts already worked out for the same pose are reused, and a hovered worn mesh is worked out a few times a second at most. What gets clicked is the same."
+                     top="2891"
+                     width="475" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

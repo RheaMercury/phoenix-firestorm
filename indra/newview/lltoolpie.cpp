@@ -83,6 +83,7 @@
 
 #include "llviewernetwork.h"    // <FS:CR> For prim equivilance hiding
 #include "fstoolhudmove.h"      // <FS:Trish> Ctrl+drag moves a HUD
+#include "fsriggedpick.h" // <FS:Trish/> FSPerfFastRiggedPick
 
 extern bool gDebugClicks;
 
@@ -971,6 +972,7 @@ bool LLToolPie::handleHover(S32 x, S32 y, MASK mask)
                            now >= last_time && now - last_time < 0.1;
         if (!reuse)
         {
+            FSRiggedPickCache::HoverScope fs_hover_pick; // <FS:Trish/> FSPerfFastRiggedPick: hovered rigged faces skinned a few times a second at most
             mHoverPick = gViewerWindow->pickImmediate(x, y, false, pick_rigged);
             last_x = x;
             last_y = y;

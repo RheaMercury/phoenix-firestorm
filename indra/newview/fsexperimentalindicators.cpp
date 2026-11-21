@@ -542,6 +542,7 @@ namespace
         { "FSPerfAudioThrottleChecks", CS, VN },
         { "FSPerfInventoryIdleThrottle", CS, VN },
         { "FSPerfHoverPickThrottle", CS, VN },
+        { "FSPerfFastRiggedPick", CS, VN },
         { "FSPerfRenderThreadKeepVAOState", CS, VN },
         { "FSPerfVertexArrayObjects", CS, VN },
         { "FSPerfDSATextureBinds", CS, VN },

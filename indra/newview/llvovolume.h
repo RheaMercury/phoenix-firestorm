@@ -34,6 +34,7 @@
 #include "lllocalbitmaps.h"
 #include "m3math.h"     // LLMatrix3
 #include "m4math.h"     // LLMatrix4
+#include "fsriggedpick.h" // <FS:Trish/> FSPerfFastRiggedPick
 #include <unordered_map>
 #include <unordered_set>
 
@@ -78,6 +79,7 @@ public:
         bool rebuild_face_octrees = true);
 
     std::string mExtraDebugText;
+    FSRiggedPickCache mFSPick; // <FS:Trish/> FSPerfFastRiggedPick
 };
 
 // Base class for implementations of the volume - Primitive, Flexible Object, etc.

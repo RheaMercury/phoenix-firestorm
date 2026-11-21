@@ -103,6 +103,7 @@
 #include "fsvolumeprebuild.h" // <FS:Trish/> FSPerfThreadedGeometry
 #include "fsgpuocclusion.h" // <FS:Trish/> FSRenderGPUOcclusionCulling
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
+#include "fsriggedpick.h" // <FS:Trish/> FSPerfFastRiggedPick
 
 const F32 FORCE_SIMPLE_RENDER_AREA = 512.f;
 const F32 FORCE_CULL_AREA = 8.f;
@@ -5416,6 +5417,13 @@ bool LLVOVolume::lineSegmentIntersect(const LLVector4a& start, const LLVector4a&
                 continue;
             }
 
+            // <FS:Trish> FSPerfFastRiggedPick: a face the ray can't touch in this pose isn't skinned
+            if (!transform && mRiggedVolume.notNull() && volume == mRiggedVolume.get() && FSRiggedPickCache::enabled() &&
+                mRiggedVolume->mFSPick.canSkip(i, getVolume(), local_start, local_end))
+            {
+                continue;
+            }
+            // </FS:Trish>
             // This calculates the bounding box of the skinned mesh from scratch. It's actually quite expensive, but not nearly as expensive as building a full octree.
             // rebuild_face_octrees = false because an octree for this face will be built later only if needed for narrow phase picking.
             updateRiggedVolume(true, i, false);
@@ -5609,6 +5617,7 @@ void LLRiggedVolume::update(
     if (copy)
     {
         copyVolumeFaces(volume);
+        mFSPick.reset(); // <FS:Trish/> FSPerfFastRiggedPick: nothing skinned is current
     }
     else
     {
@@ -5631,6 +5640,18 @@ void LLRiggedVolume::update(
     U32 maxJoints = LLSkinningUtil::getMeshJointCount(skin);
     LLSkinningUtil::initSkinningMatrixPalette(mat, maxJoints, skin, avatar);
     const LLMatrix4a bind_shape_matrix = skin->mBindShapeMatrix;
+    // <FS:Trish> FSPerfFastRiggedPick: faces already skinned for this pose are kept
+    const bool fs_fast_pick = FSRiggedPickCache::enabled();
+    U64 fs_pose = 0;
+    if (fs_fast_pick)
+    {
+        fs_pose = mFSPick.notePose(mat, maxJoints, bind_shape_matrix, skin, volume);
+    }
+    else
+    {
+        mFSPick.reset(); // what it knew goes stale while off
+    }
+    // </FS:Trish>
 
     S32 rigged_vert_count = 0;
     S32 rigged_face_count = 0;
@@ -5654,6 +5675,19 @@ void LLRiggedVolume::update(
     }
     for (S32 i = face_begin; i < face_end; ++i)
     {
+        // <FS:Trish> FSPerfFastRiggedPick: skinned for this pose already (or, for the mouse-over pick,
+        // recently enough); only an octree asked for and not built for these positions is made
+        if (fs_fast_pick && mFSPick.isSkinned(i, fs_pose))
+        {
+            if (rebuild_face_octrees && !mFSPick.octreeCurrent(i))
+            {
+                mVolumeFaces[i].destroyOctree();
+                mVolumeFaces[i].createOctree();
+                mFSPick.noteOctreeBuilt(i);
+            }
+            continue;
+        }
+        // </FS:Trish>
         const LLVolumeFace& vol_face = volume->getVolumeFace(i);
 
         LLVolumeFace& dst_face = mVolumeFaces[i];
@@ -5757,6 +5791,12 @@ void LLRiggedVolume::update(
                     nd::octree::debug::gOctreeDebug -= 1;
                 // </FS:ND>
             }
+            // <FS:Trish> FSPerfFastRiggedPick
+            if (fs_fast_pick)
+            {
+                mFSPick.noteSkinned(i, fs_pose, rebuild_face_octrees);
+            }
+            // </FS:Trish>
         }
     }
     mExtraDebugText = llformat("rigged %d/%d - box (%f %f %f) (%f %f %f)",
