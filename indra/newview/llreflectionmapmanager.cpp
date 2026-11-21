@@ -63,6 +63,7 @@
 #pragma warning (pop)
 #endif
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingProbeHold
+#include "fsprobeblend.h" // <FS:Trish/> FSRenderProbeRefreshBlend
 
 LLPointer<LLImageGL> gEXRImage;
 
@@ -389,6 +390,8 @@ void LLReflectionMapManager::update()
             res /= 2;
         }
     }
+
+    FSProbeBlend::step(*this); // <FS:Trish/> FSRenderProbeRefreshBlend: running refresh blends
 
     llassert(mProbes[0] == mDefaultProbe);
 
@@ -1559,6 +1562,8 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
     {
         if (isRadiancePass())
         {
+            const bool fs_blend = FSProbeBlend::beginRadiance(*this, probe); // <FS:Trish/> FSRenderProbeRefreshBlend
+
             mMipChain[0].bindTarget();
 
             //generate radiance map (even if this is not the irradiance map, we need the mip chain for the irradiance map)
@@ -1613,6 +1618,13 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
             gRadianceGenProgram.unbind();
             mMipChain[0].flush();
+
+            // <FS:Trish> FSRenderProbeRefreshBlend: the new maps fade in over the next frames
+            if (fs_blend)
+            {
+                FSProbeBlend::endRadiance(*this, probe);
+            }
+            // </FS:Trish>
         }
         else
         {
@@ -1632,6 +1644,8 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 sh_res >>= 1;
                 ++sh_mip;
             }
+
+            const bool fs_blend = FSProbeBlend::beginIrradiance(*this, probe); // <FS:Trish/> FSRenderProbeRefreshBlend
 
             gSHProjectionProgram.bind();
             static LLStaticHashedString sSourceIdx("sourceIdx");
@@ -1655,6 +1669,13 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
             mSHCoeffs.flush();
 
             gSHProjectionProgram.unbind();
+
+            // <FS:Trish> FSRenderProbeRefreshBlend: the new coefficients fade in over the next frames
+            if (fs_blend)
+            {
+                FSProbeBlend::endIrradiance(*this, probe);
+            }
+            // </FS:Trish>
         }
     }
 }
@@ -2118,9 +2139,15 @@ void LLReflectionMapManager::initReflectionMaps()
     U32 probe_resolution = nhpo2(llclamp(ref_probe_res(), (U32)64, (U32)512));
     // No irradiance resolution to size any more: irradiance is nine SH coefficients whatever
     // the environment looks like, so the setting that used to pick a cubemap edge length is gone.
+    // <FS:Trish> FSRenderProbeRefreshBlend: the spare cubes it needs at the end of the array (0 while off)
+    //if (mTexture.isNull() || mReflectionProbeCount != mDynamicProbeCount || mProbeResolution != probe_resolution ||
+    //    !mSHCoeffs.isComplete() || mReset)
+    const U32 fs_extra = FSProbeBlend::extraLayers();
     if (mTexture.isNull() || mReflectionProbeCount != mDynamicProbeCount || mProbeResolution != probe_resolution ||
-        !mSHCoeffs.isComplete() || mReset)
+        !mSHCoeffs.isComplete() || mReset || mTexture->getCount() != mDynamicProbeCount + 2 + fs_extra)
+    // </FS:Trish>
     {
+        FSProbeBlend::cancel(); // <FS:Trish/> the maps it blends are reset or reallocated
         if(mProbeResolution != probe_resolution)
         {
             mRenderTarget.release();
@@ -2140,7 +2167,8 @@ void LLReflectionMapManager::initReflectionMaps()
 
         if (mTexture.isNull() ||
             mTexture->getWidth() != mProbeResolution ||
-            mReflectionProbeCount + 2 != mTexture->getCount())
+            //mReflectionProbeCount + 2 != mTexture->getCount())
+            mReflectionProbeCount + 2 + fs_extra != mTexture->getCount()) // <FS:Trish/> FSRenderProbeRefreshBlend
         {
 #if 0 // Cubemap copy critically flawed and overflows
             if (mTexture)
@@ -2156,7 +2184,10 @@ void LLReflectionMapManager::initReflectionMaps()
 
                 // store mReflectionProbeCount+2 cube maps, final two cube maps are used for render target and radiance map generation
                 // source)
-                mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
+                // <FS:Trish> FSRenderProbeRefreshBlend: and its spare cubes
+                //mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
+                mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2 + fs_extra, true, render_hdr);
+                // </FS:Trish>
             }
         }
 
@@ -2270,6 +2301,7 @@ void LLReflectionMapManager::cleanup()
     // <FS:Trish>
     mRealtimeProbe = nullptr;
     mRealtimeFace = 0;
+    FSProbeBlend::release(); // FSRenderProbeRefreshBlend: its programs, target and the probes it holds
     // </FS:Trish>
 
     if (mUBO != 0)

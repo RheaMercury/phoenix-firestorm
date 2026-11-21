@@ -30544,6 +30544,28 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderProbeRefreshBlend</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. A reflection probe that is retaken blends from its old maps (reflections and ambient light) to the new ones over FSRenderProbeRefreshBlendTime seconds instead of switching at once. Only probes that already had complete maps; never the realtime probe. Needs OpenGL 4.3; uses two more probe cubes. Switching it resets the probes once. Off: as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderProbeRefreshBlendTime</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderProbeRefreshBlend: seconds (0.05 to 2) a refreshed probe takes to blend to its new maps.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.3</real>
+    </map>
     <key>FSRenderShadowBiasMetric</key>
     <map>
       <key>Comment</key>

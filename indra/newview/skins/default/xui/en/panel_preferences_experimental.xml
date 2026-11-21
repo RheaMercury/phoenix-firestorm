@@ -4699,7 +4699,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2338"
+                 height="2390"
                  layout="topleft"
                  left="0"
                  name="experimental_rendering_settings"
@@ -5336,7 +5336,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="FSPerfProbeUpdatePriority,FSPerfProbeSkipUnchanged,FSPerfProbeMaxStaleSeconds,FSPerfProbeSunAngleThreshold,FSPerfProbeRealtimeFacesPerFrame,FSRenderProbeFilterQuality,FSRenderProbeBlendSmooth,FSPerfProbeFastLights,FSPerfProbeReuseIrradiance,FSPerfProbeIrradianceMaxAge,FSPerfProbeSlowSky,FSPerfProbeSkyUnchangedPeriod" />
+                         parameter="FSPerfProbeUpdatePriority,FSPerfProbeSkipUnchanged,FSPerfProbeMaxStaleSeconds,FSPerfProbeSunAngleThreshold,FSPerfProbeRealtimeFacesPerFrame,FSRenderProbeFilterQuality,FSRenderProbeBlendSmooth,FSPerfProbeFastLights,FSPerfProbeReuseIrradiance,FSPerfProbeIrradianceMaxAge,FSPerfProbeSlowSky,FSPerfProbeSkyUnchangedPeriod,FSRenderProbeRefreshBlend,FSRenderProbeRefreshBlendTime" />
                     </button>
                     <check_box
                      control_name="FSPerfProbeUpdatePriority"
@@ -5574,6 +5574,46 @@
                      tool_tip="EXPERIMENTAL. With 'Retake the sky probe less often while the sky is unchanged', seconds between sky probe captures while the sun and sky light stay put."
                      top="1174"
                      width="100" />
+                    <!-- <FS:Trish> FSRenderProbeRefreshBlend -->
+                    <check_box
+                     control_name="FSRenderProbeRefreshBlend"
+                     follows="left|top"
+                     height="20"
+                     label="Blend refreshed reflection probes in smoothly"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderproberefreshblend"
+                     tool_tip="EXPERIMENTAL. When a reflection probe is retaken, blend its new reflections and ambient light in over a moment instead of switching at once, so shiny floors and walls don't jump each time a probe nearby refreshes, or in a wave after the sun moves. Needs OpenGL 4.3. Turning it on or off retakes all probes once."
+                     top="1200"
+                     width="475" />
+                    <text
+                     enabled_control="FSRenderProbeRefreshBlend"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderproberefreshblendtime_label"
+                     tool_tip="EXPERIMENTAL. How long, in seconds, a refreshed reflection probe takes to blend from its old reflections to the new ones."
+                     top="1228"
+                     width="285">
+                        Probe blend time (s)
+                    </text>
+                    <spinner
+                     control_name="FSRenderProbeRefreshBlendTime"
+                     decimal_digits="2"
+                     enabled_control="FSRenderProbeRefreshBlend"
+                     follows="left|top"
+                     height="20"
+                     increment="0.05"
+                     layout="topleft"
+                     left="330"
+                     max_val="2"
+                     min_val="0.05"
+                     name="fs_fsrenderproberefreshblendtime"
+                     tool_tip="EXPERIMENTAL. How long, in seconds, a refreshed reflection probe takes to blend from its old reflections to the new ones."
+                     top="1226"
+                     width="100" />
+                    <!-- </FS:Trish> -->
                     <text
                      follows="left|top"
                      font="SansSerifBold"
@@ -5581,7 +5621,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_shading"
-                     top="1236"
+                     top="1288"
                      width="340">
                         Shading
                     </text>
@@ -5593,7 +5633,7 @@
                      left="370"
                      name="reset_fs_heading_shading"
                      tool_tip="Set every option in &quot;Shading&quot; back to its default value."
-                     top="1235"
+                     top="1287"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5608,7 +5648,7 @@
                      left="15"
                      name="fs_fsrenderspecularocclusion"
                      tool_tip="EXPERIMENTAL. Makes reflections respect ambient occlusion the way a glossy surface really would: reflections inside creases, corners and under objects fade at grazing views, while a reflection looking straight out of an opening stays bright. Works best with Ambient Occlusion enabled or PBR materials that have an occlusion map. Almost no GPU cost."
-                     top="1262"
+                     top="1314"
                      width="475" />
                     <check_box
                      control_name="FSRenderMicroShadows"
@@ -5619,7 +5659,7 @@
                      left="15"
                      name="fs_fsrendermicroshadows"
                      tool_tip="EXPERIMENTAL. Lets the fine detail of normal maps (brick, fabric, bark) shadow itself when the sun or a local light comes in at a low angle, for more depth. Needs ambient occlusion: from Ambient Occlusion or a PBR material's occlusion map. Almost no GPU cost."
-                     top="1288"
+                     top="1340"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5628,7 +5668,7 @@
                      left="35"
                      name="fs_fsrenderspecularocclusionstrength_label"
                      tool_tip="EXPERIMENTAL. 0 keeps the old, plain occlusion of reflections, 1 is the full view-dependent specular occlusion."
-                     top="1316"
+                     top="1368"
                      width="285">
                         Specular occlusion strength
                     </text>
@@ -5645,7 +5685,7 @@
                      min_val="0"
                      name="fs_fsrenderspecularocclusionstrength"
                      tool_tip="EXPERIMENTAL. 0 keeps the old, plain occlusion of reflections, 1 is the full view-dependent specular occlusion."
-                     top="1314"
+                     top="1366"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5654,7 +5694,7 @@
                      left="35"
                      name="fs_fsrendermicroshadowsstrength_label"
                      tool_tip="EXPERIMENTAL. How strongly normal-map detail shadows itself at low light angles. 0 is none."
-                     top="1344"
+                     top="1396"
                      width="285">
                         Micro-shadow strength
                     </text>
@@ -5671,7 +5711,7 @@
                      min_val="0"
                      name="fs_fsrendermicroshadowsstrength"
                      tool_tip="EXPERIMENTAL. How strongly normal-map detail shadows itself at low light angles. 0 is none."
-                     top="1342"
+                     top="1394"
                      width="100" />
                     <!-- <FS:Trish> -->
                     <check_box
@@ -5683,7 +5723,7 @@
                      left="15"
                      name="fs_fsrendermultiscatter"
                      tool_tip="EXPERIMENTAL. Adds back the light that rough PBR surfaces lose between their microscopic facets, for reflections and for the sun and local lights. Rough metals (brushed steel, gold, copper) are up to about 40 % too dark without it; shiny and non-metal surfaces barely change. Changes the look of PBR content. Costs one lookup per light. Changing it rebuilds the shaders."
-                     top="1370"
+                     top="1422"
                      width="475" />
                     <!-- </FS:Trish> -->
                     <text
@@ -5693,7 +5733,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_terrain"
-                     top="1412"
+                     top="1464"
                      width="340">
                         Terrain
                     </text>
@@ -5705,7 +5745,7 @@
                      left="370"
                      name="reset_fs_heading_terrain"
                      tool_tip="Set every option in &quot;Terrain&quot; back to its default value."
-                     top="1411"
+                     top="1463"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5718,7 +5758,7 @@
                      left="15"
                      name="fs_fsrenderterrainantitiling_label"
                      tool_tip="EXPERIMENTAL. Breaks up the visible repetition of the terrain textures, on legacy and PBR terrain. Macro variation: each texture is blended with a copy of itself at a much larger scale, by soft noise, with a slight brightness and hue jitter; one extra texture read per layer. Hex tiling: near the camera the texture is laid out on hexagonal cells, each shifted and turned at random and blended along the texture's own contrast, so no repeat is left to see; three reads per layer for colour and normal, macro variation beyond the distance below. Rebuilds shaders."
-                     top="1438"
+                     top="1490"
                      width="305">
                         Hide texture repetition on terrain
                     </text>
@@ -5730,7 +5770,7 @@
                      left="330"
                      name="fs_fsrenderterrainantitiling"
                      tool_tip="EXPERIMENTAL. Breaks up the visible repetition of the terrain textures, on legacy and PBR terrain. Macro variation: each texture is blended with a copy of itself at a much larger scale, by soft noise, with a slight brightness and hue jitter; one extra texture read per layer. Hex tiling: near the camera the texture is laid out on hexagonal cells, each shifted and turned at random and blended along the texture's own contrast, so no repeat is left to see; three reads per layer for colour and normal, macro variation beyond the distance below. Rebuilds shaders."
-                     top="1436"
+                     top="1488"
                      width="160">
                         <combo_box.item
                          label="Off"
@@ -5752,7 +5792,7 @@
                      left="35"
                      name="fs_fsrenderterrainantitilingstrength_label"
                      tool_tip="EXPERIMENTAL. How strong the terrain anti-tiling is: how much of the large-scale copy and brightness jitter is mixed in, and how far the hex cells are shifted and turned."
-                     top="1466"
+                     top="1518"
                      width="285">
                         Strength
                     </text>
@@ -5769,7 +5809,7 @@
                      min_val="0"
                      name="fs_fsrenderterrainantitilingstrength"
                      tool_tip="EXPERIMENTAL. How strong the terrain anti-tiling is: how much of the large-scale copy and brightness jitter is mixed in, and how far the hex cells are shifted and turned."
-                     top="1464"
+                     top="1516"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5778,7 +5818,7 @@
                      left="35"
                      name="fs_fsrenderterrainantitilinghexdistance_label"
                      tool_tip="EXPERIMENTAL. Hex tiling is used within this distance of the camera, in meters, and macro variation beyond it. Farther costs more GPU time on wide terrain views."
-                     top="1494"
+                     top="1546"
                      width="285">
                         Hex tiling distance (m)
                     </text>
@@ -5795,7 +5835,7 @@
                      min_val="4"
                      name="fs_fsrenderterrainantitilinghexdistance"
                      tool_tip="EXPERIMENTAL. Hex tiling is used within this distance of the camera, in meters, and macro variation beyond it. Farther costs more GPU time on wide terrain views."
-                     top="1492"
+                     top="1544"
                      width="100" />
                     <check_box
                      control_name="FSRenderTerrainAntiTilingNoRotation"
@@ -5807,7 +5847,7 @@
                      left="35"
                      name="fs_fsrenderterrainantitilingnorotation"
                      tool_tip="EXPERIMENTAL. Shift the terrain textures without turning them. For textures with a direction, such as paving, planks, rows of crops or ripples in sand."
-                     top="1520"
+                     top="1572"
                      width="455" />
                     <text
                      follows="left|top"
@@ -5816,7 +5856,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_fade_in"
-                     top="1558"
+                     top="1610"
                      width="340">
                         Fade-in
                     </text>
@@ -5828,7 +5868,7 @@
                      left="370"
                      name="reset_fs_heading_fade_in"
                      tool_tip="Set every option in &quot;Fade-in&quot; back to its default value."
-                     top="1557"
+                     top="1609"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5843,7 +5883,7 @@
                      left="15"
                      name="fs_fsrenderfadein"
                      tool_tip="EXPERIMENTAL. Objects dissolve smoothly into view once they have loaded, the way games fade in streamed scenery, instead of popping in. Applies after login, teleports and when new objects come into range. Attachments and HUDs are not faded. Very little GPU cost."
-                     top="1584"
+                     top="1636"
                      width="475" />
                     <text
                      follows="left|top"
@@ -5852,7 +5892,7 @@
                      left="35"
                      name="fs_fsrenderfadeintime_label"
                      tool_tip="EXPERIMENTAL. How many seconds a new object takes to fade fully into view."
-                     top="1612"
+                     top="1664"
                      width="285">
                         Fade time (seconds)
                     </text>
@@ -5869,7 +5909,7 @@
                      min_val="0.1"
                      name="fs_fsrenderfadeintime"
                      tool_tip="EXPERIMENTAL. How many seconds a new object takes to fade fully into view."
-                     top="1610"
+                     top="1662"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5878,7 +5918,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_local_lights"
-                     top="1652"
+                     top="1704"
                      width="340">
                         Local lights
                     </text>
@@ -5890,7 +5930,7 @@
                      left="370"
                      name="reset_fs_heading_local_lights"
                      tool_tip="Set every option in &quot;Local lights&quot; back to its default value."
-                     top="1651"
+                     top="1703"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -5905,7 +5945,7 @@
                      left="15"
                      name="fs_fsrenderclusteredlights"
                      tool_tip="EXPERIMENTAL. Lights all local point lights in one pass: the screen is cut into tiles and depth slices, and each pixel is lit only by the lights that can reach its slice. Instead of one pass per light, so places with many lights (clubs, events, cities at night) cost much less GPU and CPU time. Lighting should look the same. Projectors and spotlights are unchanged."
-                     top="1678"
+                     top="1730"
                      width="475" />
                     <check_box
                      control_name="FSRenderClusteredLightsDebug"
@@ -5917,7 +5957,7 @@
                      left="35"
                      name="fs_fsrenderclusteredlightsdebug"
                      tool_tip="EXPERIMENTAL. Tints lit surfaces by how many lights their tile and depth slice lists: blue for one, through green to red for 32 or more. For checking where lights pile up; turn it off for normal viewing."
-                     top="1704"
+                     top="1756"
                      width="475" />
                     <check_box
                      control_name="FSRenderPointLightShadows"
@@ -5929,7 +5969,7 @@
                      left="35"
                      name="fs_fsrenderpointlightshadows"
                      tool_tip="EXPERIMENTAL. Short shadows from the brightest local point lights: a lamp on a table now shades the table behind the objects on it, and avatars and furniture block some of a club's lights. Each lit pixel looks along the way to the light, in the depth of the image on screen, so only what is on screen casts and only over a short distance. Lights inside a lamp or bulb mesh still work: the last 20 cm before the light are not searched. Needs clustered local lights; reflections are left out. Rebuilds shaders."
-                     top="1730"
+                     top="1782"
                      width="455" />
                     <text
                      follows="left|top"
@@ -5938,7 +5978,7 @@
                      left="35"
                      name="fs_fsrenderpointlightshadowcount_label"
                      tool_tip="EXPERIMENTAL. How many point lights cast these shadows: the brightest and largest on screen first. Each one costs GPU time where it lights the scene."
-                     top="1758"
+                     top="1810"
                      width="285">
                         Lights with shadows
                     </text>
@@ -5955,7 +5995,7 @@
                      min_val="1"
                      name="fs_fsrenderpointlightshadowcount"
                      tool_tip="EXPERIMENTAL. How many point lights cast these shadows: the brightest and largest on screen first. Each one costs GPU time where it lights the scene."
-                     top="1756"
+                     top="1808"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5964,7 +6004,7 @@
                      left="35"
                      name="fs_fsrenderpointlightshadowlength_label"
                      tool_tip="EXPERIMENTAL. How far from each surface towards the light to look for something in the way, in meters. Longer finds bigger shadows but costs more and misses thin objects."
-                     top="1786"
+                     top="1838"
                      width="285">
                         Shadow reach (m)
                     </text>
@@ -5981,7 +6021,7 @@
                      min_val="0.1"
                      name="fs_fsrenderpointlightshadowlength"
                      tool_tip="EXPERIMENTAL. How far from each surface towards the light to look for something in the way, in meters. Longer finds bigger shadows but costs more and misses thin objects."
-                     top="1784"
+                     top="1836"
                      width="100" />
                     <text
                      follows="left|top"
@@ -5990,7 +6030,7 @@
                      left="35"
                      name="fs_fsrenderpointlightshadowstrength_label"
                      tool_tip="EXPERIMENTAL. How much of the light a shadow takes away: 1 is fully dark."
-                     top="1814"
+                     top="1866"
                      width="285">
                         Shadow strength
                     </text>
@@ -6007,7 +6047,7 @@
                      min_val="0"
                      name="fs_fsrenderpointlightshadowstrength"
                      tool_tip="EXPERIMENTAL. How much of the light a shadow takes away: 1 is fully dark."
-                     top="1812"
+                     top="1864"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6016,7 +6056,7 @@
                      layout="topleft"
                      left="15"
                      name="rendering_heading"
-                     top="1856"
+                     top="1908"
                      width="340">
                         Rendering workarounds
                     </text>
@@ -6028,7 +6068,7 @@
                      left="370"
                      name="reset_rendering_heading"
                      tool_tip="Set every option in &quot;Rendering and diagnostics&quot; back to its default value."
-                     top="1855"
+                     top="1907"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6043,7 +6083,7 @@
                      left="15"
                      name="render_alpha_blend_shadows"
                      tool_tip="Render alpha-blended objects into shadow maps; animated transparent effects may be expensive shadow casters"
-                     top="1879"
+                     top="1931"
                      width="475" />
                     <check_box
                      control_name="RLVaDebugSphereUseOpaqueDepth"
@@ -6054,7 +6094,7 @@
                      left="15"
                      name="rlva_debug_sphere_opaque_depth"
                      tool_tip="Use a pre-alpha depth snapshot so alpha wearables do not punch through the RLVa sphere effect"
-                     top="1907"
+                     top="1959"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableShaderCache"
@@ -6065,7 +6105,7 @@
                      left="15"
                      name="render_amd_disable_shader_cache"
                      tool_tip="Bypass viewer shader binary caching on Windows AMD; restart required"
-                     top="1953"
+                     top="2005"
                      width="475" />
                     <check_box
                      control_name="RenderAMDDisableTextureThreading"
@@ -6076,7 +6116,7 @@
                      left="15"
                      name="render_amd_disable_texture_threading"
                      tool_tip="Force main-thread texture and media uploads on Windows AMD; restart required"
-                     top="1976"
+                     top="2028"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedDirectNormals"
@@ -6087,7 +6127,7 @@
                      left="15"
                      name="render_rigged_direct_normals"
                      tool_tip="Transform rigged mesh normals and tangents as directions; restart required"
-                     top="1999"
+                     top="2051"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedLocalOrigin"
@@ -6098,7 +6138,7 @@
                      left="15"
                      name="render_rigged_local_origin"
                      tool_tip="Test avatar-root-relative rigged mesh skinning; restart required"
-                     top="2022"
+                     top="2074"
                      width="475" />
                     <check_box
                      control_name="RenderRiggedPreciseMath"
@@ -6109,7 +6149,7 @@
                      left="15"
                      name="render_rigged_precise_math"
                      tool_tip="Test precise arithmetic and invariant positions in skinning shaders; restart required and may reduce performance"
-                     top="2045"
+                     top="2097"
                      width="475" />
                     <check_box
                      control_name="RenderGLMultiThreadedTexturesNVIDIA"
@@ -6120,7 +6160,7 @@
                      left="15"
                      name="render_nvidia_threaded_textures"
                      tool_tip="Create textures on a background OpenGL context on NVIDIA GPUs, whatever threaded textures is set to; restart required"
-                     top="2068"
+                     top="2120"
                      width="475" />
                     <!-- <FS:Trish> -->
                     <text
@@ -6130,7 +6170,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_depth"
-                     top="2104"
+                     top="2156"
                      width="340">
                         Depth precision
                     </text>
@@ -6142,7 +6182,7 @@
                      left="370"
                      name="reset_fs_heading_depth"
                      tool_tip="Set every option in &quot;Depth precision&quot; back to its default value."
-                     top="2103"
+                     top="2155"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6157,7 +6197,7 @@
                      left="15"
                      name="fs_fsrenderreversez"
                      tool_tip="EXPERIMENTAL. Stores depth with the near plane at 1 and the far plane at 0 in a 32 bit floating point depth buffer, which keeps depth precise all the way to the draw distance. Removes the flickering where distant surfaces meet (mainland at 500 m and more) and sharpens what reads depth far away: screen-space reflections, ambient occlusion, contact shadows and fog. Shadow maps are unchanged. Needs OpenGL 4.5; stays off on older drivers. Almost no GPU cost. Changing it rebuilds the shaders."
-                     top="2130"
+                     top="2182"
                      width="475" />
                     <text
                      follows="left|top"
@@ -6166,7 +6206,7 @@
                      layout="topleft"
                      left="15"
                      name="fs_heading_taa"
-                     top="2166"
+                     top="2218"
                      width="340">
                         Temporal anti-aliasing
                     </text>
@@ -6178,7 +6218,7 @@
                      left="370"
                      name="reset_fs_heading_taa"
                      tool_tip="Set every option in &quot;Temporal anti-aliasing&quot; back to its default value."
-                     top="2165"
+                     top="2217"
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
@@ -6193,7 +6233,7 @@
                      left="15"
                      name="fs_fsrendertaa"
                      tool_tip="EXPERIMENTAL. Moves the camera by a fraction of a pixel every frame and blends each frame with the ones before it, following the camera's movement and checking depth and the colours around each pixel. Smooths edges, thin geometry, foliage, hair and shimmering highlights far better than FXAA or SMAA, which it replaces while on. Snapshots keep the anti-aliasing chosen in Graphics. Needs HDR. Objects that move by themselves, such as walking avatars, can leave faint trails. About half a millisecond at 1440p. Switching it rebuilds the shaders."
-                     top="2192"
+                     top="2244"
                      width="475" />
                     <text
                      follows="left|top"
@@ -6202,7 +6242,7 @@
                      left="35"
                      name="fs_fsrendertaahistory_label"
                      tool_tip="EXPERIMENTAL. How much of the earlier frames is kept each frame. Higher is smoother and steadier but softer, and moving objects trail longer. 0.9 is a good balance."
-                     top="2220"
+                     top="2272"
                      width="285">
                         History weight
                     </text>
@@ -6219,7 +6259,7 @@
                      min_val="0.5"
                      name="fs_fsrendertaahistory"
                      tool_tip="EXPERIMENTAL. How much of the earlier frames is kept each frame. Higher is smoother and steadier but softer, and moving objects trail longer. 0.9 is a good balance."
-                     top="2218"
+                     top="2270"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6228,7 +6268,7 @@
                      left="35"
                      name="fs_fsrendertaareactive_label"
                      tool_tip="EXPERIMENTAL. How strongly blended transparency, particles and water drop the earlier frames. Higher keeps them free of trails; lower keeps their edges smoother."
-                     top="2246"
+                     top="2298"
                      width="285">
                         Transparency and water response
                     </text>
@@ -6245,7 +6285,7 @@
                      min_val="0.0"
                      name="fs_fsrendertaareactive"
                      tool_tip="EXPERIMENTAL. How strongly blended transparency, particles and water drop the earlier frames. Higher keeps them free of trails; lower keeps their edges smoother."
-                     top="2244"
+                     top="2296"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6254,7 +6294,7 @@
                      left="35"
                      name="fs_fsrendertaasharpness_label"
                      tool_tip="EXPERIMENTAL. Sharpens the anti-aliased image with CAS, to win back the softness of blending frames. While TAA runs it takes the place of the CAS sharpness setting, so the image is sharpened once. 0 turns sharpening off."
-                     top="2272"
+                     top="2324"
                      width="285">
                         Sharpness
                     </text>
@@ -6271,7 +6311,7 @@
                      min_val="0.0"
                      name="fs_fsrendertaasharpness"
                      tool_tip="EXPERIMENTAL. Sharpens the anti-aliased image with CAS, to win back the softness of blending frames. While TAA runs it takes the place of the CAS sharpness setting, so the image is sharpened once. 0 turns sharpening off."
-                     top="2270"
+                     top="2322"
                      width="100" />
                     <text
                      follows="left|top"
@@ -6280,7 +6320,7 @@
                      left="35"
                      name="fs_fsrendertaatexturebias_label"
                      tool_tip="EXPERIMENTAL. Objects, avatars and the classic terrain sample their textures this many mip levels sharper while TAA runs, since the blended frames resolve finer detail than a single frame. Lower is sharper but can shimmer on fine patterns. 0 turns it off. Shadows, reflections, HUDs and the UI are not affected."
-                     top="2298"
+                     top="2350"
                      width="285">
                         Texture detail
                     </text>
@@ -6297,7 +6337,7 @@
                      min_val="-1.5"
                      name="fs_fsrendertaatexturebias"
                      tool_tip="EXPERIMENTAL. Objects, avatars and the classic terrain sample their textures this many mip levels sharper while TAA runs, since the blended frames resolve finer detail than a single frame. Lower is sharper but can shimmer on fine patterns. 0 turns it off. Shadows, reflections, HUDs and the UI are not affected."
-                     top="2296"
+                     top="2348"
                      width="100" />
                     <!-- </FS:Trish> -->
                 </panel>

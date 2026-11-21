@@ -224,6 +224,7 @@ set(viewer_SOURCE_FILES
     fsposestate.cpp
     fsposingmotion.cpp
     fsprimfeedauth.cpp
+    fsprobeblend.cpp
     fsradar.cpp
     fsrenderthread.cpp
     fsriggedpick.cpp
@@ -1169,6 +1170,7 @@ set(viewer_HEADER_FILES
 	fsposestate.h
     fsposingmotion.h
     fsprimfeedauth.h
+    fsprobeblend.h
     fsradar.h
     fsrenderthread.h
     fsriggedpick.h

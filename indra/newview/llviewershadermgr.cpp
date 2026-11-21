@@ -63,6 +63,7 @@
 #include "fsssrhiz.h" // <FS:Trish/>
 #include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 #include "fsshadowdepthfit.h" // <FS:Trish/>
+#include "fsprobeblend.h" // <FS:Trish/> FSRenderProbeRefreshBlend
 #include "fssettingstuner.h" // <FS:Trish/> a measurement starts over on a shader reload
 #include "llviewercamera.h" // <FS:Trish/> height fog: far clip for the sky
 #include "fsshadowsinglepass.h" // <FS:Trish/>
@@ -4588,6 +4589,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         FSSSRHiZ::loadShaders(mShaderLevel[SHADER_DEFERRED]);
         FSSSRBuffer::loadShaders(mShaderLevel[SHADER_DEFERRED]);
         FSShadowDepthFit::loadShaders(); // built on first use
+        FSProbeBlend::loadShaders(); // built on first use (FSRenderProbeRefreshBlend)
     }
     // </FS:Trish>
 

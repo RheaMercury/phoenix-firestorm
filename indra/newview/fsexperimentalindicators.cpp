@@ -334,6 +334,8 @@ namespace
         { "FSPerfProbeRealtimeFacesPerFrame", CM, VM },
         { "FSRenderProbeFilterQuality", CM, VM },
         { "FSRenderProbeBlendSmooth", CL, VM },
+        { "FSRenderProbeRefreshBlend", CL, VM },
+        { "FSRenderProbeRefreshBlendTime", CL, VN },
         { "FSPerfProbeFastLights", CS, VN },
         { "FSPerfProbeReuseIrradiance", CS, VN },
         { "FSPerfProbeIrradianceMaxAge", CL, VN },

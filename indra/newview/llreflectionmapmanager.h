@@ -186,6 +186,7 @@ public:
 private:
     friend class LLPipeline;
     friend class LLHeroProbeManager;
+    friend class FSProbeBlend; // <FS:Trish/> FSRenderProbeRefreshBlend
 
     // initialize mCubeFree array to default values
     void initCubeFree();
