@@ -29,6 +29,7 @@
 // file include
 #include "llpanelcontents.h"
 #include "lltextbox.h" // <FS:Trish/> script summary
+#include "fscontentstypefilter.h" // <FS:Trish/>
 
 // linden library includes
 #include "llerror.h"
@@ -122,6 +123,7 @@ bool LLPanelContents::postBuild()
         });
     }
     // </FS:Trish>
+    mTypeFilter = std::make_unique<FSContentsTypeFilter>(this, mPanelInventoryObject); // <FS:Trish/> "Show:" item type menu
 
     return true;
 }
@@ -307,13 +309,18 @@ void LLPanelContents::onFilterEdit()
     mPanelInventoryObject->getFilter().setFilterSubString(filter_substring);
 }
 
-// <FS:Trish> Script counts under the contents list, refreshed while visible as running state replies arrive
+// <FS:Trish> Script counts under the contents list, refreshed while visible as running state replies arrive,
+// and the "N of M items shown" hint of the filters
 void LLPanelContents::draw()
 {
-    if (mScriptSummary && mScriptSummaryTimer.getElapsedTimeF32() > 0.5f)
+    if ((mScriptSummary || mTypeFilter) && mScriptSummaryTimer.getElapsedTimeF32() > 0.5f)
     {
         mScriptSummaryTimer.reset();
         updateScriptSummary();
+        if (mTypeFilter)
+        {
+            mTypeFilter->updateCount();
+        }
     }
     LLPanel::draw();
 }

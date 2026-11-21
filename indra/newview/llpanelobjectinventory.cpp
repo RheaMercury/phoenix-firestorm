@@ -169,7 +169,10 @@ public:
     virtual void performAction(LLInventoryModel* model, std::string action);
     virtual bool isUpToDate() const { return true; }
     virtual bool hasChildren() const { return false; }
-    virtual LLInventoryType::EType getInventoryType() const { return LLInventoryType::IT_NONE; }
+    // <FS:Trish> Report the item's real type so the Content tab's type filter can sort it
+    //virtual LLInventoryType::EType getInventoryType() const { return LLInventoryType::IT_NONE; }
+    virtual LLInventoryType::EType getInventoryType() const { return mInventoryType; }
+    // </FS:Trish>
     virtual LLWearableType::EType getWearableType() const { return LLWearableType::WT_NONE; }
     virtual LLSettingsType::type_e getSettingsType() const { return LLSettingsType::ST_NONE; }
     virtual EInventorySortGroup getSortGroup() const { return SG_ITEM; }
@@ -821,6 +824,11 @@ public:
     virtual bool canOpenItem() const { return true; }
     virtual void openItem();
     virtual EInventorySortGroup getSortGroup() const { return SG_NORMAL_FOLDER; }
+    // <FS:Trish> Not IT_CATEGORY: the inventory filter would look the folder up in the
+    // agent's inventory and try to fetch it. As "unknown" a folder passes only when every
+    // type is shown, so a narrowed type filter keeps just the folders holding a match.
+    LLInventoryType::EType getInventoryType() const override { return LLInventoryType::IT_UNKNOWN; }
+    // </FS:Trish>
 };
 
 LLTaskCategoryBridge::LLTaskCategoryBridge(

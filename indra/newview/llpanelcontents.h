@@ -37,12 +37,14 @@
 #include "v3math.h"
 #include <boost/signals2/connection.hpp>
 #include "llframetimer.h" // <FS:Trish/> script summary
+#include <memory> // <FS:Trish/> type filter
 
 class LLButton;
 class LLPanelObjectInventory;
 class LLViewerObject;
 class LLCheckBoxCtrl;
 class LLSpinCtrl;
+class FSContentsTypeFilter; // <FS:Trish/>
 
 class LLPanelContents : public LLPanel
 {
@@ -102,6 +104,7 @@ public:
     LLFrameTimer mScriptSummaryTimer;
     void updateScriptSummary();
     // </FS:Trish>
+    std::unique_ptr<FSContentsTypeFilter> mTypeFilter; // <FS:Trish/> "Show:" item type menu
 };
 
 #endif // LL_LLPANELCONTENTS_H

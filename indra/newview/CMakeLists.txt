@@ -119,6 +119,7 @@ set(viewer_SOURCE_FILES
     fscommon.cpp
     fsconsoleutils.cpp
     fscontactsfriendsmenu.cpp
+    fscontentstypefilter.cpp
     fsdata.cpp
     fsdecodedtexturecache.cpp
     fsdroptarget.cpp
@@ -1071,6 +1072,7 @@ set(viewer_HEADER_FILES
     fscommon.h
     fsconsoleutils.h
     fscontactsfriendsmenu.h
+    fscontentstypefilter.h
     fsdata.h
     fsdecodedtexturecache.h
     fsdroptarget.h

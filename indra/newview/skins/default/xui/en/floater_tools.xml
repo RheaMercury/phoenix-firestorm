@@ -3853,17 +3853,47 @@ Low ↔ Lwst
              font="DejaVu"
              font.size="LSmall" />
             <!-- </FS:Trish> -->
+            <!-- <FS:Trish> Item type filter: "Show:" menu and how many items it leaves -->
+            <string name="type_filter_all">Show: All types</string>
+            <string name="type_filter_one">Show: [TYPE]</string>
+            <string name="type_filter_many">Show: [COUNT] types</string>
+            <string name="type_filter_count">[SHOWN] of [TOTAL] items shown</string>
+            <menu_button
+             follows="left|top"
+             height="18"
+             label="Show: All types"
+             layout="topleft"
+             left="10"
+             name="contents_type_filter"
+             tool_tip="Show only some kinds of items in the contents (objects, scripts, notecards and so on). Pick All types to see everything again. Works together with the filter text."
+             top="72"
+             width="130"
+             font="DejaVu"
+             font.size="LSmall" />
+            <text
+             follows="left|top|right"
+             font="DejaVu"
+             font.size="LSmall"
+             height="14"
+             layout="topleft"
+             left="146"
+             name="contents_type_filter_count"
+             top="75"
+             width="139" />
+            <!-- </FS:Trish> -->
+            <!-- <FS:Trish> Room for the type filter row (was top="70" height="309") -->
             <panel_inventory_object
              border="true"
              border_visible="true"
              bevel_style="in"
              follows="left|top|right"
-             height="309"
+             height="285"
              layout="topleft"
              left="10"
              name="contents_inventory"
-             top="70"
+             top="94"
              width="275" />
+            <!-- </FS:Trish> -->
             <!-- <FS:Trish> Script summary -->
             <string name="script_summary">Scripts: [TOTAL] - [RUNNING] running, [STOPPED] stopped</string>
             <string name="script_summary_pending">([PENDING] checking)</string>

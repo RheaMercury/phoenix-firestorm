@@ -20397,6 +20397,17 @@ Change of this parameter will affect the layout of buttons in notification toast
 			<key>Value</key>
 			<integer>0</integer>
 		</map>
+		<key>FSBuildContentFilterTypes</key>
+		<map>
+			<key>Comment</key>
+			<string>Build floater, Content tab: item types shown by the "Show:" menu, one bit each: 1 objects, 2 scripts, 4 notecards, 8 textures, 16 animations, 32 sounds, 64 landmarks, 128 clothing and body parts, 256 materials, 512 gestures, 1024 environment settings, 2048 other. 4095 (or 0) shows everything</string>
+			<key>Persist</key>
+			<integer>1</integer>
+			<key>Type</key>
+			<string>U32</string>
+			<key>Value</key>
+			<integer>4095</integer>
+		</map>
 		<key>FSBuildVerifiedLinkNumbers</key>
 		<map>
 			<key>Comment</key>
