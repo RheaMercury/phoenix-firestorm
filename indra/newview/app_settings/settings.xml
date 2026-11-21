@@ -28167,7 +28167,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderPointLightScatter</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. Local point lights (lanterns, lamps, club lights) glow in the air: the light each one scatters toward the camera along every view ray, in closed form. The look is FSRenderPointLightScatterClassic, FSRenderPointLightScatterAnisotropy and FSRenderPointLightScatterVariation. Drawn into the volumetric projector light's map at its resolution (FSRenderSpotVolumetricResolution) and temporal option, and added to the scene with it. The air is the height fog's when that is on, else FSRenderPointLightScatterDensity. Uses the lights the light pass draws (RenderLocalLightCount, attached lights). Off under water and in snapshots without post effects.</string>
+      <string>EXPERIMENTAL. Local point lights (lanterns, lamps, club lights) glow in the air: the light each one scatters toward the camera along every view ray, in closed form. The look is FSRenderPointLightScatterClassic, FSRenderPointLightScatterAnisotropy, FSRenderPointLightScatterVariation and FSRenderPointLightScatterCoreSoftness. Drawn into the volumetric projector light's map at its resolution (FSRenderSpotVolumetricResolution) and temporal option, and added to the scene with it. The air is the height fog's when that is on, else FSRenderPointLightScatterDensity. Uses the lights the light pass draws (RenderLocalLightCount, attached lights). Off under water and in snapshots without post effects.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -28211,7 +28211,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderPointLightScatterClassic</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. The point light glow's previous look (FSRenderPointLightScatter): a broad ball whose soft core is a share of the light's range, scattered with the projector cones' FSRenderSpotVolumetricAnisotropy, even and round. Off: the natural look, a small bright core the size of a lamp that tapers off like a lamp in mist, dimmed by thick fog, with its own anisotropy (FSRenderPointLightScatterAnisotropy), slow variation in the air (FSRenderPointLightScatterVariation) and less glow right around the camera.</string>
+      <string>EXPERIMENTAL. The point light glow's previous look (FSRenderPointLightScatter): a broad ball whose soft core is a share of the light's range, scattered with the projector cones' FSRenderSpotVolumetricAnisotropy, even and round. Off: the natural look, a glow that tapers off like a lamp in mist (an even, soft centre or a small bright core the size of a lamp, FSRenderPointLightScatterCoreSoftness), dimmed by thick fog, with its own anisotropy (FSRenderPointLightScatterAnisotropy), slow variation in the air (FSRenderPointLightScatterVariation) and less glow right around the camera.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -28240,6 +28240,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <string>F32</string>
       <key>Value</key>
       <real>0.35</real>
+    </map>
+    <key>FSRenderPointLightScatterCoreSoftness</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. How soft the centre of the point light glow's natural look is (FSRenderPointLightScatter), 0 to 1. 1: the glow is an even, soft volume over the light's range, about five times as bright through the light's centre as halfway out and flat in the middle, with no bright dot floating in the air (lights hidden in invisible prims). 0: the earlier lamp-sized core, a sharp bright dot at the light. The glow's total light stays about the same. Not used by the classic look (FSRenderPointLightScatterClassic).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
     </map>
     <key>FSRenderSpecularAA</key>
     <map>

@@ -734,6 +734,7 @@ bool FSClusteredLights::drawScatter(LLRenderTarget& depth_source, LLVertexBuffer
     static LLCachedControl<bool> classic(gSavedSettings, "FSRenderPointLightScatterClassic", false);
     static LLCachedControl<F32> glow_anisotropy(gSavedSettings, "FSRenderPointLightScatterAnisotropy", 0.5f);
     static LLCachedControl<F32> variation(gSavedSettings, "FSRenderPointLightScatterVariation", 0.35f);
+    static LLCachedControl<F32> core_softness(gSavedSettings, "FSRenderPointLightScatterCoreSoftness", 1.f);
 
     LLGLSLShader& shader = gFSPointLightScatterProgram;
     const S32 units = llmin(gGLManager.mNumTextureImageUnits, (S32)LL_NUM_TEXTURE_LAYERS);
@@ -754,7 +755,10 @@ bool FSClusteredLights::drawScatter(LLRenderTarget& depth_source, LLVertexBuffer
         // The classic look keeps the projector cones' anisotropy, as it always had; the natural
         // look has its own
         shader.uniform1f(s_anisotropy, llclamp(classic ? anisotropy : (F32)glow_anisotropy, 0.f, 0.9f));
-        shader.uniform4f(s_scatter_look, classic ? 1.f : 0.f, llclamp((F32)variation, 0.f, 1.f), GLOW_ISOTROPIC, 0.f);
+        // w: the natural look's soft centre, from a lamp-sized core (0) to an even glow with no
+        // bright dot at the light (1)
+        shader.uniform4f(s_scatter_look, classic ? 1.f : 0.f, llclamp((F32)variation, 0.f, 1.f), GLOW_ISOTROPIC,
+                         llclamp((F32)core_softness, 0.f, 1.f));
         if (!classic && variation > 0.f)
         {
             // The air's noise is fixed in the world (it moves with the wind's drift when the wind

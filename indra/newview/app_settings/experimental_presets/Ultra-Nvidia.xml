@@ -430,6 +430,8 @@
     <real>0.5</real>
     <key>FSRenderPointLightScatterClassic</key>
     <boolean>0</boolean>
+    <key>FSRenderPointLightScatterCoreSoftness</key>
+    <real>1.0</real>
     <key>FSRenderPointLightScatterDensity</key>
     <real>0.02</real>
     <key>FSRenderPointLightScatterMaxLights</key>

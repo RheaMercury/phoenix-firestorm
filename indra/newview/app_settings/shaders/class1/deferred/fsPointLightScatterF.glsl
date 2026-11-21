@@ -48,6 +48,10 @@
 //   in world space (drifting with the region's wind when that effect is on) varies the air, so a
 //   halo is never a perfect disc, and the air within a metre or two of the camera scatters less,
 //   so standing in a glow does not wash the screen over.
+//   The soft centre (fs_scatter_look.w, FSRenderPointLightScatterCoreSoftness) widens the core to
+//   a share of the range: a lamp-sized core peaks sharply where the ray passes the light (the
+//   inverse square), a bright dot floating in the air, which looks wrong for the lights builders
+//   hide in invisible prims. With it the glow is an even, soft volume with no dot (see main).
 // - Classic: the previous look, its core a fixed share of the range and with the same total light
 //   as calcLegacyDistanceAttenuation's 2 (1 - r/S)^2 / (1 + falloff)^2 would give.
 
@@ -70,7 +74,8 @@ uniform float vol_anisotropy;           // 0 scatters evenly, toward 1 concentra
 uniform vec4 fs_air_fog;                // height fog: density at its base, falloff per metre, unused, 1 when on
 uniform vec4 fs_air_plane;              // view space up, camera height above the fog's base
 // x: 1 for the classic look, 0 for the natural one; y: the air's variation (0 none, 1 from nothing
-// to twice the density); z: the share of even scattering in the phase function; w: unused
+// to twice the density); z: the share of even scattering in the phase function; w: the natural
+// look's soft centre, 0 a lamp-sized core to 1 a core of FS_GLOW_CORE_SOFT x the range
 uniform vec4 fs_scatter_look;
 uniform vec3 fs_scatter_noise_origin;   // the camera in noise cells, carried back against the wind, wrapped
 uniform vec3 fs_scatter_noise_basis[3]; // the world's east, north and up axes in view space, over the noise cell size
@@ -118,6 +123,24 @@ const float FS_GLOW_CORE_RANGE = 0.03;
 const float FS_GLOW_POWER = 1.0 / 24.0;
 // The air nearer the camera than about this (metres) scatters less: t^2 / (t^2 + d^2)
 const float FS_GLOW_NEAR = 1.5;
+// Soft centre: the core as a share of the range at full softness. Seen through the light's centre
+// the glow is then about 5 times as bright as halfway out (60 to 130 times with the lamp-sized
+// core), flat over the middle tenth of the range, with no dot.
+const float FS_GLOW_CORE_SOFT = 0.4;
+// The wider core also spreads the direction the light comes from (below), which takes some of
+// the forward scattering's light looking into the light: 1 + this x g^2 gives it back (within 8%
+// of the lamp-sized core's total from g = 0 to 0.9)
+const float FS_GLOW_SOFT_FORWARD = 1.1;
+
+// Light of the kernel (1 - x^2)^2 / (x^2 + a^2) over the light's volume, x = r / range and a =
+// core / range: the integral of x^2 (1 - x^2)^2 / (x^2 + a^2) over 0..1, in closed form (divide
+// by x^2 + a^2: a polynomial and A (1 + A)^2 / (x^2 + A), A = a^2)
+float fsGlowKernelVolume(float a)
+{
+    float a2 = a * a;
+    float q = (1.0 + a2) * (1.0 + a2);
+    return 0.2 - (2.0 + a2) / 3.0 + q * (1.0 - a * atan(1.0 / a));
+}
 
 // Hash of a noise cell, wrapped every 256 cells (as fs_scatter_noise_origin is), 0 to 1
 float fsGlowHash(ivec3 cell)
@@ -258,6 +281,25 @@ void main()
             // blended phase function, less within FS_GLOW_NEAR of the camera. The same change of
             // variable as the classic look, with H^2 = core^2 + h^2.
             float core = FS_GLOW_CORE + FS_GLOW_CORE_RANGE * range;
+            // Soft centre: the core grows toward FS_GLOW_CORE_SOFT x the range, so the glow has no
+            // bright dot where the ray passes the light, only an even volume tapering to the
+            // range. The light is spread over the core, so the direction it comes from is too
+            // (the phase function sees the distance to the light widened by the core). norm keeps
+            // the light's total in the air as with the lamp-sized core.
+            float soft = fs_scatter_look.w;
+            float dir_core2 = 0.0;
+            float norm = 1.0;
+            if (soft > 0.0)
+            {
+                float core_lamp = core;
+                core = mix(core_lamp, max(core_lamp, FS_GLOW_CORE_SOFT * range), soft);
+                dir_core2 = soft * soft * core * core;
+                if (core > core_lamp)
+                {
+                    norm = fsGlowKernelVolume(core_lamp / range) / fsGlowKernelVolume(core / range);
+                }
+                norm *= 1.0 + FS_GLOW_SOFT_FORWARD * g * g * soft;
+            }
             float big_h = sqrt(core * core + h2);
             float th0 = atan((t0 - b) / big_h);
             float th1 = atan((t1 - b) / big_h);
@@ -278,11 +320,11 @@ void main()
                     float r = sqrt(r2);
                     float t = b + u;
                     float near_fade = t * t / (t * t + near2);
-                    float p = mix(phase(-u / max(r, 1e-4), g), 1.0, iso);
+                    float p = mix(phase(-u / max(sqrt(r2 + dir_core2), 1e-4), g), 1.0, iso);
                     sum += gauss_w[k] * half_len * win * win * p * exp(-sigma * r) * near_fade;
                 }
             }
-            atten = sum * FS_GLOW_POWER * range2 / big_h * 2.0 / ((1.0 + falloff) * (1.0 + falloff));
+            atten = sum * norm * FS_GLOW_POWER * range2 / big_h * 2.0 / ((1.0 + falloff) * (1.0 + falloff));
         }
         if (atten <= 0.0)
         {
