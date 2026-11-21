@@ -48,6 +48,9 @@ namespace FSTextureRelease
     bool enabled();             // FSTextureReleaseFaceless
     bool active();              // enabled, and not while the moving hold keeps resident textures as they are
     F32 delay();                // FSTextureReleaseFacelessDelay, clamped
+    // While video memory is paging (FSTextureVRAMPagingFloorMB) the shortest delay applies, and
+    // the moving hold doesn't keep faceless textures
+    void setUrgent(bool urgent);
 
     // Called once a frame from LLViewerTexture::updateClass: refills the budget, refreshes the
     // particle source set and logs what was released.

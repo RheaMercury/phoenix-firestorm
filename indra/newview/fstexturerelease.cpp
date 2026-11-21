@@ -49,6 +49,7 @@ namespace
     constexpr F32 LOG_INTERVAL = 30.f;
 
     bool s_active = false;
+    bool s_urgent = false;      // video memory is paging
     F64 s_budget_bytes = 0.0;
     U32 s_frame_count = 0;
 
@@ -74,14 +75,20 @@ bool FSTextureRelease::active()
 F32 FSTextureRelease::delay()
 {
     static LLCachedControl<F32> delay_setting(gSavedSettings, "FSTextureReleaseFacelessDelay", 20.f);
-    return llclamp((F32)delay_setting, 5.f, 300.f);
+    constexpr F32 URGENT_DELAY = 5.f;
+    return s_urgent ? URGENT_DELAY : llclamp((F32)delay_setting, 5.f, 300.f);
+}
+
+void FSTextureRelease::setUrgent(bool urgent)
+{
+    s_urgent = urgent;
 }
 
 void FSTextureRelease::updateClass()
 {
     // While moving with FSRenderMovingTextureBiasHold nothing resident is shrunk (each shrink is a new
     // GL texture); faceless textures wait until the camera is still like the rest
-    s_active = enabled() && !FSMoving::textureBiasHold();
+    s_active = enabled() && (s_urgent || !FSMoving::textureBiasHold());
     s_frame_count = 0;
     if (!s_active)
     {
