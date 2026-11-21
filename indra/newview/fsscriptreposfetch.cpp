@@ -10,6 +10,7 @@
 #include "llcorehttputil.h"
 #include "llhttpconstants.h"
 #include "llsecapi.h"
+#include "llsdjson.h"
 #include "lluri.h"
 
 namespace FSScriptRepos
@@ -20,11 +21,19 @@ namespace
     const std::string TOKEN_ID("default");
     const std::string API_ROOT("https://api.github.com/");
     constexpr unsigned int TRANSFER_TIMEOUT = 300;
+    constexpr int MAX_REDIRECTS = 3;
+    // GitHub's repository size (KB, the packed git data with its history). The zipball is downloaded whole into
+    // memory before its size can be checked, so a repository far over the zip limit is refused before that.
+    constexpr S32 MAX_REPO_KB = 256 * 1024;
+
+    std::string repoPath(const RepoRef& ref)
+    {
+        return API_ROOT + "repos/" + LLURI::escape(ref.owner) + "/" + LLURI::escape(ref.repo);
+    }
 
     std::string apiPath(const RepoRef& ref, const std::string& what, const std::string& arg)
     {
-        return API_ROOT + "repos/" + LLURI::escape(ref.owner) + "/" + LLURI::escape(ref.repo) + "/" + what + "/" +
-            LLURI::escapePathAndData(arg);
+        return repoPath(ref) + "/" + what + "/" + LLURI::escapePathAndData(arg);
     }
 
     std::string header(const LLSD& results, const std::string& name)
@@ -98,6 +107,34 @@ namespace
         LL_INFOS("ScriptRepos") << "GET " << url.substr(0, url.find('?')) << " -> " << response.code << LL_ENDL;
         return response;
     }
+
+    // Follows GitHub's redirects by hand (a renamed repository answers 301, a zipball 302 to codeload.github.com).
+    // Each hop goes through get(), which adds the token only for api.github.com.
+    Response getFollowing(const std::string& url, const std::string& accept, const std::string& redirect_accept)
+    {
+        Response response = get(url, accept);
+        for (int hops = 0; hops < MAX_REDIRECTS &&
+             (response.code == 301 || response.code == 302 || response.code == 307 || response.code == 308); ++hops)
+        {
+            const std::string location = header(response.results, "location");
+            if (location.compare(0, 8, "https://") != 0)
+            {
+                response.code = -1;
+                return response;
+            }
+            response = get(location, location.compare(0, API_ROOT.size(), API_ROOT) == 0 ? accept : redirect_accept);
+        }
+        return response;
+    }
+
+    std::string failure(const Response& response)
+    {
+        if (response.code < 0)
+        {
+            return "GitHub sent an unexpected answer.";
+        }
+        return response.code ? errorFor(response.code, response.results) : "Could not reach GitHub.";
+    }
 }
 
 std::string loadToken()
@@ -138,11 +175,11 @@ void forgetToken()
 FetchResult fetchCommit(const RepoRef& ref)
 {
     FetchResult out;
-    Response response = get(apiPath(ref, "commits", ref.ref.empty() ? "HEAD" : ref.ref),
-        "application/vnd.github.sha");
+    Response response = getFollowing(apiPath(ref, "commits", ref.ref.empty() ? "HEAD" : ref.ref),
+        "application/vnd.github.sha", "application/vnd.github.sha");
     if (response.code != HTTP_OK)
     {
-        out.error = response.code ? errorFor(response.code, response.results) : "Could not reach GitHub.";
+        out.error = failure(response);
         return out;
     }
 
@@ -162,21 +199,33 @@ FetchResult fetchZipball(const RepoRef& ref, const std::string& commit)
 {
     FetchResult out;
     out.commit = commit;
-    Response response = get(apiPath(ref, "zipball", commit), "application/vnd.github+json");
-    for (int hops = 0; hops < 3 && (response.code == 301 || response.code == 302 || response.code == 307); ++hops)
+
+    // The size first: the download itself has no limit until it is complete
+    Response info = getFollowing(repoPath(ref), "application/vnd.github+json", "application/vnd.github+json");
+    if (info.code != HTTP_OK)
     {
-        const std::string location = header(response.results, "location");
-        if (location.compare(0, 8, "https://") != 0)
-        {
-            out.error = "GitHub sent an unexpected answer.";
-            return out;
-        }
-        response = get(location, "application/zip");
+        out.error = failure(info);
+        return out;
+    }
+    boost::system::error_code ec;
+    const boost::json::value json = boost::json::parse(info.body, ec);
+    if (ec || !json.is_object())
+    {
+        out.error = "GitHub sent an unexpected answer.";
+        return out;
+    }
+    const LLSD repo = LlsdFromJson(json);
+    if (repo.has("size") && repo["size"].asInteger() > MAX_REPO_KB)
+    {
+        out.error = llformat("The repository is too large (%d MB).", repo["size"].asInteger() / 1024);
+        return out;
     }
 
+    Response response = getFollowing(apiPath(ref, "zipball", commit), "application/vnd.github+json",
+        "application/zip");
     if (response.code != HTTP_OK)
     {
-        out.error = response.code ? errorFor(response.code, response.results) : "Could not reach GitHub.";
+        out.error = failure(response);
         return out;
     }
     if (response.body.size() > MAX_ZIP_BYTES)
