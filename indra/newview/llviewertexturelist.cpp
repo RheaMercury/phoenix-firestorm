@@ -67,6 +67,7 @@
 #include "llviewertextureanim.h" // <FS:Trish/> animated texture resolution
 #include "llvovolume.h" // <FS:Trish/> animated texture resolution
 #include "fstextureupload.h" // <FS:Trish/> FSPerfTextureUploadPBO
+#include "fstexturerelease.h" // <FS:Trish/> FSTextureReleaseFaceless
 #include "fsparalleltexture.h" // <FS:Trish/> FSPerfParallelTexturePriority
 #include <atomic> // <FS:Trish/> upload encode settings
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval
@@ -1586,13 +1587,25 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     // Entries queued while memory was tight can outlive the pressure. Once VRAM is back under
     // target, release them without the GPU work -- this queue used to keep forcing at least five
     // downscales a frame, past the time budget, for thousands of textures that no longer needed it.
+    // FSTextureReleaseFaceless: textures queued because they are on no face stay queued.
     if (!mDownScaleQueue.empty() && !LLViewerTexture::fsUnderDownscalePressure())
     {
+        image_queue_t keep;
         while (!mDownScaleQueue.empty())
         {
-            mDownScaleQueue.front()->mDownScalePending = false;
+            LLViewerFetchedTexture* image = mDownScaleQueue.front();
+            if (image->mFSFacelessRelease && FSTextureRelease::active())
+            {
+                keep.push(image);
+            }
+            else
+            {
+                image->mDownScalePending = false;
+                image->mFSFacelessRelease = false;
+            }
             mDownScaleQueue.pop();
         }
+        mDownScaleQueue.swap(keep);
     }
     // </FS:Trish>
 
@@ -1630,10 +1643,22 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
                 break;
             }
             // </FS:Trish>
-            if (img && img->getHasGLTexture())
+            // <FS:Trish> FSTextureReleaseFaceless: one back on a face since it was queued is left alone,
+            // and what the others free is counted for the log
+            //if (img && img->getHasGLTexture())
+            //{
+            //    img->scaleDown(image->getDesiredDiscardLevel());
+            //}
+            if (img && img->getHasGLTexture() && !(image->mFSFacelessRelease && image->getTotalNumFaces() > 0))
             {
-                img->scaleDown(image->getDesiredDiscardLevel());
+                const S64 before = img->mTextureMemory.value();
+                if (img->scaleDown(image->getDesiredDiscardLevel()) && image->mFSFacelessRelease)
+                {
+                    FSTextureRelease::noteReleased(before - img->mTextureMemory.value());
+                }
             }
+            image->mFSFacelessRelease = false;
+            // </FS:Trish>
 
             image->mDownScalePending = false;
             mDownScaleQueue.pop();

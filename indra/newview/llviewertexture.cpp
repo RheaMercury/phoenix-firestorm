@@ -59,6 +59,7 @@
 #include "llagent.h" // <FS:Trish/> teleport aware bias hold
 #include "fsdiskthread.h" // <FS:Trish/> FSPerfDiskThread
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderMovingTextureBiasHold
+#include "fstexturerelease.h" // <FS:Trish/> FSTextureReleaseFaceless
 #include <atomic> // <FS:Trish/>
 #include <thread> // <FS:Trish/>
 #include "llface.h"
@@ -546,6 +547,7 @@ void LLViewerTexture::updateClass()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     sCurrentTime = gFrameTimeSeconds;
+    FSTextureRelease::updateClass(); // <FS:Trish/> FSTextureReleaseFaceless
 
     // <FS:Trish> The controller below works on its own state; sDesiredDiscardBias is what the
     // textures see, and it only follows that state in steps (see the end of this function)
@@ -1515,6 +1517,7 @@ void LLViewerTexture::addFace(U32 ch, LLFace* facep)
     facep->setIndexInTex(ch, mNumFaces[ch]);
     mNumFaces[ch]++;
     mHadSceneFaces = true;
+    mFSFacelessSince = -1.f; // <FS:Trish/> FSTextureReleaseFaceless
     mLastFaceListUpdateTimer.reset();
 }
 
@@ -4102,6 +4105,7 @@ void LLViewerLODTexture::processTextureStats()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     updateVirtualSize();
+    const bool fs_release_faceless = fsFacelessReleaseDue(); // <FS:Trish/> FSTextureReleaseFaceless
 
     bool did_downscale = false;
 
@@ -4161,6 +4165,20 @@ void LLViewerLODTexture::processTextureStats()
             LLViewerTexture::fsUnderDownscalePressure())
         {
             scaleDown();
+        }
+        // FSTextureReleaseFaceless: on no face for a while and nothing else uses it, so it goes to its
+        // smallest size whatever the memory pressure. Not counted as shrunk for memory (mFSDownscaleTime):
+        // when it is back on a face it loads again at once.
+        else if (fs_release_faceless &&
+                 getDiscardLevel() < llmin((S32)mDesiredDiscardLevel, mGLTexturep->getMaxDiscardLevel()) &&
+                 FSTextureRelease::takeBudget(getTextureMemory().value()))
+        {
+            mFSFacelessRelease = true;
+            if (!mDownScalePending)
+            {
+                mDownScalePending = true;
+                gTextureList.mDownScaleQueue.push(this);
+            }
         }
         // </FS:Trish>
     }
@@ -4279,6 +4297,56 @@ void LLViewerLODTexture::processTextureStats()
         // </FS:minerjr>> [FIRE-36016]
     }
 }
+
+// <FS:Trish> FSTextureReleaseFaceless
+bool LLViewerFetchedTexture::fsFacelessReleaseDue()
+{
+    if (!FSTextureRelease::enabled() || getType() != LOD_TEXTURE || mBoostLevel != BOOST_NONE || getTotalNumFaces() > 0)
+    {
+        mFSFacelessSince = -1.f;
+        return false;
+    }
+    if (mFSFacelessSince < 0.f)
+    {
+        mFSFacelessSince = sCurrentTime;
+        return false;
+    }
+    const F32 delay = FSTextureRelease::delay();
+    // While moving with the texture bias hold nothing resident is shrunk; the time on no face still counts
+    if (sCurrentTime - mFSFacelessSince < delay || !FSTextureRelease::active())
+    {
+        return false;
+    }
+    // Only scene textures nothing else asks for: never on a face (something else loaded it), sculpt maps,
+    // spot light projections, textures that keep or wait for their image (previews, bakes, callbacks),
+    // fixed size or minimum discard users, GLTF scene materials, parcel media, and those still loading.
+    if (!mHadSceneFaces || mGLTexturep.isNull() || !mGLTexturep->getHasGLTexture() || getDiscardLevel() < 0 ||
+        mDontDiscard || !mUseMipMaps || !getUseDiscard() || mForceToSaveRawImage || needsToSaveRawImage() ||
+        hasCallbacks() || forSculpt() || mKnownDrawWidth || mKnownDrawHeight ||
+        mMinDesiredDiscardLevel <= getMaxDiscardLevel() || !mMaterialList.empty() || hasParcelMedia() ||
+        getNumVolumes(LLRender::LIGHT_TEX) > 0 || getNumVolumes(LLRender::SCULPT_TEX) > 0 ||
+        isFetching() || mCreatePending)
+    {
+        return false;
+    }
+    // Held only by the texture list (and the sweep calling this): LLViewerTextureList deletes it 30 s
+    // after its last other reference went, so shrinking it first is GPU work for nothing
+    if (getNumRefs() <= 3)
+    {
+        return false;
+    }
+    // Drawn, or asked for by something without a face (addTextureStats), within the delay: a HUD-like
+    // or particle use between bursts, an environment or preview use. Particle sources are checked by
+    // texture as well, for bursts further apart than the delay.
+    if (sCurrentTime - mAdditionalStatsTime < delay ||
+        LLImageGL::sLastFrameTime - mGLTexturep->mLastBindTime < delay ||
+        FSTextureRelease::usedByParticles(this))
+    {
+        return false;
+    }
+    return true;
+}
+// </FS:Trish>
 
 bool LLViewerLODTexture::scaleDown()
 {

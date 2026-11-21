@@ -254,6 +254,7 @@ set(viewer_SOURCE_FILES
     fsssrhiz.cpp
     fsspotlightbatch.cpp
     fstaa.cpp
+    fstexturerelease.cpp
     fstoolhudmove.cpp
     fstoolmeasure.cpp
     fsvirtualtrackpad.cpp
@@ -1202,6 +1203,7 @@ set(viewer_HEADER_FILES
     fsssrhiz.h
     fsspotlightbatch.h
     fstaa.h
+    fstexturerelease.h
     fstoolhudmove.h
     fstoolmeasure.h
     fsvirtualtrackpad.h

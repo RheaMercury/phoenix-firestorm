@@ -7705,7 +7705,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="795"
+                 height="845"
                  layout="topleft"
                  left="0"
                  name="experimental_textures_settings"
@@ -8002,7 +8002,7 @@
                      width="120">
                         <button.commit_callback
                          function="FSExperimental.ResetSection"
-                         parameter="RenderTextureMemoryUsageBias,TextureFetchPipelineDiagnostics,FSTextureFetchSelfHeal,FSTexturePriorityHiddenFaces,FSTexturePriorityHiddenGrace,FSTexturePriorityGLTFScale,FSTextureAvatarSmallParts,FSTextureAvatarSmallPartsSize,FSTextureOccludedDiscard,FSTextureBiasRamp,FSTextureMaterialMapReduce,FSTextureMaterialMapDistance" />
+                         parameter="RenderTextureMemoryUsageBias,TextureFetchPipelineDiagnostics,FSTextureFetchSelfHeal,FSTexturePriorityHiddenFaces,FSTexturePriorityHiddenGrace,FSTexturePriorityGLTFScale,FSTextureAvatarSmallParts,FSTextureAvatarSmallPartsSize,FSTextureOccludedDiscard,FSTextureBiasRamp,FSTextureMaterialMapReduce,FSTextureMaterialMapDistance,FSTextureReleaseFaceless,FSTextureReleaseFacelessDelay" />
                     </button>
                     <!-- </FS:Trish> -->
                     <text
@@ -8198,6 +8198,46 @@
                      name="fs_fstexturematerialmapdistance"
                      tool_tip="Surfaces further from the camera than this, in metres, load their normal, specular and metallic-roughness maps one size smaller. 16 matches the distance within which textures get the close-up boost."
                      top="747"
+                     width="100" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> FSTextureReleaseFaceless -->
+                    <check_box
+                     control_name="FSTextureReleaseFaceless"
+                     follows="left|top"
+                     height="20"
+                     label="Release video memory of textures no longer on any surface"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fstexturereleasefaceless"
+                     tool_tip="Textures that have been on no surface for the seconds below, such as those of the region you just teleported from, of objects that went out of view, or kept by a cached material, are shrunk to their smallest size a few at a time instead of holding their video memory until they are dropped or memory runs out. That memory goes to what is in view, so it loads sharper. The UI, HUDs, avatars, the sky, terrain, sculpts, projectors, particles, previews and media keep theirs. A texture that comes back into view loads again as usual."
+                     top="773"
+                     width="475" />
+                    <text
+                     enabled_control="FSTextureReleaseFaceless"
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fstexturereleasefacelessdelay_label"
+                     tool_tip="How long a texture has to be on no surface, and not drawn at all, before its video memory is released. Shorter frees memory sooner after a teleport; longer avoids loading textures again when you turn around and look back."
+                     top="799"
+                     width="285">
+                        Release after this long on no surface (s)
+                    </text>
+                    <spinner
+                     control_name="FSTextureReleaseFacelessDelay"
+                     decimal_digits="0"
+                     enabled_control="FSTextureReleaseFaceless"
+                     follows="left|top"
+                     height="20"
+                     increment="5"
+                     layout="topleft"
+                     left="330"
+                     max_val="300"
+                     min_val="5"
+                     name="fs_fstexturereleasefacelessdelay"
+                     tool_tip="How long a texture has to be on no surface, and not drawn at all, before its video memory is released. Shorter frees memory sooner after a teleport; longer avoids loading textures again when you turn around and look back."
+                     top="797"
                      width="100" />
                     <!-- </FS:Trish> -->
                 </panel>

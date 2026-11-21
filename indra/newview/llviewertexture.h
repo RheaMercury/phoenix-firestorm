@@ -197,6 +197,8 @@ public:
     mutable U32 mFSGDDCacheName = 0;
     mutable U32 mFSGDDCacheState[4] = {};
     mutable U64 mFSGDDCacheHandle = 0;
+    // FSTextureReleaseFaceless: sCurrentTime since it has been on no face, -1 while on one
+    F32 mFSFacelessSince = -1.f;
     // </FS:Trish>
 
 protected:
@@ -482,6 +484,11 @@ public:
 
     bool mCreatePending = false;    // if true, this is in gTextureList.mCreateTextureList
     mutable bool mDownScalePending = false; // if true, this is in gTextureList.mDownScaleQueue
+    // <FS:Trish> FSTextureReleaseFaceless: queued to shrink because it has been on no face for a while,
+    // not for memory pressure, so the queue keeps it when the pressure ends
+    mutable bool mFSFacelessRelease = false;
+    bool fsFacelessReleaseDue();
+    // </FS:Trish>
     F32 mFSDownscaleTime = -1000.f; // <FS:Trish/> sCurrentTime when it was last queued to shrink (sFSHoldSharpening)
 
     // <FS:Techwolf Lupindo> texture comment decoder

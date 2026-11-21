@@ -442,6 +442,8 @@ namespace
         { "FSTextureBiasRamp", CL, VL },
         { "FSTextureMaterialMapReduce", CS, VM },
         { "FSTextureMaterialMapDistance", CS, VN },
+        { "FSTextureReleaseFaceless", CS, VL },
+        { "FSTextureReleaseFacelessDelay", CS, VN },
 
         // Avatar
         { "FSExperimentalRepairAnimations", CL, VN },

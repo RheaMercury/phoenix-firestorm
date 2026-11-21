@@ -497,6 +497,10 @@ namespace
             void add(F64 mb) { mMB += mb; ++mCount; }
         };
         Bucket all, visible, visible_alpha_only, hidden, off_screen, no_faces, maps_only, full_size, wants_sharper;
+        // What holds the textures on no face (FSTextureReleaseFaceless): already at their smallest size, only
+        // the texture list (dropped 30 s after the last other reference went), sculpt maps or projectors,
+        // drawn without a face lately, held by something else (cached materials, objects not built yet)
+        Bucket nf_smallest, nf_unreferenced, nf_volumes, nf_drawn, nf_held;
         const U32 MAX_FACES = 256;  // per texture; a texture on more is called visible
 
         const LLViewerCamera::eCameraID saved_camera = LLViewerCamera::sCurCameraID;
@@ -567,6 +571,27 @@ namespace
             if (!any_face)
             {
                 no_faces.add(mb);   // sculpt maps, textures of objects gone, or only on avatars and particles
+                const LLImageGL* gl = imagep->getGLTexture();
+                if (gl && imagep->getDiscardLevel() >= gl->getMaxDiscardLevel())
+                {
+                    nf_smallest.add(mb);
+                }
+                else if (imagep->getNumRefs() <= 2)    // the image list and the UUID map
+                {
+                    nf_unreferenced.add(mb);
+                }
+                else if (imagep->getNumVolumes(LLRender::SCULPT_TEX) > 0 || imagep->getNumVolumes(LLRender::LIGHT_TEX) > 0)
+                {
+                    nf_volumes.add(mb);
+                }
+                else if (gl && gl->getBoundRecently())
+                {
+                    nf_drawn.add(mb);
+                }
+                else
+                {
+                    nf_held.add(mb);
+                }
                 continue;
             }
             if (!colour)
@@ -593,11 +618,15 @@ namespace
         LLViewerCamera::sCurCameraID = saved_camera;
 
         return llformat("Textures (unboosted): %.0f MB in %u; on a visible face %.0f MB in %u (of which only on alpha faces %.0f MB in %u), "
-                        "in view but only in occluded groups %.0f MB in %u, off screen %.0f MB in %u, on no face %.0f MB in %u; "
+                        "in view but only in occluded groups %.0f MB in %u, off screen %.0f MB in %u, on no face %.0f MB in %u "
+                        "(at their smallest %.0f MB in %u, only in the texture list %.0f MB in %u, sculpts and projectors %.0f MB in %u, "
+                        "drawn lately %.0f MB in %u, held elsewhere %.0f MB in %u); "
                         "normal/specular/PBR maps without a colour use %.0f MB in %u; at full size %.0f MB in %u; "
                         "wanting a sharper level %.0f MB in %u; discard bias %.2f",
                         all.mMB, all.mCount, visible.mMB, visible.mCount, visible_alpha_only.mMB, visible_alpha_only.mCount,
                         hidden.mMB, hidden.mCount, off_screen.mMB, off_screen.mCount, no_faces.mMB, no_faces.mCount,
+                        nf_smallest.mMB, nf_smallest.mCount, nf_unreferenced.mMB, nf_unreferenced.mCount, nf_volumes.mMB, nf_volumes.mCount,
+                        nf_drawn.mMB, nf_drawn.mCount, nf_held.mMB, nf_held.mCount,
                         maps_only.mMB, maps_only.mCount, full_size.mMB, full_size.mCount, wants_sharper.mMB, wants_sharper.mCount,
                         LLViewerTexture::sDesiredDiscardBias);
     }
