@@ -1177,7 +1177,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="4856"
+                 height="4942"
                  layout="topleft"
                  left="0"
                  name="experimental_effects_settings"
@@ -4867,6 +4867,42 @@
                      tool_tip="EXPERIMENTAL. Number of aperture blades: the shape of the ghosts and the number of starburst spikes (an even number makes as many spikes, an odd number twice as many). Below 3 is a round aperture, with round ghosts and no spikes."
                      top="4814"
                      width="100" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_sun_reflections"
+                     top="4874"
+                     width="340">
+                        Sun reflections
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_sun_reflections"
+                     tool_tip="Set every option in &quot;Sun reflections&quot; back to its default value."
+                     top="4873"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderSunDiscSpecular" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderSunDiscSpecular"
+                     follows="left|top"
+                     height="20"
+                     label="Sun reflections show the disc of the sun"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrendersundiscspecular"
+                     tool_tip="EXPERIMENTAL. The reflection of the sun on smooth surfaces and water is the disc of the sun, with a crisp edge and the right brightness, instead of a widened point. On water the highlight also widens with distance so it does not sparkle into noise, and keeps its colour where it is limited."
+                     top="4900"
+                     width="475" />
                 </panel>
             </scroll_container>
         </panel>

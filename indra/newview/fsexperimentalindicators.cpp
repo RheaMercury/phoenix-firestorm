@@ -298,6 +298,7 @@ namespace
         { "FSRenderSpecularAA", CL, VM },
         { "FSRenderSpecularAAStrength", CL, VM },
         { "FSRenderSpecularAAThreshold", CL, VM },
+        { "FSRenderSunDiscSpecular", CL, VM },
         { "FSRenderAlphaCoverage", CL, VM },
         { "FSRenderAlphaCoverageStrength", CL, VM },
         { "FSRenderTerrainAntiTiling", CM, VM },

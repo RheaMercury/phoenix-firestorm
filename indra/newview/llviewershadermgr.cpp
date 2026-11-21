@@ -5301,6 +5301,11 @@ void LLViewerShaderMgr::uploadValueUniforms(LLGLSLShader& shader)
     shader.uniform1f(sTriplanarFactor, (F32)ll_round((F32)triplanar_factor * 100.f) / 100.f);
     fs_upload_shading_occlusion(shader);
 
+    // FSRenderSunDiscSpecular: the sun's specular lobe from its disc (fsSunDiscPunctual in deferredUtil.glsl)
+    static LLCachedControl<bool> sun_disc_spec(gSavedSettings, "FSRenderSunDiscSpecular", false);
+    static LLStaticHashedString sSunDiscSpec("fs_sun_disc_spec");
+    shader.uniform1f(sSunDiscSpec, sun_disc_spec ? 1.f : 0.f);
+
     // FSRenderAlphaCoverage: alpha gained per mip level in the alpha masked shaders
     if (LLGLSLShader::sGlobalDefines.count("FS_ALPHA_COVERAGE"))
     {

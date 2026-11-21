@@ -58,6 +58,12 @@ void pbrPunctual(vec3 diffuseColor, vec3 specularColor,
                     out vec3 diff,
                     out vec3 spec);
 
+// <FS:Trish> FSRenderSunDiscSpecular (deferredUtil.glsl)
+uniform float fs_sun_disc_spec;
+void fsSunDiscPunctual(vec3 diffuseColor, vec3 specularColor, float perceptualRoughness, float metallic,
+                       vec3 n, vec3 v, vec3 l, out float nl, out vec3 diff, out vec3 spec);
+// </FS:Trish>
+
 uniform sampler2D bumpMap;
 uniform sampler2D bumpMap2;
 uniform float     blend_factor;
@@ -378,9 +384,39 @@ void main()
     vec3 diffPunc = vec3(0);
     vec3 specPunc = vec3(0);
 
-    pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, normalize(wavef+up*max(dist, 32.0)/32.0*(1.0-vdu)), v, normalize(light_dir), nl, diffPunc, specPunc);
-
-    vec3 punctual = clamp(nl * (diffPunc + specPunc), vec3(0), vec3(10)) * sunlit_linear * shadow * atten;
+    // <FS:Trish> FSRenderSunDiscSpecular
+    //pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, normalize(wavef+up*max(dist, 32.0)/32.0*(1.0-vdu)), v, normalize(light_dir), nl, diffPunc, specPunc);
+    //
+    //vec3 punctual = clamp(nl * (diffPunc + specPunc), vec3(0), vec3(10)) * sunlit_linear * shadow * atten;
+    vec3 fs_sun_n = normalize(wavef+up*max(dist, 32.0)/32.0*(1.0-vdu));
+    vec3 punctual;
+    if (fs_sun_disc_spec > 0.0)
+    {
+        // The sun's disc on the waves. A wave normal that turns a lot from one pixel to the next
+        // would catch the disc in one pixel and miss it in the next, a sparkle of single pixels
+        // that TAA cannot settle; the lobe is widened by how much it turns (Tokuyoshi and
+        // Kaplanyan 2019, as fsSpecularAAF), so the far water keeps a steady glitter path and the
+        // near water a crisp disc. The derivatives are taken in uniform control flow (the branch
+        // is on a uniform).
+        vec3 fs_dx = dFdx(fs_sun_n);
+        vec3 fs_dy = dFdy(fs_sun_n);
+        float fs_alpha = max(perceptualRoughness, 0.045); // MIN_PBR_ROUGHNESS
+        fs_alpha *= fs_alpha;
+        float fs_alpha2 = fs_alpha * fs_alpha + min(0.5 * (dot(fs_dx, fs_dx) + dot(fs_dy, fs_dy)), 0.18);
+        fsSunDiscPunctual(diffuseColor, specularColor, sqrt(sqrt(fs_alpha2)), metallic, fs_sun_n, v, normalize(light_dir), nl, diffPunc, specPunc);
+        // Limited as before, but by the largest channel, so a bright glint keeps the sun's colour
+        // instead of turning toward white or yellow as each channel clips on its own
+        vec3 fs_sun = max(nl * (diffPunc + specPunc), vec3(0));
+        float fs_peak = max(fs_sun.r, max(fs_sun.g, fs_sun.b));
+        fs_sun *= fs_peak > 10.0 ? 10.0 / fs_peak : 1.0;
+        punctual = fs_sun * sunlit_linear * shadow * atten;
+    }
+    else
+    {
+        pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, fs_sun_n, v, normalize(light_dir), nl, diffPunc, specPunc);
+        punctual = clamp(nl * (diffPunc + specPunc), vec3(0), vec3(10)) * sunlit_linear * shadow * atten;
+    }
+    // </FS:Trish>
     radiance *= df2.y;
     //radiance = toneMapNoExposure(radiance);
     vec3 color = vec3(0);

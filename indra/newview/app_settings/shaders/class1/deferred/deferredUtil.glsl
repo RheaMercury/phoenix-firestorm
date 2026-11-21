@@ -1101,6 +1101,47 @@ void calcDiffuseSpecular(vec3 baseColor, float metallic, inout vec3 diffuseColor
     specularColor = mix(f0, baseColor, metallic);
 }
 
+// <FS:Trish> FSRenderSunDiscSpecular: the sun's specular lobe from its disc rather than its centre
+// (Karis 2013, "Real Shading in Unreal Engine 4", the representative point of a sphere light).
+//
+// sunDiscRoughness above widens the lobe instead, which gives a smooth surface a soft blob with a
+// long tail rather than the sun's own sharp edged disc. Here the lobe is lit from the point of
+// the disc closest to the mirror direction: wherever the mirror direction falls inside the disc
+// the highlight is at its peak, so a polished floor shows a disc of the sun's size with a crisp
+// edge. The peak is scaled by (alpha / alpha')^2, alpha' = alpha + half the disc's angular radius,
+// the width the disc adds in half vector space, so the highlight carries the energy of the sun
+// and no more: no blown out pixel for TAA to smear into a flickering blob. Diffuse and N.L stay
+// those of the sun's centre. 1 when on (LLViewerShaderMgr::uploadValueUniforms), 0 leaves
+// pbrBaseLight exactly as it was.
+uniform float fs_sun_disc_spec;
+
+void fsSunDiscPunctual(vec3 diffuseColor, vec3 specularColor, float perceptualRoughness, float metallic,
+                       vec3 n, vec3 v, vec3 l, out float nl, out vec3 diff, out vec3 spec)
+{
+    // The real sun, 0.27 degrees in radius, as sunDiscRoughness
+    const float SIN_R = 0.00465;
+    const float COS_R = 0.9999892;
+
+    vec3 unused_spec;
+    pbrPunctual(diffuseColor, specularColor, sunDiscRoughness(perceptualRoughness), metallic, n, v, l, nl, diff, unused_spec);
+
+    vec3 r = reflect(-v, n);
+    float lr = dot(l, r);
+    vec3 off = r - lr * l;
+    float off_len = length(off);
+    vec3 ld = (lr < COS_R && off_len > 1e-6) ? normalize(COS_R * l + off * (SIN_R / off_len)) : r;
+
+    float unused_nl;
+    vec3 unused_diff;
+    pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n, v, ld, unused_nl, unused_diff, spec);
+
+    float alpha = max(perceptualRoughness, MIN_PBR_ROUGHNESS);
+    alpha *= alpha;
+    float keep = alpha / (alpha + 0.5 * SIN_R);
+    spec *= keep * keep;
+}
+// </FS:Trish>
+
 // micro: normal-map micro-shadow factor for the sun (fsMicroShadow), kept apart from scol
 // because the classic branch spends scol twice and the micro-shadow must apply once.
 vec3 pbrBaseLight(vec3 diffuseColor, vec3 specularColor, float metallic, vec3 v, vec3 norm, float perceptualRoughness, vec3 light_dir, vec3 sunlit, float scol, vec3 radiance, vec3 irradiance, vec3 colorEmissive, float ao, vec3 additive, vec3 atten, float micro)
@@ -1122,7 +1163,17 @@ vec3 pbrBaseLight(vec3 diffuseColor, vec3 specularColor, float metallic, vec3 v,
     // The sun is a disc, not a delta light. Widening its lobe by the disc's own angular size
     // is what gives a polished surface a sun highlight with a real edge, and is why
     // MIN_PBR_ROUGHNESS no longer has to invent one for every light at once.
-    pbrPunctual(diffuseColor, specularColor, sunDiscRoughness(perceptualRoughness), metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
+    // <FS:Trish> FSRenderSunDiscSpecular
+    //pbrPunctual(diffuseColor, specularColor, sunDiscRoughness(perceptualRoughness), metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
+    if (fs_sun_disc_spec > 0.0)
+    {
+        fsSunDiscPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
+    }
+    else
+    {
+        pbrPunctual(diffuseColor, specularColor, sunDiscRoughness(perceptualRoughness), metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
+    }
+    // </FS:Trish>
 
     // Depending on the sky, we combine these differently.
     if (classic_mode > 0)
