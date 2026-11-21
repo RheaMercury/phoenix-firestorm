@@ -9038,7 +9038,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="2845"
+                 height="2960"
                  layout="topleft"
                  left="0"
                  name="experimental_performance_settings"
@@ -10548,6 +10548,45 @@
                      tool_tip="With the render thread on: hidden-object test results are read from what the render thread has already collected, never with a read that makes the main thread wait for it. A test it no longer tracks (after a shader build) isn&apos;t waited for: its objects show until a new test answers, which can cost a little more drawing for a frame. Off: as before."
                      top="2801"
                      width="475" />
+                    <!-- </FS:Trish> -->
+                    <!-- <FS:Trish> Hitches -->
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="perf_heading_hitches"
+                     top="2843"
+                     width="340">
+                        Hitches
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_perf_heading_hitches"
+                     tool_tip="Set every option in &quot;Hitches&quot; back to its default value."
+                     top="2842"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSPerfRenderThreadKeepVAOState" />
+                    </button>
+                    <check_box
+                     control_name="FSPerfRenderThreadKeepVAOState"
+                     enabled_control="FSRenderThread"
+                     follows="left|top"
+                     height="20"
+                     label="Keep render thread state over shader builds"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsperfrenderthreadkeepvaostate"
+                     tool_tip="EXPERIMENTAL. With the render thread on: after a shader build the main thread forgot what it knew of every mesh&apos;s buffers and waited for the render thread once for each on its next draw, thousands of waits in one frame. It now keeps what didn&apos;t change. The picture is the same; if something renders wrongly after changing a shader setting, turn it off."
+                     top="2869"
+                     width="455" />
                     <!-- </FS:Trish> -->
                 </panel>
             </scroll_container>

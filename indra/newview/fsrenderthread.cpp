@@ -238,6 +238,8 @@ namespace FSRenderThread
         FSGLStream::setFilter(filter);
         static LLCachedControl<bool> call_stats(gSavedSettings, "FSRenderThreadCallStats", false);
         FSGLStream::setCallStats(call_stats);
+        static LLCachedControl<bool> keep_vao_state(gSavedSettings, "FSPerfRenderThreadKeepVAOState", false);
+        FSGLStream::setKeepVAOState(keep_vao_state);
 
         ++sFrames;
         sFrameSeconds += sFrameTimer.getElapsedTimeAndResetF64();

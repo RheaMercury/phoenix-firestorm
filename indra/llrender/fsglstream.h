@@ -148,6 +148,10 @@ namespace FSGLStream
     // stats lines (off by default: a few ns on every recorded call). Main thread.
     void setCallStats(bool on);
 
+    // FSPerfRenderThreadKeepVAOState: keep what is known of the vertex arrays' element buffers over a
+    // DirectScope instead of learning it again with a synchronous draw from each (off by default). Main thread.
+    void setKeepVAOState(bool on);
+
     // Kinds of GL objects counted for the stats line
     enum EObjKind
     {

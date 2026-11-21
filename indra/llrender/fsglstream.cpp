@@ -1168,6 +1168,18 @@ namespace
     Shadow sSh;     // main thread
     bool sCoreProfile = false;  // main thread: no client-side vertex arrays in this context
 
+    // FSPerfRenderThreadKeepVAOState: what the shadow knows of each vertex array's element buffer is kept
+    // over a DirectScope. Reading the state again afterwards used to forget it for every vertex array, so
+    // the first indexed draw from each (thousands after a shader reload) ran synchronously to learn it again
+    // ("FS Wait GL Sync" thousands of times in one frame). While the main thread calls GL directly, only
+    // what can change a vertex array's element buffer is noted, and those vertex arrays are forgotten.
+    bool sKeepVAOState = false;                 // main thread: the setting
+    thread_local bool tDirectScope = false;     // main thread inside a DirectScope that paused recording
+    std::vector<GLuint> sDirectTouched;         // vertex arrays whose element buffer may have changed
+    GLuint sDirectVAO = 0;                      // the vertex array bound while direct
+    bool sDirectVAOKnown = false;
+    bool sDirectLostAll = false;                // an element buffer bound with the vertex array unknown
+
     U32 bufferGen(GLuint buffer)
     {
         if (buffer == 0)
@@ -1769,7 +1781,22 @@ namespace
     FSGL_BEGIN(glBindBuffer)
         static void APIENTRY call(GLenum target, GLuint buffer)
         {
-            if (!tRecording) { P::passthrough(target, buffer); return; }
+            if (!tRecording)
+            {
+                if (tDirectScope && target == GL_ELEMENT_ARRAY_BUFFER)
+                {   // FSPerfRenderThreadKeepVAOState: the bound vertex array's element buffer changes
+                    if (sDirectVAOKnown)
+                    {
+                        sDirectTouched.push_back(sDirectVAO);
+                    }
+                    else
+                    {
+                        sDirectLostAll = true;
+                    }
+                }
+                P::passthrough(target, buffer);
+                return;
+            }
             if (target == GL_ELEMENT_ARRAY_BUFFER)
             {
                 if (sSh.mVAOOk)
@@ -1803,7 +1830,16 @@ namespace
     FSGL_BEGIN(glBindVertexArray)
         static void APIENTRY call(GLuint vao)
         {
-            if (!tRecording) { P::passthrough(vao); return; }
+            if (!tRecording)
+            {
+                if (tDirectScope)
+                {
+                    sDirectVAO = vao;
+                    sDirectVAOKnown = true;
+                }
+                P::passthrough(vao);
+                return;
+            }
             if (sFilter && (sSh.mVAOOk && sSh.mVAO == vao))
             {
                 noteSkip(FSGL_ID_glBindVertexArray);
@@ -1817,7 +1853,15 @@ namespace
     FSGL_BEGIN(glVertexArrayElementBuffer)
         static void APIENTRY call(GLuint vao, GLuint buffer)
         {
-            if (!tRecording) { P::passthrough(vao, buffer); return; }
+            if (!tRecording)
+            {
+                if (tDirectScope)
+                {
+                    sDirectTouched.push_back(vao);
+                }
+                P::passthrough(vao, buffer);
+                return;
+            }
             if (sSh.mVAOOk && sSh.mVAO == vao)
             {
                 setCurEBO(buffer);
@@ -2913,7 +2957,21 @@ namespace
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
             noteDeleted(FSGLStream::OBJ_BUFFER, n, ids);
-            if (!tRecording) { P::passthrough(n, ids); return; }
+            if (!tRecording)
+            {
+                if (tDirectScope)
+                {   // FSPerfRenderThreadKeepVAOState: what any vertex array held of these is unknown now
+                    recordDeleted(n, ids, [](GLuint id)
+                    {
+                        if (id != 0)
+                        {
+                            ++sSh.mBufferGen[id];
+                        }
+                    });
+                }
+                P::passthrough(n, ids);
+                return;
+            }
             recordDeleted(n, ids, [](GLuint id)
             {
                 if (id == 0) return;
@@ -2938,7 +2996,25 @@ namespace
         static void APIENTRY call(GLsizei n, const GLuint* ids)
         {
             noteDeleted(FSGLStream::OBJ_VAO, n, ids);
-            if (!tRecording) { P::passthrough(n, ids); return; }
+            if (!tRecording)
+            {
+                if (tDirectScope)
+                {   // FSPerfRenderThreadKeepVAOState: the names may come back as new vertex arrays
+                    recordDeleted(n, ids, [](GLuint id)
+                    {
+                        if (id != 0)
+                        {
+                            sDirectTouched.push_back(id);
+                            if (sDirectVAOKnown && sDirectVAO == id)
+                            {
+                                sDirectVAO = 0; // deleting the bound vertex array binds 0
+                            }
+                        }
+                    });
+                }
+                P::passthrough(n, ids);
+                return;
+            }
             recordDeleted(n, ids, [](GLuint id)
             {
                 if (id == 0) return;
@@ -4095,6 +4171,8 @@ namespace
     // the context and carry on single-threaded, as if the stream had been stopped.
     void stopAfterLostContext()
     {
+        tDirectScope = false;
+        sDirectTouched.clear();
         sThread->join();
         delete sThread;
         sThread = nullptr;
@@ -4146,6 +4224,28 @@ namespace
             return false;
         }
         tRecording = false;
+        if (sKeepVAOState)
+        {
+            // FSPerfRenderThreadKeepVAOState: what is known of the bound vertex array's element buffer goes
+            // into the map with the others; from here on only changes to it are noted
+            if (sSh.mVAOOk && sSh.mCurEBODirty)
+            {
+                if (sSh.mCurEBOOk)
+                {
+                    setVAOEBO(sSh.mVAO, sSh.mCurEBO);
+                }
+                else
+                {
+                    sSh.mEBO.erase(sSh.mVAO);
+                }
+                sSh.mCurEBODirty = false;
+            }
+            sDirectTouched.clear();
+            sDirectVAO = sSh.mVAO;
+            sDirectVAOKnown = sSh.mVAOOk;
+            sDirectLostAll = false;
+            tDirectScope = true;
+        }
         return true;
     }
 
@@ -4156,7 +4256,30 @@ namespace
         // GL ran past the recorder: read the tracked state again, and forget what was cached about
         // objects that may have been deleted and their names handed out again (programs, queries).
         // The render thread is parked in execPause, so its query state can be reset from here.
+        // FSPerfRenderThreadKeepVAOState: the vertex arrays' element buffers are kept, but for those that
+        // may have changed meanwhile
+        const bool keep_vao_state = tDirectScope && !sDirectLostAll;
+        tDirectScope = false;
+        NameMap<Shadow::EBOEntry> kept_ebo;
+        NameMap<U32> kept_gen;
+        if (keep_vao_state)
+        {
+            kept_ebo = std::move(sSh.mEBO);
+            kept_gen = std::move(sSh.mBufferGen);
+        }
         snapshotState();
+        if (keep_vao_state)
+        {
+            for (GLuint vao : sDirectTouched)
+            {
+                kept_ebo.erase(vao);
+            }
+            // the bound one's element buffer was just read; its map entry is stale while mCurEBODirty
+            sSh.mEBO = std::move(kept_ebo);
+            sSh.mBufferGen = std::move(kept_gen);
+        }
+        sDirectTouched.clear();
+        sDirectTouched.shrink_to_fit();
         clearUniformValues();
         sUniformLocs.clear();
         sAttribLocs.clear();
@@ -4348,6 +4471,11 @@ namespace FSGLStream
             clearUniformValues(); // not kept up to date while off
         }
         sFilter = filter;
+    }
+
+    void setKeepVAOState(bool on)
+    {
+        sKeepVAOState = on;
     }
 
     bool peekQueryResult(U32 id, U64& value)
@@ -4646,6 +4774,7 @@ namespace FSGLStream
     void setRenderPoll(bool (*)(bool)) {}
     void setFilter(bool) {}
     void setCallStats(bool) {}
+    void setKeepVAOState(bool) {}
     void clearErrors()
     {
         for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i)
