@@ -513,6 +513,34 @@ bool init_from_xml(LLFontRegistry* registry, LLXMLNodePtr node)
     return true;
 }
 
+// <FS:Trish> Derived sizes: "<size>@<percent>", e.g. "Small@80", is the named size scaled to that percentage, for text
+// drawn smaller without minifying the glyphs (name tags shrinking with distance). Returns the factor, 0 for other names.
+static F32 fs_derived_size_scale(const std::string& size_name, std::string& base_name)
+{
+    const size_t at = size_name.rfind('@');
+    if (at == std::string::npos || at == 0 || at + 1 >= size_name.size())
+    {
+        return 0.f;
+    }
+    S32 percent = 0;
+    for (size_t i = at + 1; i < size_name.size(); ++i)
+    {
+        const char c = size_name[i];
+        if (c < '0' || c > '9' || percent > 1000)
+        {
+            return 0.f;
+        }
+        percent = percent * 10 + (c - '0');
+    }
+    if (percent <= 0 || percent > 400)
+    {
+        return 0.f;
+    }
+    base_name = size_name.substr(0, at);
+    return (F32)percent / 100.f;
+}
+// </FS:Trish>
+
 bool LLFontRegistry::nameToSize(const std::string& size_name, F32& size)
 {
     font_size_map_t::iterator it = mFontSizes.find(size_name);
@@ -521,6 +549,16 @@ bool LLFontRegistry::nameToSize(const std::string& size_name, F32& size)
         size = it->second;
         return true;
     }
+    // <FS:Trish> Derived sizes scale the named size, which already includes the user's font size adjustment
+    std::string base_name;
+    const F32 derived_scale = fs_derived_size_scale(size_name, base_name);
+    it = derived_scale > 0.f ? mFontSizes.find(base_name) : mFontSizes.end();
+    if (it != mFontSizes.end())
+    {
+        size = it->second * derived_scale;
+        return true;
+    }
+    // </FS:Trish>
     return false;
 }
 
@@ -544,6 +582,14 @@ LLFontGL *LLFontRegistry::createFont(const LLFontDescriptor& desc)
     }
     LL_INFOS() << "createFont " << norm_desc.getName() << " size " << norm_desc.getSize() << " style " << ((S32) norm_desc.getStyle()) << LL_ENDL;
     F32 fallback_scale = 1.0;
+    // <FS:Trish> A derived size scales the files' size deltas too, so it is the named size's font exactly scaled
+    std::string derived_base_name;
+    F32 size_delta_scale = fs_derived_size_scale(norm_desc.getSize(), derived_base_name);
+    if (size_delta_scale <= 0.f || mFontSizes.find(norm_desc.getSize()) != mFontSizes.end())
+    {
+        size_delta_scale = 1.f;
+    }
+    // </FS:Trish>
 
     // Find corresponding font template (based on same descriptor with no size specified)
     LLFontDescriptor template_desc(norm_desc);
@@ -657,7 +703,10 @@ LLFontGL *LLFontRegistry::createFont(const LLFontDescriptor& desc)
                 {
                     fontp = new LLFontGL;
                 }
-                if (fontp->loadFace(font_path, point_size_scale + font_file_it->mSizeDelta,
+                // <FS:Trish> derived sizes scale the size delta
+                //if (fontp->loadFace(font_path, point_size_scale + font_file_it->mSizeDelta,
+                if (fontp->loadFace(font_path, point_size_scale + font_file_it->mSizeDelta * size_delta_scale,
+                // </FS:Trish>
                                  // <FS:Ansariel> Optional tabular numeric font rendering
                                  //LLFontGL::sVertDPI, LLFontGL::sHorizDPI, font_file_it->mWeight, is_fallback, i, font_file_it->mHinting, font_file_it->mFlags))
                                  LLFontGL::sVertDPI, LLFontGL::sHorizDPI, font_file_it->mWeight, is_fallback, i, font_file_it->mHinting, font_file_it->mFlags, desc.isTabnum()))

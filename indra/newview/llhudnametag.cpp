@@ -85,6 +85,8 @@ namespace
     constexpr F32 FS_PILL_MIN_PICTURE = 14.f;   // smaller than this, no picture
     constexpr F32 FS_PILL_FULL_SIZE_DIST = 5.f; // full size up to this far (m)
     constexpr F32 FS_PILL_SHRINK_SECONDS = 0.3f; // to shrink into the picture, or grow back out of it
+    constexpr F32 FS_PILL_SCALE_STEP = 0.1f;    // a tag shrinks with distance in steps, each with its own font size
+    constexpr F32 FS_PILL_SCALE_HYSTERESIS = 0.02f; // past the half way point between steps before switching
 
     // eased in and out, for the shrink into the picture
     inline F32 fs_pill_ease(F32 t)
@@ -259,10 +261,81 @@ namespace
         return llclamp(sqrtf(FS_PILL_FULL_SIZE_DIST / distance), llclamp((F32)min_scale, 0.3f, 1.f), 1.f);
     }
 
-    // hud_render_text with the glyphs scaled: x_vec and y_vec are the tag's pixel vectors, already scaled,
-    // and the offsets are in the tag's own (unscaled) pixels
+    // The tag's scale for a distance, snapped to steps of FS_PILL_SCALE_STEP: the text of a shrunk tag is drawn with
+    // a font rasterised at that size (see FSPillFont), and a few sizes keep the number of fonts small. It changes
+    // only once the wanted scale is well past the half way point to the next step, so the tag doesn't flip between
+    // two sizes at one distance.
+    F32 fs_pill_step_scale(F32 distance, F32 current)
+    {
+        const F32 wanted = fs_pill_scale(distance);
+        if (wanted >= 1.f)
+        {
+            return 1.f;
+        }
+        if (fabsf(wanted - current) <= 0.5f * FS_PILL_SCALE_STEP + FS_PILL_SCALE_HYSTERESIS)
+        {
+            return current;
+        }
+        return llclamp((F32)ll_round(wanted / FS_PILL_SCALE_STEP) * FS_PILL_SCALE_STEP, FS_PILL_SCALE_STEP, 1.f);
+    }
+
+    // The font a line of a shrunk tag is drawn with. Scaling the glyphs of the full size font minified them from the
+    // font's texture (no mipmaps) into blurry, broken text; instead, the same font (same files, fallbacks for other
+    // scripts and emoji, style) rasterised at the smaller size, a derived font size of the registry ("Small@70").
+    // It keeps the UI scale and the font size adjustment, as both are part of the named size and of the font's DPI.
+    // Made once per font and step, on first use; the fonts belong to the registry, alive to the end of the session.
+    // Should one fail to load, the full size font with its glyphs scaled, as before.
+    struct FSPillFont
+    {
+        const LLFontGL* mFont;
+        F32 mGlyphScale;    // 1, unless no smaller font could be made
+
+        FSPillFont(const LLFontGL* base, F32 scale)
+        :   mFont(base),
+            mGlyphScale(1.f)
+        {
+            const S32 percent = ll_round(scale * 100.f);
+            if (!base || percent >= 100)
+            {
+                return;
+            }
+            static std::map<std::pair<const LLFontGL*, S32>, const LLFontGL*> fonts;
+            auto found = fonts.find(std::make_pair(base, percent));
+            if (found == fonts.end())
+            {
+                const LLFontDescriptor& base_desc = base->getFontDesc();
+                LLFontDescriptor desc = base_desc.normalize();
+                desc.setTabnum(base_desc.isTabnum());
+                desc.setSize(llformat("%s@%d", desc.getSize().c_str(), percent));
+                const LLFontGL* font = LLFontGL::getFont(desc);
+                if (!font)
+                {
+                    LL_WARNS_ONCE("NameTags") << "No " << desc.getName() << " font of size " << desc.getSize()
+                                              << " for a shrunk name tag; its glyphs are scaled instead" << LL_ENDL;
+                }
+                found = fonts.emplace(std::make_pair(base, percent), font).first;
+            }
+            if (found->second)
+            {
+                mFont = found->second;
+            }
+            else
+            {
+                mGlyphScale = scale;
+            }
+        }
+
+        // in the tag's own (unscaled) pixels
+        F32 lineHeight(F32 scale) const
+        {
+            return (F32)mFont->getLineHeight() * mGlyphScale / scale;
+        }
+    };
+
+    // hud_render_text at a pixel position: x_vec and y_vec are the tag's pixel vectors, already scaled, and the
+    // offsets are in the tag's own (unscaled) pixels
     void fs_pill_text(const LLWString& wstr, const LLVector3& pos_agent, const LLVector3& x_vec, const LLVector3& y_vec,
-                      const LLFontGL& font, U8 style, F32 x_offset, F32 y_offset, const LLColor4& color, F32 scale)
+                      const FSPillFont& pill_font, U8 style, F32 x_offset, F32 y_offset, const LLColor4& color)
     {
         if (wstr.empty())
         {
@@ -286,11 +359,14 @@ namespace
         win_coord.y -= world_view_rect.mBottom;
         LLUI::loadIdentity();
         gGL.loadIdentity();
-        // in raw pixels, then the glyphs scaled about the text's origin (the font applies the UI scale itself)
+        // in raw pixels (the font applies the UI scale itself); glyphs scaled only if no smaller font could be made
         gGL.translatef(floorf(win_coord.x + 0.5f), floorf(win_coord.y + 0.5f), -((win_coord.z * 2.f) - 1.f));
-        gGL.scalef(scale, scale, 1.f);
+        if (pill_font.mGlyphScale != 1.f)
+        {
+            gGL.scalef(pill_font.mGlyphScale, pill_font.mGlyphScale, 1.f);
+        }
         F32 right_x;
-        font.render(wstr, 0, 0, 0, color, LLFontGL::LEFT, LLFontGL::BASELINE, style, LLFontGL::NO_SHADOW,
+        pill_font.mFont->render(wstr, 0, 0, 0, color, LLFontGL::LEFT, LLFontGL::BASELINE, style, LLFontGL::NO_SHADOW,
                     static_cast<S32>(wstr.length()), 1000, &right_x, /*use_ellipses*/false, /*use_color*/true);
 
         LLUI::popMatrix();
@@ -474,13 +550,13 @@ void LLHUDNameTag::fsRenderPill(const LLVector3& render_position, const LLVector
     F32 y_offset = text_top - FS_PILL_PAD_TOP;
     for (auto segment_iter = mTextSegments.begin() + start_segment; segment_iter != mTextSegments.end(); ++segment_iter)
     {
-        const LLFontGL* fontp = segment_iter->mFont;
-        y_offset -= fontp->getLineHeight();
-        const F32 x_offset = centered ? -0.5f * segment_iter->getWidth(fontp) : text_left;
+        const FSPillFont pill_font(segment_iter->mFont, scale);
+        y_offset -= pill_font.lineHeight(scale);
+        const F32 x_offset = centered ? -0.5f * segment_iter->getWidth(pill_font.mFont) * pill_font.mGlyphScale / scale : text_left;
         LLColor4 text_color = segment_iter->mColor;
         text_color.mV[VALPHA] *= alpha_factor * text_fade;
-        fs_pill_text(segment_iter->getText(), render_position, x_pixel_vec, y_pixel_vec, *fontp, segment_iter->mStyle,
-                     x_offset, y_offset, text_color, scale);
+        fs_pill_text(segment_iter->getText(), render_position, x_pixel_vec, y_pixel_vec, pill_font, segment_iter->mStyle,
+                     x_offset, y_offset, text_color);
         y_offset -= FS_PILL_LINE_PAD;
     }
     gGL.color4f(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1151,12 +1227,24 @@ void LLHUDNameTag::updateSize()
     // <FS:Trish> Pill style: less padding, round ends, room for the picture or the range dot
     if (fsPillMode())
     {
+        // Sized for the fonts the text is drawn with at this distance (FSPillFont), in the tag's own pixels: a
+        // smaller font isn't exactly the full size font scaled, and the box must fit the text it holds
+        mFSScale = fs_pill_step_scale(mLastDistance, mFSScale);
         S32 lines = 0;
         F32 text_height = 0.f;
+        width = 0.f;
         for (auto seg = mTextSegments.begin() + start_segment; seg != mTextSegments.end(); ++seg)
         {
-            text_height += seg->mFont->getLineHeight();
+            const FSPillFont pill_font(seg->mFont, mFSScale);
+            text_height += pill_font.lineHeight(mFSScale);
             ++lines;
+            const F32 full_width = seg->getWidth(seg->mFont);
+            F32 line_width = llmin(full_width, NAMETAG_MAX_WIDTH);
+            if (pill_font.mFont != seg->mFont && full_width > 0.f)
+            {   // the same share of the line, measured with the font it is drawn with
+                line_width *= seg->getWidth(pill_font.mFont) * pill_font.mGlyphScale / (mFSScale * full_width);
+            }
+            width = llmax(width, line_width);
         }
         mHeight = text_height + FS_PILL_LINE_PAD * (F32)llmax(lines - 1, 0) + FS_PILL_PAD_TOP + FS_PILL_PAD_BOTTOM;
 
@@ -1166,7 +1254,6 @@ void LLHUDNameTag::updateSize()
             FSNameTagPortraits::instance().get(mFSAvatarID, has_picture);
         }
         mFSPortrait = has_picture && mHeight >= FS_PILL_MIN_PICTURE;
-        mFSScale = fs_pill_scale(mLastDistance);
         const F32 end = mHeight * 0.5f;     // a round end's width
         if (mFSPortrait)
         {
@@ -1202,7 +1289,8 @@ void LLHUDNameTag::updateSize()
         {
             mFSFullWidth = mWidth;
             mFSFullHeight = mHeight;
-            mFSSoloSize = 1.5f * (mTextSegments[start_segment].mFont->getLineHeight() + FS_PILL_PAD_TOP + FS_PILL_PAD_BOTTOM);
+            const FSPillFont first_font(mTextSegments[start_segment].mFont, mFSScale);
+            mFSSoloSize = 1.5f * (first_font.lineHeight(mFSScale) + FS_PILL_PAD_TOP + FS_PILL_PAD_BOTTOM);
             const F32 shrink = fs_pill_ease(mFSShrink);
             mWidth = lerp(mFSFullWidth, mFSSoloSize, shrink);
             mHeight = lerp(mFSFullHeight, mFSSoloSize, shrink);
