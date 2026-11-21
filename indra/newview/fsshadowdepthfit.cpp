@@ -70,7 +70,7 @@ extern bool gSnapshot;
 
 namespace
 {
-    constexpr S32 BLOCK = 16;               // texels per side one output texel covers
+    constexpr S32 BLOCK = 16;               // texels per side one output texel covers (FS_FIT_BLOCK in the shader)
     constexpr U32 MAX_AGE_FRAMES = 30;      // an older read back is not used
     constexpr F32 SHRINK_SECONDS = 0.25f;   // time constant of the range's shrinking
     constexpr F32 NEAR_MARGIN = 0.8f;       // the near end is pulled in by this factor
@@ -86,7 +86,6 @@ namespace
 
     const LLStaticHashedString sInvProj("fs_fit_inv_proj");
     const LLStaticHashedString sSrcSize("fs_fit_src_size");
-    const LLStaticHashedString sBlock("fs_fit_block");
 
     struct Level
     {
@@ -104,7 +103,7 @@ namespace
     enum { RB_IDLE = 0, RB_PENDING, RB_READY };
     std::atomic<int> sState{ RB_IDLE };
     GLsync sFence = nullptr;
-    F32 sResult[4] = { 0.f, 0.f, 0.f, 0.f };
+    F32 sResult[2] = { 0.f, 0.f };   // nearest, farthest: the RG32F texel as it is stored
     U32 sPBO = 0;
 
     // main thread: the camera of the frame whose depth is being read back
@@ -426,7 +425,6 @@ void FSShadowDepthFit::reduce(LLRenderTarget& depth_target, LLVertexBuffer* scre
     const glm::mat4 inv_proj = glm::inverse(FSReverseZ::depthProjection(get_current_projection()));
     sFirstProgram.uniformMatrix4fv(sInvProj, 1, GL_FALSE, glm::value_ptr(inv_proj));
     sFirstProgram.uniform2i(sSrcSize, (GLint)width, (GLint)height);
-    sFirstProgram.uniform1i(sBlock, BLOCK);
     draw_level(sLevels[0], screen_triangle);
     if (reduced)
     {
@@ -443,7 +441,6 @@ void FSShadowDepthFit::reduce(LLRenderTarget& depth_target, LLVertexBuffer* scre
         if (channel > -1)
         {
             LLTexUnit* unit = gGL.getTexUnit(channel);
-            sReduceProgram.uniform1i(sBlock, BLOCK);
             for (size_t i = 1; i < sLevels.size(); ++i)
             {
                 unit->bindManual(LLTexUnit::TT_TEXTURE, sLevels[i - 1].mTexture, true);
@@ -456,7 +453,10 @@ void FSShadowDepthFit::reduce(LLRenderTarget& depth_target, LLVertexBuffer* scre
     }
 
     // Read the 1x1 result back, unless the last read back is still on its way. The last level's
-    // target is still bound, so glReadPixels reads it.
+    // target is still bound, so glReadPixels reads it. In the texture's own format (RG, float): read
+    // as RGBA it needs a format conversion, which a driver may do outside the plain asynchronous copy
+    // path, by waiting for the GPU to finish all the work before it (a GPU left idle shows up in the
+    // "shadow depth fit" GPU zone: 1.5 to 2.5 ms on an AMD RX 7900 XTX, 0.14 ms on NVIDIA).
     if (sState.load(std::memory_order_acquire) == RB_IDLE && reduced)
     {
         if (!sPBO)
@@ -469,7 +469,8 @@ void FSShadowDepthFit::reduce(LLRenderTarget& depth_target, LLVertexBuffer* scre
         {
             glBindBuffer(GL_PIXEL_PACK_BUFFER, sPBO);
         }
-        glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, nullptr);
+        //glReadPixels(0, 0, 1, 1, GL_RGBA, GL_FLOAT, nullptr);
+        glReadPixels(0, 0, 1, 1, GL_RG, GL_FLOAT, nullptr);
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         sState.store(RB_PENDING, std::memory_order_relaxed);
         FSGLStream::recordCall(&gl_fence, 0);
