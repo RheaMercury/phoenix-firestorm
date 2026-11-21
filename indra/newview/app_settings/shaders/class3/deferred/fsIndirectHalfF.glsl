@@ -93,6 +93,52 @@ float fsIndNoise(vec2 frag)
     return fract(52.9829189 * fract(0.06711056 * frag.x + 0.00583715 * frag.y));
 }
 
+// View-space position of a neighbour, false for sky (which unprojects to infinity under reverse-Z)
+bool fsIndNeighbour(vec2 tc, out vec3 p)
+{
+    float d = getDepth(tc);
+    if (isFarDepth(d))
+    {
+        p = vec3(0.0);
+        return false;
+    }
+    p = getPositionWithDepth(tc, d).xyz;
+    return true;
+}
+
+// The surface normal the depth buffer itself describes, as GTAO takes it (fsGTAODepthNormal): on
+// each axis the neighbour whose depth is closer, so a silhouette doesn't bend it. The horizons
+// are measured on this depth surface. A legacy surface's G-buffer normal is its normal-mapped
+// shading normal, and a PBR one's packed geometric normal is a few degrees coarse; with either,
+// a flat floor's own pixels rose above the tilted tangent plane and the floor bounced its own
+// image (reflections and all) onto itself in the pattern of its normal map: lines in shiny floors.
+vec3 fsIndDepthNormal(vec2 tc, vec3 pos, vec3 fallback)
+{
+    vec2 px = 1.0 / fs_ind_full_res;
+    vec3 pr, pl, pu, pd;
+    bool r = fsIndNeighbour(tc + vec2(px.x, 0.0), pr);
+    bool l = fsIndNeighbour(tc - vec2(px.x, 0.0), pl);
+    bool u = fsIndNeighbour(tc + vec2(0.0, px.y), pu);
+    bool d = fsIndNeighbour(tc - vec2(0.0, px.y), pd);
+    if (!(r || l) || !(u || d))
+    {
+        return fallback;
+    }
+    vec3 dr = pr - pos;
+    vec3 dl = pos - pl;
+    vec3 du = pu - pos;
+    vec3 dd = pos - pd;
+    vec3 dx = (r && (!l || abs(dr.z) <= abs(dl.z))) ? dr : dl;
+    vec3 dy = (u && (!d || abs(du.z) <= abs(dd.z))) ? du : dd;
+    vec3 n = cross(dx, dy);
+    float len = length(n);
+    if (!(len > 1e-10))
+    {
+        return fallback;
+    }
+    return n / len;
+}
+
 void main()
 {
     ivec2 full = min(ivec2(gl_FragCoord.xy) * 2, ivec2(fs_ind_full_res) - 1);
@@ -109,7 +155,7 @@ void main()
     vec3 pos = getPositionWithDepth(tc, depth).xyz;
     float view_depth = max(-pos.z, 1e-4);
     vec3 v = normalize(-pos);
-    vec3 n = normalize(getGeoNorm(tc));
+    vec3 n = fsIndDepthNormal(tc, pos, normalize(getGeoNorm(tc)));
     if (dot(n, v) < 0.0)
     {
         n = -n;
@@ -174,6 +220,10 @@ void main()
                 {
                     break;
                 }
+                // On a texel centre: the depth read there is that texel's, and unprojected anywhere
+                // else in the texel it lands off the surface, by half a pixel's depth step (a lot on
+                // a floor seen at a low angle), above or below it at random
+                stc = (min(floor(stc * fs_ind_full_res), fs_ind_full_res - 1.0) + 0.5) / fs_ind_full_res;
                 float sd = getDepth(stc);
                 if (isFarDepth(sd))
                 {
@@ -209,7 +259,11 @@ void main()
                 // Off the last frame's image (behind its camera, or past its edge, as camera turns
                 // bring in every frame): no light from it. Reading this frame's position in last
                 // frame's image took whatever was there. It still hides the arc (h below).
-                if (all(greaterThanEqual(ptc, vec2(0.0))) && all(lessThanEqual(ptc, vec2(1.0))))
+                // A sample that barely rises off this pixel's plane (under about 1 degree) is the
+                // same surface, within the depth buffer's precision: it sends no light this way,
+                // and its colour would only be this surface's own reflection read back
+                bool lifts = dot(delta, n) > 0.02 * dist;
+                if (lifts && all(greaterThanEqual(ptc, vec2(0.0))) && all(lessThanEqual(ptc, vec2(1.0))))
                 {
                     vec3 light = textureLod(sceneMap, ptc, 0.0).rgb;
                     // a single very bright sample (a lamp, the sun's glint) would speckle the result

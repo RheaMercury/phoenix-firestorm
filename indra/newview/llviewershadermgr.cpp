@@ -3438,7 +3438,10 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSIndirectHalfProgram.unload();
         gFSIndirectTemporalProgram.unload();
         static LLCachedControl<bool> bent_normals(gSavedSettings, "FSRenderBentNormals", false);
-        static LLCachedControl<bool> ssgi(gSavedSettings, "FSRenderSSGI", false);
+        static LLCachedControl<bool> ssgi_setting(gSavedSettings, "FSRenderSSGI", false);
+        // The bounced light is read from the last frame's image (mSceneMap), which is only kept
+        // with screen-space reflections on; without it the pass would read an empty texture
+        const bool ssgi = ssgi_setting && gSavedSettings.getBOOL("RenderScreenSpaceReflections");
         if ((bent_normals || ssgi) && gDeferredSoftenProgram.mFeatures.hasReflectionProbes)
         {
             gFSIndirectHalfProgram.mName = "FS Indirect Half Resolution";
