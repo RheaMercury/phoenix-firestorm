@@ -255,6 +255,7 @@ set(viewer_SOURCE_FILES
     fsvirtualtrackpad.cpp
     fsvolumeprebuild.cpp
     fsvrs.cpp
+    fswaterobstacles.cpp
     fswaterripples.cpp
     fswindfield.cpp
     fsworldmapmessage.cpp
@@ -1198,6 +1199,7 @@ set(viewer_HEADER_FILES
     fsvirtualtrackpad.h
     fsvolumeprebuild.h
     fsvrs.h
+    fswaterobstacles.h
     fswaterripples.h
     fswindfield.h
     fsworldmapmessage.h

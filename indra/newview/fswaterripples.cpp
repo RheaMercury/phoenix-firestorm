@@ -29,6 +29,7 @@
 
 #include "fswaterripples.h"
 
+#include "fswaterobstacles.h"
 #include "fswindfield.h"
 #include "llagent.h"
 #include "llcharacter.h"
@@ -130,6 +131,22 @@ namespace
     constexpr F32 FOAM_DRIFT = 0.02f;           // on top of SURFACE_DRIFT
     constexpr F32 MAX_SURFACE_SPEED = 0.6f;     // m/s, at the strongest settings
 
+    // Obstacles (FSRenderWaterRippleObstacles, fswaterobstacles.cpp):
+    // - Shallow water over terrain: the share of the height lost per step on top of the damping
+    //   where the water is shallowest, fading out over its last metre (fsWaterRippleSimF.glsl).
+    //   About three quarters gone in the 0.7 s a ripple takes to cross that metre at the default
+    //   speed, so little is left to bounce off the beach.
+    constexpr F32 SHALLOW_LOSS = 0.06f;
+    // - The wake the surface current sheds off them (FSRenderWaterRippleObstacleWake): the push
+    //   per step at WAKE_SPEED (m/s), growing with the current up to twice that, a little under an
+    //   avatar's idle bob. The sides take turns at WAKE_HZ, a little faster in a faster current.
+    constexpr F32 WAKE_PUSH = 0.0004f;
+    constexpr F32 WAKE_SPEED = 0.3f;
+    constexpr F64 WAKE_HZ = 0.35;
+    constexpr F64 WAKE_HZ_PER_SPEED = 1.5;      // Hz per m/s of current
+    // - Foam the current piles up on their upstream side, at WAKE_SPEED (with wake foam on)
+    constexpr F32 WAKE_FOAM = 0.35f;
+
     LLGLSLShader sSimProgram;
 
     // Two maps in turn: r height (m), g height a step earlier, b foam. Never destroyed at exit:
@@ -148,6 +165,8 @@ namespace
     // content smoothly, without resampling it: the whole-cell grid shift does the rest. Zero
     // while the wind is off.
     LLVector3d sCurrentOffset;
+
+    F64 sWakePhase = 0.0;      // the obstacles' wake shedding, radians
 
     F64 sLastTime = -1.0;      // when update last ran for the main view
     F64 sLastStepTime = -1.0;  // when the simulation last stepped
@@ -182,6 +201,7 @@ namespace
         S32 mMaxSources;
         bool mFoam;
         F32 mFoamStrength;
+        bool mWake;
     };
 
     LLRenderTarget& map(S32 i)
@@ -415,6 +435,7 @@ namespace
         static LLCachedControl<S32> max_sources(gSavedSettings, "FSRenderWaterRipplesMaxSources", 32);
         static LLCachedControl<bool> foam(gSavedSettings, "FSRenderWaterRippleFoam", false);
         static LLCachedControl<F32> foam_strength(gSavedSettings, "FSRenderWaterRippleFoamStrength", 1.f);
+        static LLCachedControl<bool> wake(gSavedSettings, "FSRenderWaterRippleObstacleWake", false);
         Settings settings;
         settings.mSpeed = llclamp((F32)speed, 0.1f, 10.f);
         settings.mDamping = llclamp((F32)damping, 0.f, 0.99f);
@@ -422,6 +443,7 @@ namespace
         settings.mMaxSources = llclamp((S32)max_sources, 1, MAX_SOURCES);
         settings.mFoam = foam;
         settings.mFoamStrength = llclamp((F32)foam_strength, 0.f, 4.f);
+        settings.mWake = wake;
         return settings;
     }
 
@@ -510,6 +532,10 @@ namespace
         static LLStaticHashedString s_count("fs_ripple_count");
         static LLStaticHashedString s_seg("fs_ripple_seg");
         static LLStaticHashedString s_src("fs_ripple_src");
+        static LLStaticHashedString s_obst_map("fs_ripple_obst_map");
+        static LLStaticHashedString s_obst("fs_ripple_obst");
+        static LLStaticHashedString s_wake("fs_ripple_wake");
+        static LLStaticHashedString s_wake_osc("fs_ripple_wake_osc");
 
         // Waves cross (speed * step / cell) cells a step. The explicit scheme is only stable below
         // 1/sqrt(2) of a cell; very fine cells hold the speed down rather than blow up.
@@ -582,6 +608,39 @@ namespace
             src[i * 4 + 3] = 0.f;
         }
 
+        // Obstacles: where this grid's cells fall in the mask (whole cells, plus the fraction the
+        // surface current has carried the water), the shallow-water fade, and the wake the current
+        // sheds off them. Nothing without a mask: the simulation runs as without obstacles.
+        GLfloat obst[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat wake[4] = { 0.f, 0.f, 0.f, 0.f };
+        GLfloat wake_osc[2] = { 0.f, 0.f };
+        S64 mask_x = 0;
+        S64 mask_y = 0;
+        LLRenderTarget* mask = FSWaterObstacles::enabled() ? FSWaterObstacles::mask(sCell, mask_x, mask_y) : nullptr;
+        if (FSWaterObstacles::enabled())
+        {
+            FSWaterObstacles::noteSimulation(mask != nullptr);
+        }
+        if (mask)
+        {
+            obst[0] = (GLfloat)((F64)(sOriginX - mask_x) + sCurrentOffset.mdV[VX] / sCell);
+            obst[1] = (GLfloat)((F64)(sOriginY - mask_y) + sCurrentOffset.mdV[VY] / sCell);
+            obst[2] = SHALLOW_LOSS;
+            obst[3] = 1.f;
+            const F32 current = wind.mOn ? wind.mCurrent.length() : 0.f;
+            if (settings.mWake && current > 0.01f && std::isfinite(current))
+            {
+                const F32 amount = llmin(current / WAKE_SPEED, 2.f);
+                wake[0] = wind.mCurrent.mV[VX] / current;
+                wake[1] = wind.mCurrent.mV[VY] / current;
+                wake[2] = WAKE_PUSH * amount;
+                wake[3] = foam_gain > 0.f ? llmin(WAKE_FOAM * amount, 0.6f) : 0.f;
+                sWakePhase = fmod(sWakePhase + F_TWO_PI * (WAKE_HZ + WAKE_HZ_PER_SPEED * current) * steps * STEP, (F64)F_TWO_PI);
+                wake_osc[0] = (GLfloat)sin(sWakePhase);
+                wake_osc[1] = (GLfloat)sin(2.0 * sWakePhase);
+            }
+        }
+
         gGL.flush();
         LLGLDepthTest depth(GL_FALSE, GL_FALSE);
         LLGLDisable blend(GL_BLEND);
@@ -590,6 +649,14 @@ namespace
         gGL.setColorMask(true, true);
 
         sSimProgram.bind();
+        sSimProgram.uniform4fv(s_obst, 1, obst);
+        sSimProgram.uniform4fv(s_wake, 1, wake);
+        sSimProgram.uniform2fv(s_wake_osc, 1, wake_osc);
+        if (mask)
+        {
+            sSimProgram.uniform1i(s_obst_map, 1);
+            mask->bindTexture(0, 1, LLTexUnit::TFO_POINT); // texelFetch
+        }
         sSimProgram.uniform1i(s_prev, 0);
         sSimProgram.uniform4f(s_sim, k, keep, foam_keep, foam_gain);
         sSimProgram.uniform2f(s_cell, (F32)sCell, (F32)sRes);
@@ -615,6 +682,10 @@ namespace
             write.flush();
             sCurrent = 1 - sCurrent;
         }
+        if (mask)
+        {
+            gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        }
         gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         sSimProgram.unbind();
     }
@@ -629,6 +700,7 @@ bool FSWaterRipples::enabled()
 void FSWaterRipples::loadShaders(S32 shader_level)
 {
     sSimProgram.unload();
+    FSWaterObstacles::loadShaders(enabled() ? shader_level : 0); // unloaded and freed while off
     if (!enabled() || shader_level <= 0)
     {
         release(); // switched off: give the memory back
@@ -640,6 +712,10 @@ void FSWaterRipples::loadShaders(S32 shader_level)
     sSimProgram.clearPermutations();
     sSimProgram.mShaderFiles.push_back(std::make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
     sSimProgram.mShaderFiles.push_back(std::make_pair("environment/fsWaterRippleSimF.glsl", GL_FRAGMENT_SHADER));
+    if (FSWaterObstacles::enabled())
+    {
+        sSimProgram.addPermutation("FS_WATER_RIPPLE_OBSTACLES", "1");
+    }
     sSimProgram.mShaderLevel = shader_level;
     if (!sSimProgram.createShader())
     {
@@ -650,6 +726,7 @@ void FSWaterRipples::loadShaders(S32 shader_level)
 
 void FSWaterRipples::update(LLVertexBuffer* screen_triangle)
 {
+    FSWaterObstacles::logStats(LLFrameTimer::getElapsedSeconds()); // FSRenderWaterRippleStats, every 10 s
     if (!enabled())
     {
         if (sValid || (sMaps[0] && sMaps[0]->isComplete()) || !sTracks.empty())
@@ -752,6 +829,7 @@ void FSWaterRipples::update(LLVertexBuffer* screen_triangle)
     // moves with the surface current). Global coordinates, so crossing into another region
     // moves nothing.
     const LLVector3d camera = gAgent.getPosGlobalFromAgent(LLViewerCamera::getInstance()->getOrigin());
+    bool started_over = false;
     S64 origin_x = (S64)floor((camera.mdV[VX] - sCurrentOffset.mdV[VX]) / sCell) - res / 2;
     S64 origin_y = (S64)floor((camera.mdV[VY] - sCurrentOffset.mdV[VY]) / sCell) - res / 2;
     S64 shift_x = origin_x - sOriginX;
@@ -771,9 +849,16 @@ void FSWaterRipples::update(LLVertexBuffer* screen_triangle)
         shift_x = 0;
         shift_y = 0;
         sValid = true;
+        started_over = true;
     }
     sOriginX = origin_x;
     sOriginY = origin_y;
+
+    // The obstacles' mask, drawn again only when it needs to be (its own GPU timer zone)
+    if (FSWaterObstacles::enabled())
+    {
+        FSWaterObstacles::update(res, sCell, camera, now, started_over);
+    }
     if (steps <= 0)
     {
         return;
@@ -828,11 +913,13 @@ S32 FSWaterRipples::bind(LLGLSLShader& shader, S32 unit)
 
 void FSWaterRipples::release()
 {
+    FSWaterObstacles::release();
     releaseMaps();
     sTracks.clear();
     sRes = 0;
     sCell = 0.0;
     sCurrentOffset.setZero();
+    sWakePhase = 0.0;
     sAccum = 0.0;
     sLastTime = -1.0;
     sLastStepTime = -1.0;

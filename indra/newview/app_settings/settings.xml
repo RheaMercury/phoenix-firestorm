@@ -27680,6 +27680,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>FSRenderWaterRippleObstacles</key>
+    <map>
+      <key>Comment</key>
+      <string>Interactive water ripples reflect off and bend around what stands in the water (posts, piers, hulls, rocks, the shore) and calm down in shallow water. Static objects and terrain only. Needs FSRenderWaterRipples. Rebuilds the ripple simulation shader when changed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderWaterRippleObstacleWake</key>
+    <map>
+      <key>Comment</key>
+      <string>When the wind moves the water, objects standing in it shed a faint wake downstream, and foam gathers on their upstream side (with FSRenderWaterRippleFoam). Needs FSRenderWaterRippleObstacles, FSRenderWindEffects and FSRenderWaterWindStrength above 0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderWaterRippleStats</key>
+    <map>
+      <key>Comment</key>
+      <string>Debug: logs (FSWaterRipples) each time the ripple obstacle mask is drawn (why, the faces gathered and left out, the cells marked solid and the time; it reads the mask back, a short stall), and every 10 seconds whether the obstacles are active, when the mask was last drawn and how often the simulation read it.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>FSRenderBloomLensDirt</key>
     <map>
       <key>Comment</key>

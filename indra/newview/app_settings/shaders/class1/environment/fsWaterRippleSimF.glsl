@@ -11,6 +11,15 @@
 // wave equation turns into moving catspaw ripples. The push is sized to the damping, so it
 // settles instead of building up. The surface current that carries everything downwind is a
 // moving frame (fswaterripples.cpp), not a resample; only the foam goes a little faster.
+//
+// With FS_WATER_RIPPLE_OBSTACLES (FSRenderWaterRippleObstacles), the obstacle mask
+// (fsWaterObstacleF.glsl) marks the cells where something solid stands in the water: posts,
+// hulls, rocks, the shore. Those cells take no part: their neighbours read their own height
+// instead of an obstacle's (a mirror), so waves reflect off obstacles and bend through the gaps
+// between them. Each cell keeps its obstacle flag in alpha for its neighbours' next step, so the
+// mask costs one read per cell. Shallow water over terrain calms the ripples before the shore, and
+// in a surface current the downstream sides of obstacles shed a faint alternating wake while the
+// upstream sides gather a touch of foam.
 
 #define FS_RIPPLE_MAX_SOURCES 64 // MAX_SOURCES in fswaterripples.cpp
 
@@ -27,6 +36,12 @@ uniform vec4 fs_ripple_wind;      // x wind push per step (m, 0 = no wind), y gu
 uniform vec4 fs_ripple_wind_o1;   // noise coordinates at the grid's corner: xy fine layer 1, zw fine layer 2
 uniform vec4 fs_ripple_wind_o2;   // xy gust patch noise coordinates at the corner, z fine layer 1 weight, w fine layer 2 weight
 uniform vec3 fs_ripple_wind_s;    // noise cells per grid cell: fine layer 1, fine layer 2, gust patches
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+uniform sampler2D fs_ripple_obst_map; // fsWaterObstacleF.glsl: r inside distance, g outside distance, b water depth (m), a 0 on a water line
+uniform vec4 fs_ripple_obst;      // xy added to a cell centre for its mask texel, z damping per step in the shallows, w 1 with a mask
+uniform vec4 fs_ripple_wake;      // xy surface current direction, z wake push per step (m, 0 = none), w upstream foam (0 = none)
+uniform vec2 fs_ripple_wake_osc;  // the shedding's sin(phase) and sin(2 phase)
+#endif
 
 // Whatever the driver or a bad frame left there, the simulation never carries a NaN or a runaway
 float fsRippleSafe(float v)
@@ -97,14 +112,67 @@ void main()
     vec4 here = fsRippleCell(at, res);
     float h = fsRippleSafe(here.r);
     float h_prev = fsRippleSafe(here.g);
-    float hl = fsRippleSafe(fsRippleCell(at - ivec2(1, 0), res).r);
-    float hr = fsRippleSafe(fsRippleCell(at + ivec2(1, 0), res).r);
-    float hd = fsRippleSafe(fsRippleCell(at - ivec2(0, 1), res).r);
-    float hu = fsRippleSafe(fsRippleCell(at + ivec2(0, 1), res).r);
+    vec4 cl = fsRippleCell(at - ivec2(1, 0), res);
+    vec4 cr = fsRippleCell(at + ivec2(1, 0), res);
+    vec4 cd = fsRippleCell(at - ivec2(0, 1), res);
+    vec4 cu = fsRippleCell(at + ivec2(0, 1), res);
+    float hl = fsRippleSafe(cl.r);
+    float hr = fsRippleSafe(cr.r);
+    float hd = fsRippleSafe(cd.r);
+    float hu = fsRippleSafe(cu.r);
+    vec2 p = vec2(cell) + 0.5;
+
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+    // This cell from the mask (it is world anchored; the grid moves with the water), the
+    // neighbours from the flags they kept last step (written as 0 or 1; a NaN reads as water)
+    bool solid = false;
+    float shallow = 0.0;
+    if (fs_ripple_obst.w > 0.0)
+    {
+        ivec2 m = ivec2(floor(p + fs_ripple_obst.xy));
+        if (all(greaterThanEqual(m, ivec2(0))) && all(lessThan(m, textureSize(fs_ripple_obst_map, 0))))
+        {
+            vec4 o = texelFetch(fs_ripple_obst_map, m, 0);
+            solid = o.r < o.g || o.a < 0.5; // inside a closed solid, or where a surface crosses the water line
+            float fade = 1.0 - smoothstep(0.0, 1.0, o.b);
+            shallow = isnan(fade) ? 0.0 : fade;
+        }
+    }
+    float sl = cl.a > 0.5 ? 1.0 : 0.0;
+    float sr = cr.a > 0.5 ? 1.0 : 0.0;
+    float sd = cd.a > 0.5 ? 1.0 : 0.0;
+    float su = cu.a > 0.5 ? 1.0 : 0.0;
+    if (solid)
+    {
+        // Out of the simulation. The height kept here is only for the water shader's slope (the
+        // mean of the open neighbours, so the surface doesn't step at the obstacle's edge); no
+        // neighbour reads it.
+        float open = 4.0 - (sl + sr + sd + su);
+        float mean = open > 0.0 ? (hl * (1.0 - sl) + hr * (1.0 - sr) + hd * (1.0 - sd) + hu * (1.0 - su)) / open : 0.0;
+        mean = fsRippleSafe(mean);
+        frag_color = vec4(mean, mean, 0.0, 1.0);
+        return;
+    }
+    // A reflecting edge: an obstacle neighbour mirrors this cell
+    hl = mix(hl, h, sl);
+    hr = mix(hr, h, sr);
+    hd = mix(hd, h, sd);
+    hu = mix(hu, h, su);
+    // Facing out of the obstacles beside this cell (zero in open water)
+    vec2 out_dir = vec2(sl - sr, sd - su);
+    float down_stream = 0.0;
+    if (fs_ripple_wake.z > 0.0 || fs_ripple_wake.w > 0.0)
+    {
+        if (dot(out_dir, out_dir) > 0.0)
+        {
+            out_dir = normalize(out_dir);
+            down_stream = dot(out_dir, fs_ripple_wake.xy);
+        }
+    }
+#endif
 
     // Sources: a smooth bump along each capsule, added to the height but not to the height a step
     // earlier, so it moves the surface (an impulse) and the wave equation spreads it as rings
-    vec2 p = vec2(cell) + 0.5;
     int count = min(fs_ripple_count, FS_RIPPLE_MAX_SOURCES);
     for (int i = 0; i < count; ++i)
     {
@@ -126,10 +194,26 @@ void main()
         h += fs_ripple_wind.x * fsRippleWind(p);
     }
 
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+    // The current sheds a wake off the downstream side of an obstacle: the two flanks oscillate in
+    // turn (vortices shed from alternate sides), with a weaker beat at twice the rate straight
+    // behind. It averages out to nothing, so it never lifts or sinks the water.
+    if (fs_ripple_wake.z > 0.0 && down_stream > -0.3)
+    {
+        float side = out_dir.x * fs_ripple_wake.y - out_dir.y * fs_ripple_wake.x;
+        float weight = (down_stream + 0.3) / 1.3;
+        h += fs_ripple_wake.z * weight * (side * fs_ripple_wake_osc.x + 0.3 * fs_ripple_wake_osc.y);
+    }
+#endif
+
     // Damped wave equation. Near the grid's edges the waves are absorbed (a sponge), so they
     // don't bounce back off the edge into view.
     float edge = float(min(min(cell.x, cell.y), min(res - 1 - cell.x, res - 1 - cell.y)));
     float keep = fs_ripple_sim.y * mix(0.9, 1.0, smoothstep(0.0, float(res) * 0.06, edge));
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+    // Shallow water over terrain calms the ripples before they reach the shore
+    keep *= 1.0 - fs_ripple_obst.z * shallow;
+#endif
     float lap = hl + hr + hd + hu - 4.0 * h;
     float h_new = fsRippleSafe((2.0 * h - h_prev + fs_ripple_sim.x * lap) * keep);
 
@@ -155,11 +239,18 @@ void main()
         vec2 grad = vec2(hr - hl, hu - hd) / (2.0 * max(fs_ripple_cell.x, 1e-3));
         float churn = length(grad) * fs_ripple_sim.w;
         foam = max(foam, smoothstep(0.5, 1.0, churn));
+#ifdef FS_WATER_RIPPLE_OBSTACLES
+        // The current piles up against the upstream side of an obstacle
+        if (fs_ripple_wake.w > 0.0 && down_stream < -0.3)
+        {
+            foam = max(foam, fs_ripple_wake.w * (-down_stream - 0.3) / 0.7);
+        }
+#endif
     }
     else
     {
         foam = 0.0;
     }
 
-    frag_color = vec4(h_new, h, clamp(foam, 0.0, 1.0), 0.0);
+    frag_color = vec4(h_new, h, clamp(foam, 0.0, 1.0), 0.0); // alpha 0: open water
 }
