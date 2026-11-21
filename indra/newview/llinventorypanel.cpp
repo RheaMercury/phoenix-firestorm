@@ -60,6 +60,7 @@
 #include "rlvcommon.h"
 // [/RLVa:KB]
 #include "fsfloaterpartialinventory.h"
+#include "fsinventorypositionhistory.h" // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
 
 class LLInventoryFavoritesItemsPanel;
 class LLInventoryRecentItemsPanel;
@@ -295,6 +296,11 @@ LLInventoryPanel::~LLInventoryPanel()
     }
 
     clearFolderRoot();
+
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions
+    delete mPositionHistory;
+    mPositionHistory = nullptr;
+    // </FS:Trish>
 }
 
 void LLInventoryPanel::initFolderRoot()
@@ -338,6 +344,10 @@ void LLInventoryPanel::initFolderRoot()
     {
         mFolderRoot.get()->setSelectCallback(mSelectionCallback);
     }
+
+    // <FS:Trish> FIRE-32887 Alt+Left/Right go back/forward through positions when the history is active
+    mFolderRoot.get()->setPassAltArrowsCallback([this]() { return isPositionHistoryActive(); });
+    // </FS:Trish>
 
     // Set up the callbacks from the inventory we're viewing, and then build everything.
     mInventoryObserver = new LLInventoryPanelObserver(this);
@@ -458,6 +468,13 @@ void LLInventoryPanel::draw()
 {
     // Select the desired item (in case it wasn't loaded when the selection was requested)
     updateSelection();
+
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions
+    if (mPositionHistory)
+    {
+        mPositionHistory->update();
+    }
+    // </FS:Trish>
 
     LLPanel::draw();
 }
@@ -2554,6 +2571,14 @@ LLFolderViewFolder* LLInventoryPanel::getFolderByID(const LLUUID& id)
 
 void LLInventoryPanel::setSelectionByID( const LLUUID& obj_id, bool    take_keyboard_focus )
 {
+    // <FS:Trish> FIRE-32887 Remember where we were before code moves the selection
+    // (retries of a pending selection come back here with the same ID)
+    if (mPositionHistory && obj_id.notNull() && obj_id != mSelectThisID)
+    {
+        mPositionHistory->noteJump(obj_id);
+    }
+    // </FS:Trish>
+
     LLFolderViewItem* itemp = getItemByID(obj_id);
 
     if (itemp && !itemp->areChildrenInited())
@@ -2587,6 +2612,22 @@ void LLInventoryPanel::updateSelection()
         setSelectionByID(mSelectThisID, mFocusSelection);
     }
 }
+
+// <FS:Trish> FIRE-32887 Back and forward through inventory positions
+void LLInventoryPanel::enablePositionHistory()
+{
+    // Single folder view keeps its own folder history
+    if (!mPositionHistory && !dynamic_cast<LLInventorySingleFolderPanel*>(this))
+    {
+        mPositionHistory = new FSInventoryPositionHistory(this);
+    }
+}
+
+bool LLInventoryPanel::isPositionHistoryActive() const
+{
+    return mPositionHistory && FSInventoryPositionHistory::isEnabled();
+}
+// </FS:Trish>
 
 void LLInventoryPanel::doToSelected(const LLSD& userdata)
 {

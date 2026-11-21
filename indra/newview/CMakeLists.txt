@@ -139,6 +139,7 @@ set(viewer_SOURCE_FILES
     fsgpuocclusion.cpp
     fsgpuworkdiag.cpp
     fsinventorycustomtabs.cpp
+    fsinventorypositionhistory.cpp
     fsfloaterassetblacklist.cpp
     fsfloateravataralign.cpp
     fsfloateravatarrendersettings.cpp
@@ -1076,6 +1077,7 @@ set(viewer_HEADER_FILES
     fsgpuocclusion.h
     fsgpuworkdiag.h
     fsinventorycustomtabs.h
+    fsinventorypositionhistory.h
     fsfloaterassetblacklist.h
     fsfloateravatarrendersettings.h
     fsfloaterbigpreview.h

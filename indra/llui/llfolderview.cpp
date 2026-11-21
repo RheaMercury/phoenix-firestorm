@@ -1171,6 +1171,14 @@ bool LLFolderView::handleKeyHere( KEY key, MASK mask )
         }
     }
 
+    // <FS:Trish> FIRE-32887 Alt+Left/Right go back/forward through inventory positions where the owner
+    // asks for it (inventory tree with position history); everywhere else they work as before
+    if ((key == KEY_LEFT || key == KEY_RIGHT) && mask == MASK_ALT && mPassAltArrowsCallback && mPassAltArrowsCallback())
+    {
+        return false;
+    }
+    // </FS:Trish>
+
     switch( key )
     {
     case KEY_F2:

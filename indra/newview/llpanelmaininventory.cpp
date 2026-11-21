@@ -69,6 +69,7 @@
 // </FS:AW opensim currency support>
 #include "fscommon.h"
 #include "fsinventorycustomtabs.h" // <FS:PP> FIRE-35598: Custom filters in inventory (feature idea: Catznip)
+#include "fsinventorypositionhistory.h" // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
 
 // <FS:Ansariel> FIRE-12808: Don't save filters during settings restore
 bool LLPanelMainInventory::sSaveFilters = true;
@@ -437,6 +438,22 @@ bool LLPanelMainInventory::postBuild()
     mViewModeBtn = getChild<LLButton>("view_mode_btn");
     mNavigationBtnsPanel = getChild<LLLayoutPanel>("nav_buttons");
 
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions: the tree view
+    // shows back/forward without the up button
+    mBackBtnToolTip = mBackBtn->getToolTip();
+    mForwardBtnToolTip = mForwardBtn->getToolTip();
+    mNavButtonsFullWidth = mNavigationBtnsPanel->getRect().getWidth();
+    mNavButtonsHistoryWidth = llclamp(mForwardBtn->getRect().mRight + 1, 1, mNavButtonsFullWidth);
+    LLInventoryPanel* history_panels[] = { mAllItemsPanel, mRecentPanel, mWornItemsPanel, mFavoritesPanel };
+    for (LLInventoryPanel* panel : history_panels)
+    {
+        if (panel)
+        {
+            panel->enablePositionHistory();
+        }
+    }
+    // </FS:Trish>
+
     mDefaultViewPanel = getChild<LLPanel>("default_inventory_panel");
     mCombinationViewPanel = getChild<LLPanel>("combination_view_inventory");
     mCombinationGalleryLayoutPanel = getChild<LLLayoutPanel>("comb_gallery_layout");
@@ -585,6 +602,25 @@ bool LLPanelMainInventory::handleKeyHere(KEY key, MASK mask)
         return true;
     }
     // </FS:Ansariel>
+
+    // <FS:Trish> FIRE-32887 Alt+Left/Right go back/forward through positions in the tree view
+    // (single folder view keeps its own keys)
+    if (mask == MASK_ALT && (key == KEY_LEFT || key == KEY_RIGHT)
+        && !mSingleFolderMode
+        && !(mFilterEditor && mFilterEditor->hasFocus())
+        && mActivePanel && mActivePanel->isPositionHistoryActive())
+    {
+        if (key == KEY_LEFT)
+        {
+            onBackFolderClicked();
+        }
+        else
+        {
+            onForwardFolderClicked();
+        }
+        return true;
+    }
+    // </FS:Trish>
 
     LLFolderView* root_folder = mActivePanel ? mActivePanel->getRootFolder() : NULL;
     if (root_folder)
@@ -1457,6 +1493,13 @@ void LLPanelMainInventory::draw()
         mResortActivePanel = false;
     }
     FSInventoryCustomTabs::onParentDraw(this); // <FS:PP> FIRE-35598: Custom filters in inventory (feature idea: Catznip)
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions
+    updateNavButtonsLayout();
+    if (!mSingleFolderMode)
+    {
+        updatePositionHistoryButtons();
+    }
+    // </FS:Trish>
     LLPanel::draw();
     updateItemcountText();
     updateCombinationVisibility();
@@ -2245,6 +2288,13 @@ void LLPanelMainInventory::setActivePanel()
     else
     {
         mActivePanel = (LLInventoryPanel*)mFilterTabs->getCurrentPanel();
+
+        // <FS:Trish> FIRE-32887 Custom tabs get a position history too
+        if (LLInventoryPanel* panel = dynamic_cast<LLInventoryPanel*>(mFilterTabs->getCurrentPanel()))
+        {
+            panel->enablePositionHistory();
+        }
+        // </FS:Trish>
     }
     mViewModeBtn->setEnabled(mSingleFolderMode || (getAllItemsPanel() == getActivePanel()));
 }
@@ -2389,6 +2439,16 @@ void LLPanelMainInventory::onUpFolderClicked()
 
 void LLPanelMainInventory::onBackFolderClicked()
 {
+    // <FS:Trish> FIRE-32887 The tree view goes back through positions
+    if (!mSingleFolderMode)
+    {
+        if (FSInventoryPositionHistory* history = getActivePositionHistory())
+        {
+            history->goBack();
+        }
+        return;
+    }
+    // </FS:Trish>
     if(isListViewMode())
     {
         mCombinationInventoryPanel->onBackwardFolder();
@@ -2405,6 +2465,16 @@ void LLPanelMainInventory::onBackFolderClicked()
 
 void LLPanelMainInventory::onForwardFolderClicked()
 {
+    // <FS:Trish> FIRE-32887 The tree view goes forward through positions
+    if (!mSingleFolderMode)
+    {
+        if (FSInventoryPositionHistory* history = getActivePositionHistory())
+        {
+            history->goForward();
+        }
+        return;
+    }
+    // </FS:Trish>
     if(isListViewMode())
     {
         mCombinationInventoryPanel->onForwardFolder();
@@ -3383,7 +3453,10 @@ void LLPanelMainInventory::updatePanelVisibility()
 {
     mDefaultViewPanel->setVisible(!mSingleFolderMode);
     mCombinationViewPanel->setVisible(mSingleFolderMode);
-    mNavigationBtnsPanel->setVisible(mSingleFolderMode);
+    // <FS:Trish> FIRE-32887 The tree view shows back/forward through positions
+    //mNavigationBtnsPanel->setVisible(mSingleFolderMode);
+    updateNavButtonsLayout();
+    // </FS:Trish>
     mViewModeBtn->setImageOverlay(mSingleFolderMode ? getString("default_mode_btn") : getString("single_folder_mode_btn"));
     mViewModeBtn->setEnabled(mSingleFolderMode || (getAllItemsPanel() == getActivePanel()));
     if (mSingleFolderMode)
@@ -3541,6 +3614,93 @@ void LLPanelMainInventory::updateNavButtons()
     bool up_enabled = (cat && cat->getParentUUID().notNull());
     mUpBtn->setEnabled(up_enabled);
 }
+
+// <FS:Trish> FIRE-32887 Back and forward through inventory positions
+FSInventoryPositionHistory* LLPanelMainInventory::getActivePositionHistory() const
+{
+    return (!mSingleFolderMode && mActivePanel) ? mActivePanel->getPositionHistory() : nullptr;
+}
+
+void LLPanelMainInventory::updateNavButtonsLayout()
+{
+    ENavButtonsLayout layout = ENavButtonsLayout::HIDDEN;
+    if (mSingleFolderMode)
+    {
+        layout = ENavButtonsLayout::SINGLE_FOLDER;
+    }
+    else if (FSInventoryPositionHistory::isEnabled())
+    {
+        layout = ENavButtonsLayout::POSITION_HISTORY;
+    }
+
+    if (layout == mNavButtonsLayout)
+    {
+        return;
+    }
+    mNavButtonsLayout = layout;
+
+    if (layout == ENavButtonsLayout::HIDDEN)
+    {
+        mNavigationBtnsPanel->setVisible(false);
+        return;
+    }
+
+    const bool single_folder = (layout == ENavButtonsLayout::SINGLE_FOLDER);
+    mUpBtn->setVisible(single_folder);
+    mNavigationBtnsPanel->setVisible(true);
+    const S32 width = single_folder ? mNavButtonsFullWidth : mNavButtonsHistoryWidth;
+    if (width > 0 && mNavigationBtnsPanel->getRect().getWidth() != width)
+    {
+        mNavigationBtnsPanel->setTargetDim(width);
+    }
+
+    if (single_folder)
+    {
+        mBackBtn->setToolTip(mBackBtnToolTip);
+        mForwardBtn->setToolTip(mForwardBtnToolTip);
+        mHistoryToolTipsSet = false;
+        updateNavButtons();
+    }
+    else
+    {
+        updatePositionHistoryButtons();
+    }
+}
+
+void LLPanelMainInventory::updatePositionHistoryButtons()
+{
+    if (mNavButtonsLayout != ENavButtonsLayout::POSITION_HISTORY)
+    {
+        return;
+    }
+
+    FSInventoryPositionHistory* history = getActivePositionHistory();
+    const bool can_go_back = history && history->canGoBack();
+    const bool can_go_forward = history && history->canGoForward();
+    mBackBtn->setEnabled(can_go_back);
+    mForwardBtn->setEnabled(can_go_forward);
+
+    // Tool tips name the item the button goes to
+    const std::string back_name = can_go_back ? history->getBackName() : LLStringUtil::null;
+    if (!mHistoryToolTipsSet || back_name != mBackToolTipName)
+    {
+        mBackToolTipName = back_name;
+        mBackBtn->setToolTip(back_name.empty()
+            ? LLTrans::getString("InventoryPositionBack")
+            : LLTrans::getString("InventoryPositionBackTo", LLSD().with("[NAME]", back_name)));
+    }
+
+    const std::string forward_name = can_go_forward ? history->getForwardName() : LLStringUtil::null;
+    if (!mHistoryToolTipsSet || forward_name != mForwardToolTipName)
+    {
+        mForwardToolTipName = forward_name;
+        mForwardBtn->setToolTip(forward_name.empty()
+            ? LLTrans::getString("InventoryPositionForward")
+            : LLTrans::getString("InventoryPositionForwardTo", LLSD().with("[NAME]", forward_name)));
+    }
+    mHistoryToolTipsSet = true;
+}
+// </FS:Trish>
 
 LLSidepanelInventory* LLPanelMainInventory::getParentSidepanelInventory()
 {

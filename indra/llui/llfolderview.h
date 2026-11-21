@@ -43,6 +43,7 @@
 #include "lleditmenuhandler.h"
 #include "llfontgl.h"
 #include "llscrollcontainer.h"
+#include <functional> // <FS:Trish/> FIRE-32887
 
 class LLFolderViewModelInterface;
 class LLFolderViewGroupedItemModel;
@@ -123,6 +124,12 @@ public:
     typedef boost::signals2::signal<void (const std::deque<LLFolderViewItem*>& items, bool user_action)> signal_t;
     void setSelectCallback(const signal_t::slot_type& cb) { mSelectSignal.connect(cb); }
     void setReshapeCallback(const signal_t::slot_type& cb) { mReshapeSignal.connect(cb); }
+
+    // <FS:Trish> FIRE-32887 Lets the owner take Alt+Left/Alt+Right (back/forward through inventory positions)
+    // instead of the folder view collapsing/expanding with them
+    typedef std::function<bool()> pass_alt_arrows_callback_t;
+    void setPassAltArrowsCallback(const pass_alt_arrows_callback_t& cb) { mPassAltArrowsCallback = cb; }
+    // </FS:Trish>
 
     bool getAllowMultiSelect() const { return mAllowMultiSelect; }
     bool getAllowDrag() const { return mAllowDrag; }
@@ -341,6 +348,7 @@ protected:
 // [/SL:KB]
 
     LLHandle<LLPanel>               mParentPanel;
+    pass_alt_arrows_callback_t      mPassAltArrowsCallback; // <FS:Trish/> FIRE-32887
 
     LLFolderViewModelInterface*     mViewModel;
     LLFolderViewGroupedItemModel*   mGroupedItemModel;

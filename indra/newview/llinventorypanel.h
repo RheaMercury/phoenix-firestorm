@@ -45,6 +45,7 @@ class LLInventoryFolderViewModelBuilder;
 class LLInvPanelComplObserver;
 class LLFolderViewModelInventory;
 class LLFolderViewGroupedItemBridge;
+class FSInventoryPositionHistory; // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
 
 namespace LLInitParam
 {
@@ -278,6 +279,13 @@ public:
     void setSelectionByID(const LLUUID& obj_id, bool take_keyboard_focus);
     void updateSelection();
 
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions
+    void enablePositionHistory();
+    FSInventoryPositionHistory* getPositionHistory() const { return mPositionHistory; }
+    bool isPositionHistoryActive() const;
+    const LLUUID& getPendingSelectionID() const { return mSelectThisID; }
+    // </FS:Trish>
+
     void setSuppressOpenItemAction(bool supress_open_item) { mSuppressOpenItemAction = supress_open_item; }
 
     LLFolderViewModelInventory* getFolderViewModel() { return &mInventoryViewModel; }
@@ -425,6 +433,7 @@ protected:
     std::deque<LLUUID>          mBuildViewsQueue;
     std::deque<LLUUID>          mBuildRootQueue;
 
+    FSInventoryPositionHistory* mPositionHistory{ nullptr }; // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
 };
 
 

@@ -3406,4 +3406,11 @@ Your current position: [AVATAR_POS]
 
   <!-- <FS:TJ> Launch new instance option from macOS dock> -->
   <string name="FSMacOSNewViewerInstance">New Viewer Instance</string>
+
+  <!-- <FS:Trish> FIRE-32887 Back and forward through inventory positions -->
+  <string name="InventoryPositionBack">Back to the previous place in inventory (Alt+Left)</string>
+  <string name="InventoryPositionBackTo">Back to [NAME] (Alt+Left)</string>
+  <string name="InventoryPositionForward">Forward to the next place in inventory (Alt+Right)</string>
+  <string name="InventoryPositionForwardTo">Forward to [NAME] (Alt+Right)</string>
+  <!-- </FS:Trish> -->
 </strings>

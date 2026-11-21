@@ -55,6 +55,7 @@ class LLFloaterSidePanelContainer;
 class LLSidepanelInventory;
 class LLPanelMarketplaceInbox;
 class LLComboBox;   // <FS:Zi> Filter dropdown
+class FSInventoryPositionHistory; // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Class LLPanelMainInventory
@@ -209,6 +210,28 @@ protected:
 
     void updatePanelVisibility();
     void updateCombinationVisibility();
+
+    // <FS:Trish> FIRE-32887 Back and forward through inventory positions
+    void updateNavButtonsLayout();
+    void updatePositionHistoryButtons();
+    FSInventoryPositionHistory* getActivePositionHistory() const;
+
+    enum class ENavButtonsLayout
+    {
+        UNSET,
+        HIDDEN,
+        SINGLE_FOLDER,      // back, forward, up through folders
+        POSITION_HISTORY    // back, forward through positions in the tree
+    };
+    ENavButtonsLayout   mNavButtonsLayout{ ENavButtonsLayout::UNSET };
+    std::string         mBackBtnToolTip;
+    std::string         mForwardBtnToolTip;
+    std::string         mBackToolTipName;
+    std::string         mForwardToolTipName;
+    bool                mHistoryToolTipsSet{ false };
+    S32                 mNavButtonsFullWidth{ 0 };
+    S32                 mNavButtonsHistoryWidth{ 0 };
+    // </FS:Trish>
 
     // <FS:Zi> Inventory Collapse and Expand Buttons
     void onCollapseButtonClicked();
