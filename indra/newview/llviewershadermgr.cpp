@@ -30,6 +30,7 @@
 #include <boost/lexical_cast.hpp>
 #include "fsreversez.h" // <FS:Trish/> FSRenderReverseZ
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fslensflare.h" // <FS:Trish/> FSRenderLensFlareHQ
 extern U32 gFrameCount; // <FS:Trish/> FSRenderCreaseAO: the noise offset while TAA runs
 #include "fstaajitter.h" // <FS:Trish/> FSRenderTAATextureBias
 
@@ -2067,6 +2068,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gFSBloomStreakProgram.unload(); // <FS:Trish/> Anamorphic streaks
         gFSLensDirtProgram.unload();
         gFSLensEffectsProgram.unload();
+        // <FS:Trish> FSRenderLensFlareHQ
+        gFSLensFlareStateProgram.unload();
+        gFSLensFlarePickProgram.unload();
+        gFSLensFlareSelectProgram.unload();
+        // </FS:Trish>
         gFSAvatarMatteProgram.unload();
         gFSDynResUpscaleProgram.unload(); // <FS:Trish/> Dynamic resolution
         gFSNISUpscaleProgram.unload(); // <FS:Trish/> NVIDIA Image Scaling
@@ -4040,6 +4046,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             { &gFSBloomStreakProgram,      "FS Bloom Streak",       "deferred/fsBloomStreakF.glsl",      false }, // <FS:Trish/> Anamorphic streaks
             { &gFSLensDirtProgram,         "FS Lens Dirt",          "deferred/fsLensDirtF.glsl",         false },
             { &gFSLensEffectsProgram,      "FS Lens Effects",       "deferred/fsLensEffectsF.glsl",      false },
+            // <FS:Trish> FSRenderLensFlareHQ
+            { &gFSLensFlareStateProgram,   "FS Lens Flare State",   "deferred/fsLensFlareStateF.glsl",   false },
+            { &gFSLensFlarePickProgram,    "FS Lens Flare Pick",    "deferred/fsLensFlarePickF.glsl",    false },
+            { &gFSLensFlareSelectProgram,  "FS Lens Flare Select",  "deferred/fsLensFlareSelectF.glsl",  false },
+            // </FS:Trish>
             { &gFSAvatarMatteProgram,      "FS Avatar Matte",       "deferred/fsAvatarMatteF.glsl",      false },
             { &gFSDynResUpscaleProgram,    "FS Dynamic Resolution Upscale", "deferred/fsDynResUpscaleF.glsl", false }, // <FS:Trish/>
             { &gFSTAAResolveProgram,       "FS TAA Resolve",        "deferred/fsTAAResolveF.glsl",       false }, // <FS:Trish/> FSRenderTAA

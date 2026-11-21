@@ -172,6 +172,10 @@ namespace
         { "FSRenderChromaticAberration", CL, VM },
         { "FSRenderChromaticAberrationDoFOnly", CL, VM },
         { "FSRenderLensFlare", CL, VM },
+        { "FSRenderLensFlareHQ", CL, VM },
+        { "FSRenderLensFlareLights", CL, VM },
+        { "FSRenderLensFlareStarburst", CL, VM },
+        { "FSRenderLensFlareBlades", CL, VM },
         { "FSRenderFilmGrain", CL, VM },
         { "FSRenderFilmGrainSize", CL, VM },
 

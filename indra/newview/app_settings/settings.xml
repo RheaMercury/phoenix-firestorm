@@ -31241,6 +31241,50 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.0</real>
     </map>
+    <key>FSRenderLensFlareHQ</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Lens: high quality lens flare. Its strength follows how bright the sun is after exposure and how much of its disc is uncovered, so it dims smoothly behind branches and fences; ghosts take the aperture's shape with coloured coatings, a ring of colour surrounds the sun, and the aperture's diffraction spikes form a starburst. With bloom on, the brightest small lights on screen get small flares of their own. Needs Lens flare above 0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderLensFlareLights</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Lens: with the high quality lens flare and bloom on, strength of the small flares of the brightest lights on screen (up to 8: lamps, club lights, projector bulbs, bright glints). 0 is off.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
+    <key>FSRenderLensFlareStarburst</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Lens: with the high quality lens flare, strength of the starburst (diffraction spikes and fine streaks) around the sun and bright lights. 0 is off.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderLensFlareBlades</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Lens: with the high quality lens flare, the number of aperture blades, which sets the shape of the ghosts and the number of starburst spikes (an even number makes as many spikes, an odd number twice as many). Below 3 is a round aperture: round ghosts and no spikes.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>6</integer>
+    </map>
     <key>FSRenderTwilightBands</key>
     <map>
       <key>Comment</key>

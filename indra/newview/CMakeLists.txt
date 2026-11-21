@@ -181,6 +181,7 @@ set(viewer_SOURCE_FILES
     fsfloaterwhitelisthelper.cpp
     fsjointpose.cpp
     fskeywords.cpp
+    fslensflare.cpp
     fslighterwhilemoving.cpp
     fslinknumbers.cpp
     fslinksetinventoryloader.cpp
@@ -1130,6 +1131,7 @@ set(viewer_HEADER_FILES
     fsjointpose.h
     fsgridhandler.h
     fskeywords.h
+    fslensflare.h
     fslighterwhilemoving.h
     fslinknumbers.h
     fslinksetinventoryloader.h

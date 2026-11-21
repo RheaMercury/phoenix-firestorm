@@ -164,6 +164,7 @@
 #include "fsblocktimer.h" // <FS:Trish/> FSPerfProfileLogInterval render breakdown
 #include "fslighterwhilemoving.h" // <FS:Trish/> FSRenderLighterWhileMoving
 #include "fstaa.h" // <FS:Trish/> FSRenderTAA
+#include "fslensflare.h" // <FS:Trish/> FSRenderLensFlareHQ
 
 #if LL_CLANG
 #pragma clang diagnostic push
@@ -11372,6 +11373,10 @@ void LLPipeline::renderFinalize()
         // </FS:Trish>
 
         generateExposure(&mLuminanceMap, &mExposureMap);
+        // <FS:Trish> FSRenderLensFlareHQ: how much of the sun is uncovered and how bright, on the resolved
+        // HDR scene with this frame's exposure, for the lens effects pass to draw the flare from
+        FSLensFlare::measureSun(mRT->screen, mRT->deferredScreen, mExposureMap, mScreenTriangleVB);
+        // </FS:Trish>
         } // <FS:Trish/> Avatars only snapshot
 
         // <FS:Trish> FSRenderTAA: CAS is TAA's sharpening, once, at FSRenderTAASharpness (applyCAS)
@@ -16968,6 +16973,7 @@ void LLPipeline::releaseFSPostTargets()
         level.release();
     }
     mBloomLevelCount = 0;
+    FSLensFlare::release(); // <FS:Trish/> FSRenderLensFlareHQ
 }
 
 // (Re)allocate a post target when its size or format no longer matches
@@ -18176,6 +18182,10 @@ void LLPipeline::renderBloom()
         gFSBloomDownProgram.unbind();
     }
 
+    // <FS:Trish> FSRenderLensFlareHQ: the brightest small lights, from the levels before the up pass adds into them
+    FSLensFlare::pickLights(mBloomLevels, count, mRT->deferredScreen, mScreenTriangleVB);
+    // </FS:Trish>
+
     // Anamorphic streaks: blur the second level sideways before the up pass adds the smaller levels
     // into it, so only its own bright parts streak
     static LLCachedControl<F32> streaks(gSavedSettings, "FSRenderAnamorphicStreaks", 0.05f);
@@ -18598,6 +18608,7 @@ bool LLPipeline::renderLensEffects(LLRenderTarget* src, LLRenderTarget* dst)
 
     F32 flare = llmax((F32)flare_strength, 0.f);
     const F32 grain = llclamp((F32)grain_strength, 0.f, 1.f);
+    const bool flare_hq = flare > 0.f && FSLensFlare::enabled(); // <FS:Trish/> FSRenderLensFlareHQ
 
     // Where the sun or moon lands on screen
     LLVector3 sun_screen(0.f, 0.f, 0.f);
@@ -18609,7 +18620,13 @@ bool LLPipeline::renderLensEffects(LLRenderTarget* src, LLRenderTarget* dst)
         const bool sun_up = environment.getIsSunUp();
         if (!sun_up && !environment.getIsMoonUp())
         {
-            flare = 0.f;
+            // <FS:Trish> FSRenderLensFlareHQ: the bright lights on screen still flare
+            //flare = 0.f;
+            if (!flare_hq)
+            {
+                flare = 0.f;
+            }
+            // </FS:Trish>
         }
         else
         {
@@ -18632,7 +18649,17 @@ bool LLPipeline::renderLensEffects(LLRenderTarget* src, LLRenderTarget* dst)
                 static LLCachedControl<F32> moon_flare(gSavedSettings, "FSRenderLensFlareMoon", 0.15f);
                 LLSettingsSky::ptr_t psky = environment.getCurrentSky();
                 const F32 moon_brightness = psky ? llclamp((F32)psky->getMoonBrightness(), 0.f, 1.f) : 1.f;
-                flare *= llclamp((F32)moon_flare, 0.f, 1.f) * moon_brightness;
+                // <FS:Trish> FSRenderLensFlareHQ: only the moon's own flare, not that of the lights on screen
+                //flare *= llclamp((F32)moon_flare, 0.f, 1.f) * moon_brightness;
+                if (flare_hq)
+                {
+                    flare_color *= llclamp((F32)moon_flare, 0.f, 1.f) * moon_brightness;
+                }
+                else
+                {
+                    flare *= llclamp((F32)moon_flare, 0.f, 1.f) * moon_brightness;
+                }
+                // </FS:Trish>
                 flare_ghosts = 0.15f;
             }
         }
@@ -18677,6 +18704,7 @@ bool LLPipeline::renderLensEffects(LLRenderTarget* src, LLRenderTarget* dst)
     shader.uniform3fv(s_flare_color, 1, flare_color.mV);
     shader.uniform3fv(s_sun_screen, 1, sun_screen.mV);
     shader.uniform1f(s_flare_ghosts, flare_ghosts);
+    FSLensFlare::setupLensPass(shader, flare_hq && flare > 0.f, src, mExposureMap); // <FS:Trish/> FSRenderLensFlareHQ
 
     shader.uniform1f(s_grain_strength, grain * 0.25f);
     // grain size is set in screen pixels, the shader works in target pixels

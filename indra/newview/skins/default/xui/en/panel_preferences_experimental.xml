@@ -1177,7 +1177,7 @@
              bottom="-1">
                 <panel
                  follows="left|top"
-                 height="4708"
+                 height="4856"
                  layout="topleft"
                  left="0"
                  name="experimental_effects_settings"
@@ -4753,6 +4753,120 @@
                      tool_tip="EXPERIMENTAL. Smoother filtering of the effects drawn at reduced resolution: sun rays, underwater rays, projector light cones and point lights in fog lose the faint blocky grid at their edges, bloom is filtered up smoothly, and the temporal passes (projector light, indirect light, sun shadow filter) keep their history sharp instead of blurring it a little every frame. Costs a few extra texture reads per pixel in those passes. Rebuilds shaders."
                      top="4666"
                      width="475" />
+                    <text
+                     follows="left|top"
+                     font="SansSerifBold"
+                     height="18"
+                     layout="topleft"
+                     left="15"
+                     name="fs_heading_lens_flare_hq"
+                     top="4706"
+                     width="340">
+                        High quality lens flare
+                    </text>
+                    <button
+                     follows="left|top"
+                     height="19"
+                     label="Reset to default"
+                     layout="topleft"
+                     left="370"
+                     name="reset_fs_heading_lens_flare_hq"
+                     tool_tip="Set every option in &quot;High quality lens flare&quot; back to its default value."
+                     top="4705"
+                     width="120">
+                        <button.commit_callback
+                         function="FSExperimental.ResetSection"
+                         parameter="FSRenderLensFlareHQ,FSRenderLensFlareLights,FSRenderLensFlareStarburst,FSRenderLensFlareBlades" />
+                    </button>
+                    <check_box
+                     control_name="FSRenderLensFlareHQ"
+                     follows="left|top"
+                     height="20"
+                     label="High quality lens flare"
+                     layout="topleft"
+                     left="15"
+                     name="fs_fsrenderlensflarehq"
+                     tool_tip="EXPERIMENTAL. A lens flare whose strength follows how bright the sun is after exposure and how much of its disc is uncovered, so it dims smoothly behind branches and fences. Ghosts take the shape of the aperture with coloured coatings, a ring of colour surrounds the sun and the diffraction spikes of the aperture form a starburst. With bloom on, the brightest small lights on screen get small flares of their own. Needs Lens flare (in Lens effects) above 0."
+                     top="4732"
+                     width="475" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderlensflarelights_label"
+                     tool_tip="EXPERIMENTAL. Strength of the small flares of the brightest lights on screen: up to 8 lamps, club lights, projector bulbs or bright glints. Needs bloom on. 0 is off."
+                     top="4760"
+                     width="285">
+                        Flares from bright lights
+                    </text>
+                    <spinner
+                     control_name="FSRenderLensFlareLights"
+                     decimal_digits="2"
+                     enabled_control="FSRenderLensFlareHQ"
+                     follows="left|top"
+                     height="20"
+                     increment="0.1"
+                     layout="topleft"
+                     left="330"
+                     max_val="4"
+                     min_val="0"
+                     name="fs_fsrenderlensflarelights"
+                     tool_tip="EXPERIMENTAL. Strength of the small flares of the brightest lights on screen: up to 8 lamps, club lights, projector bulbs or bright glints. Needs bloom on. 0 is off."
+                     top="4758"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderlensflarestarburst_label"
+                     tool_tip="EXPERIMENTAL. Strength of the starburst, the diffraction spikes and fine streaks around the sun and bright lights. 0 is off."
+                     top="4788"
+                     width="285">
+                        Starburst
+                    </text>
+                    <spinner
+                     control_name="FSRenderLensFlareStarburst"
+                     decimal_digits="2"
+                     enabled_control="FSRenderLensFlareHQ"
+                     follows="left|top"
+                     height="20"
+                     increment="0.1"
+                     layout="topleft"
+                     left="330"
+                     max_val="4"
+                     min_val="0"
+                     name="fs_fsrenderlensflarestarburst"
+                     tool_tip="EXPERIMENTAL. Strength of the starburst, the diffraction spikes and fine streaks around the sun and bright lights. 0 is off."
+                     top="4786"
+                     width="100" />
+                    <text
+                     follows="left|top"
+                     height="18"
+                     layout="topleft"
+                     left="35"
+                     name="fs_fsrenderlensflareblades_label"
+                     tool_tip="EXPERIMENTAL. Number of aperture blades: the shape of the ghosts and the number of starburst spikes (an even number makes as many spikes, an odd number twice as many). Below 3 is a round aperture, with round ghosts and no spikes."
+                     top="4816"
+                     width="285">
+                        Aperture blades
+                    </text>
+                    <spinner
+                     control_name="FSRenderLensFlareBlades"
+                     decimal_digits="0"
+                     enabled_control="FSRenderLensFlareHQ"
+                     follows="left|top"
+                     height="20"
+                     increment="1"
+                     layout="topleft"
+                     left="330"
+                     max_val="12"
+                     min_val="0"
+                     name="fs_fsrenderlensflareblades"
+                     tool_tip="EXPERIMENTAL. Number of aperture blades: the shape of the ghosts and the number of starburst spikes (an even number makes as many spikes, an odd number twice as many). Below 3 is a round aperture, with round ghosts and no spikes."
+                     top="4814"
+                     width="100" />
                 </panel>
             </scroll_container>
         </panel>
