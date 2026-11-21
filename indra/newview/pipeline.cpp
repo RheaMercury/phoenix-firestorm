@@ -139,6 +139,7 @@
 #include "fswaterripples.h" // <FS:Trish/> FSRenderWaterRipples
 #include "fsshadowdepthfit.h" // <FS:Trish/>
 #include "fsshadowscreenfilter.h" // <FS:Trish/>
+#include "fsshadowbias.h" // <FS:Trish/> FSRenderShadowBiasMetric, FSRenderShadowCascadeBand
 
 #include "llenvironment.h"
 
@@ -12008,6 +12009,13 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
     shader.uniform1f(LLShaderMgr::DEFERRED_NEAR_CLIP, LLViewerCamera::getInstance()->getNear()*2.f);
     shader.uniform1f (LLShaderMgr::DEFERRED_SHADOW_OFFSET, RenderShadowOffset); //*shadow_offset_error);
     shader.uniform1f(LLShaderMgr::DEFERRED_SHADOW_BIAS, shadow_bias);
+    // <FS:Trish> FSRenderShadowBiasMetric, FSRenderShadowCascadeBand (shadowUtil.glsl)
+    {
+        const U32 fs_w[4] = { mRT->shadow[0].getWidth(), mRT->shadow[1].getWidth(), mRT->shadow[2].getWidth(), mRT->shadow[3].getWidth() };
+        const U32 fs_h[4] = { mRT->shadow[0].getHeight(), mRT->shadow[1].getHeight(), mRT->shadow[2].getHeight(), mRT->shadow[3].getHeight() };
+        FSShadowBias::bind(shader, mSunShadowMatrix, fs_w, fs_h);
+    }
+    // </FS:Trish>
     shader.uniform1f(LLShaderMgr::DEFERRED_SPOT_SHADOW_OFFSET, RenderSpotShadowOffset);
     shader.uniform1f(LLShaderMgr::DEFERRED_SPOT_SHADOW_BIAS, RenderSpotShadowBias);
     // <FS:Trish> Projector shadows fade out over the last 20 % of this camera distance (see
@@ -18885,8 +18893,12 @@ bool LLPipeline::fsFarCascadeStillFits(S32 cascade, const LLCamera& camera, F32 
             why = FSMoving::FORCE_SLICE;
             return false;
         }
-        frust[i] = eye + (delta * near_dist * 0.75f) / dp;
-        frust[i + 4] = eye + (delta * far_dist * 1.25f) / dp;
+        // <FS:Trish> FSRenderShadowCascadeBand: as the cascade loop
+        //frust[i] = eye + (delta * near_dist * 0.75f) / dp;
+        //frust[i + 4] = eye + (delta * far_dist * 1.25f) / dp;
+        frust[i] = eye + (delta * near_dist * (1.f - FSShadowBias::cascadeBand())) / dp;
+        frust[i + 4] = eye + (delta * far_dist * (1.f + FSShadowBias::cascadeBand())) / dp;
+        // </FS:Trish>
     }
     shadow_cam.calcAgentFrustumPlanes(frust);
     shadow_cam.mFrustumCornerDist = 0.f;
@@ -19580,8 +19592,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
                 delta += (frust[i+4]-frust[(i+2)%4+4])*0.05f;
                 delta.normVec();
                 F32 dp = delta*pn;
-                frust[i] = eye + (delta*dist[j]*0.75f)/dp;
-                frust[i+4] = eye + (delta*dist[j+1]*1.25f)/dp;
+                // <FS:Trish> FSRenderShadowCascadeBand: the slice reaches as far past its splits as
+                // the shaders blend (0.25 stock)
+                //frust[i] = eye + (delta*dist[j]*0.75f)/dp;
+                //frust[i+4] = eye + (delta*dist[j+1]*1.25f)/dp;
+                frust[i] = eye + (delta*dist[j]*(1.f - FSShadowBias::cascadeBand()))/dp;
+                frust[i+4] = eye + (delta*dist[j+1]*(1.f + FSShadowBias::cascadeBand()))/dp;
+                // </FS:Trish>
             }
 
             shadow_cam.calcAgentFrustumPlanes(frust);

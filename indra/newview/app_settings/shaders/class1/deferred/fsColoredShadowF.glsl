@@ -24,6 +24,10 @@ uniform vec2 colored_shadow_valid;
 uniform mat4 shadow_matrix[6];
 uniform vec4 shadow_clip;
 
+// FSRenderShadowCascadeBand: half the width of the blend between two sun cascades, as a fraction of
+// the split's distance, as in shadowUtil.glsl (0 means the stock 0.25)
+uniform float fs_shadow_cascade_band;
+
 // the map's transmittance at view space position pos, white outside the map
 vec3 fsColoredShadowFetch(sampler2D map, mat4 m, vec3 pos)
 {
@@ -41,21 +45,22 @@ vec3 fsColoredShadowFetch(sampler2D map, mat4 m, vec3 pos)
 }
 
 // Sun transmittance (linear rgb, 1 = unfiltered) at view space position pos. Cascade 0 blends
-// into cascade 1 over 0.75 to 1.25 times the first split, the range sampleDirectionalShadow
-// blends the depth maps over, so the tint does not step where the shadow does not. Fades back
-// to white across the blend from cascade 1 to 2 (the same range around the second split),
-// since the far cascades have no colour map.
+// into cascade 1 over 1 - band to 1 + band times the first split (band 0.25 stock), the range
+// sampleDirectionalShadow blends the depth maps over, so the tint does not step where the shadow
+// does not. Fades back to white across the blend from cascade 1 to 2 (the same range around the
+// second split), since the far cascades have no colour map.
 vec3 fsColoredShadowTransmittance(vec3 pos)
 {
     float z = -pos.z;
-    float far_end = shadow_clip.y * 1.25;
+    float band = fs_shadow_cascade_band > 0.0 ? clamp(fs_shadow_cascade_band, 0.02, 0.25) : 0.25;
+    float far_end = shadow_clip.y * (1.0 + band);
     if (z >= far_end || z <= 0.0)
     {
         return vec3(1.0);
     }
 
     // 0 in cascade 0 alone, 1 in cascade 1 alone
-    float blend = clamp((z - 0.75 * shadow_clip.x) / max(0.5 * shadow_clip.x, 1.0e-3), 0.0, 1.0);
+    float blend = clamp((z - (1.0 - band) * shadow_clip.x) / max(2.0 * band * shadow_clip.x, 1.0e-3), 0.0, 1.0);
 
     vec3 t0 = vec3(1.0);
     vec3 t1 = vec3(1.0);
@@ -69,6 +74,6 @@ vec3 fsColoredShadowTransmittance(vec3 pos)
     }
     vec3 t = mix(t0, t1, blend);
 
-    float fade = clamp((far_end - z) / max(shadow_clip.y * 0.5, 1.0e-3), 0.0, 1.0);
+    float fade = clamp((far_end - z) / max(shadow_clip.y * 2.0 * band, 1.0e-3), 0.0, 1.0);
     return mix(vec3(1.0), clamp(t, vec3(0.0), vec3(1.0)), fade);
 }

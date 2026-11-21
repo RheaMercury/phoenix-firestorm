@@ -58,6 +58,47 @@ uniform int sun_up_factor;
 uniform int fs_shadow_no_fade;
 // </FS:Trish>
 
+// <FS:Trish> FSRenderShadowBiasMetric: the constant sun shadow bias of each cascade in metres along the
+// light (LLPipeline::bindDeferredShader, FSShadowBias::bind), already the larger of the bias set and the
+// texel term, and scaled down with FSRenderShadowSlopeBias as shadow_bias is. 0: the bias in shadow
+// depth units (shadow_bias) as before, which is a few centimetres in cascade 0 but metres in the far
+// cascades, whose depth range is hundreds of metres: shadows came off distant posts and trunks.
+uniform vec4 fs_shadow_bias_metres;
+
+// The constant bias of a sun cascade lookup in shadow depth units, added to the reference depth.
+// metres: the cascade's fs_shadow_bias_metres; old_offset: the bias as before (shadow_bias * 2), used
+// while metres is 0; m: the cascade's matrix; stc: the receiver projected by it, not yet divided;
+// light_dir: towards the light, view space. Depth units per metre along the light come from the
+// derivative of z / w (exact for the orthographic cascades and for warped ones alike). The shadow
+// maps use standard depth with reverse-Z on or off, so a step toward the light lowers the depth.
+float fsShadowBiasDepth(float metres, float old_offset, mat4 m, vec4 stc, vec3 light_dir)
+{
+    if (metres <= 0.0)
+    {
+        return old_offset;
+    }
+    vec4 d = m * vec4(light_dir, 0.0);
+    float w = abs(stc.w) > 1.0e-6 ? stc.w : 1.0e-6;
+    float s_z = abs(d.z * w - stc.z * d.w) / (w * w);
+    return -metres * s_z;
+}
+
+// the direction toward the light that sampleDirectionalShadow uses
+vec3 fsShadowLightDir()
+{
+    return normalize((sun_up_factor == 1) ? sun_dir : moon_dir);
+}
+
+// FSRenderShadowCascadeBand: half the width of the blend between two sun cascades, as a fraction of
+// the split's distance (0.25 stock). 0 (a program the pipeline doesn't set it for) means 0.25.
+uniform float fs_shadow_cascade_band;
+
+float fsShadowCascadeBand()
+{
+    return fs_shadow_cascade_band > 0.0 ? clamp(fs_shadow_cascade_band, 0.02, 0.25) : 0.25;
+}
+// </FS:Trish>
+
 // Receiver-plane depth bias of the sun PCF: the depth slope of the receiver in shadow texture space
 // (d depth / d uv), from two 5 cm tangent steps of the view space position pos (normal norm) through
 // the cascade's matrix m; c is pos projected and divided. Each tap's reference depth is lowered by
@@ -88,17 +129,24 @@ vec2 pcfDepthGradient(mat4 m, vec3 pos, vec3 norm, vec3 c)
     return abs(vec2(d1.z * d2.y - d1.y * d2.z, d1.x * d2.z - d1.z * d2.x) / det);
 }
 
-float pcfShadow(sampler2DShadow shadowMap, vec3 norm, vec4 stc, float bias_mul, vec2 pos_screen, vec3 light_dir, mat4 m, vec3 pos)
+// <FS:Trish> FSRenderShadowBiasMetric: bias_m, the cascade's fs_shadow_bias_metres
+//float pcfShadow(sampler2DShadow shadowMap, vec3 norm, vec4 stc, float bias_mul, vec2 pos_screen, vec3 light_dir, mat4 m, vec3 pos)
+float pcfShadow(sampler2DShadow shadowMap, vec3 norm, vec4 stc, float bias_mul, vec2 pos_screen, vec3 light_dir, mat4 m, vec3 pos, float bias_m)
+// </FS:Trish>
 {
 #if defined(SUN_SHADOW)
     float offset = shadow_bias * bias_mul;
+    float fs_z_offset = fsShadowBiasDepth(bias_m, offset * 2.0, m, stc, light_dir); // <FS:Trish/> FSRenderShadowBiasMetric
     stc.xyz /= stc.w;
     if (cube_snapshot != 0)
     {
         return texture(shadowMap, stc.xyz + vec3(0.0, 0.0, offset * 2.0));
     }
     vec2 grad = pcfDepthGradient(m, pos, norm, stc.xyz);
-    stc.z += offset * 2.0;
+    // <FS:Trish> FSRenderShadowBiasMetric
+    //stc.z += offset * 2.0;
+    stc.z += fs_z_offset;
+    // </FS:Trish>
     // Each map's own size: the far cascades can be smaller than the near ones
     vec2 res = vec2(textureSize(shadowMap, 0));
     vec2 texel = 1.0 / res;
@@ -429,11 +477,17 @@ float fsScreenPixels(float metres, vec3 pos)
 // Sun cascade with contact hardening. light_dir: towards the light; d_max: farthest blocker.
 // Penumbra (full width, metres on the receiver) = blocker distance * light size; the PCF disc
 // takes that width as its diameter, which gives a disc light's edge profile.
-float pcssSunContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, vec3 light_dir, float d_max)
+// <FS:Trish> FSRenderShadowBiasMetric: bias_m, the cascade's fs_shadow_bias_metres
+//float pcssSunContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, vec3 light_dir, float d_max)
+float pcssSunContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 m, vec4 stc, vec3 pos, vec3 norm, vec3 light_dir, float d_max, float bias_m)
+// </FS:Trish>
 {
     vec3 c = stc.xyz / stc.w;
     vec2 grad = abs(pcssDepthGradient(m, pos, norm, c));
-    float z_bias = shadow_bias * 2.0;
+    // <FS:Trish> FSRenderShadowBiasMetric
+    //float z_bias = shadow_bias * 2.0;
+    float z_bias = fsShadowBiasDepth(bias_m, shadow_bias * 2.0, m, stc, light_dir);
+    // </FS:Trish>
     vec2 texel = 1.0 / shadow_res;
     float r_max = PCSS_PCF_RADIUS_MAX * pcssResScale(shadow_res);
     vec2 rot = pcssRotation();
@@ -539,7 +593,11 @@ float pcssSpotContactShadow(sampler2DShadow shadowMap, sampler2D depthMap, mat4 
 // (the far cascades can be smaller than the near ones)
 float pcssShadow(sampler2DShadow shadowMap, int index, vec4 stc, vec3 pos, vec3 norm)
 {
-    return pcssPoissonPCF(shadowMap, shadow_matrix[index], stc, pos, norm, shadow_bias * 2.0, vec2(textureSize(shadowMap, 0)));
+    // <FS:Trish> FSRenderShadowBiasMetric
+    //return pcssPoissonPCF(shadowMap, shadow_matrix[index], stc, pos, norm, shadow_bias * 2.0, vec2(textureSize(shadowMap, 0)));
+    float z_bias = fsShadowBiasDepth(fs_shadow_bias_metres[index], shadow_bias * 2.0, shadow_matrix[index], stc, fsShadowLightDir());
+    return pcssPoissonPCF(shadowMap, shadow_matrix[index], stc, pos, norm, z_bias, vec2(textureSize(shadowMap, 0)));
+    // </FS:Trish>
 }
 
 // spot shadow index (4-5): the constant bias as pcfSpotShadow applies it
@@ -595,8 +653,13 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
     if (spos.z > -shadow_clip.w)
     {
         vec4 lpos;
-        vec4 near_split = shadow_clip*-0.75;
-        vec4 far_split = shadow_clip*-1.25;
+        // <FS:Trish> FSRenderShadowCascadeBand
+        //vec4 near_split = shadow_clip*-0.75;
+        //vec4 far_split = shadow_clip*-1.25;
+        float fs_band = fsShadowCascadeBand();
+        vec4 near_split = shadow_clip*-(1.0 - fs_band);
+        vec4 far_split = shadow_clip*-(1.0 + fs_band);
+        // </FS:Trish>
         vec4 transition_domain = near_split-far_split;
         float weight = 0.0;
 
@@ -614,7 +677,7 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
 #if defined(PCSS_SHADOW)
                 float contrib = pcssShadow(shadowMap3, 3, lpos, spos.xyz, norm)*w;
 #else
-                float contrib = pcfShadow(shadowMap3, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[3], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap3, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[3], spos.xyz, fs_shadow_bias_metres[3])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #endif
                 //if (contrib > 0)
                 {
@@ -649,7 +712,7 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
 #if defined(PCSS_SHADOW)
                 float contrib = pcssShadow(shadowMap2, 2, lpos, spos.xyz, norm)*w;
 #else
-                float contrib = pcfShadow(shadowMap2, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[2], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap2, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[2], spos.xyz, fs_shadow_bias_metres[2])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #endif
                 //if (contrib > 0)
                 {
@@ -673,14 +736,14 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             if (w != 0.0)
             {
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-                float contrib = pcssSunContactShadow(shadowMap1, shadowDepth1, shadow_matrix[1], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST1)*w;
+                float contrib = pcssSunContactShadow(shadowMap1, shadowDepth1, shadow_matrix[1], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST1, fs_shadow_bias_metres[1])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #if defined(FS_SHADOW_SCREEN_FILTER)
                 fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
 #endif
 #elif defined(PCSS_SHADOW)
                 float contrib = pcssShadow(shadowMap1, 1, lpos, spos.xyz, norm)*w;
 #else
-                float contrib = pcfShadow(shadowMap1, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[1], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap1, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[1], spos.xyz, fs_shadow_bias_metres[1])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #endif
                 //if (contrib > 0)
                 {
@@ -703,14 +766,14 @@ float sampleDirectionalShadow(vec3 pos, vec3 norm, vec2 pos_screen)
             if (w != 0.0)
             {
 #if defined(PCSS_SHADOW) && defined(PCSS_SHADOW_FETCH)
-                float contrib = pcssSunContactShadow(shadowMap0, shadowDepth0, shadow_matrix[0], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST0)*w;
+                float contrib = pcssSunContactShadow(shadowMap0, shadowDepth0, shadow_matrix[0], lpos, spos.xyz, norm, light_dir, PCSS_BLOCKER_DIST0, fs_shadow_bias_metres[0])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #if defined(FS_SHADOW_SCREEN_FILTER)
                 fs_pen_sum += fs_pcss_radius_px * w; // <FS:Trish/>
 #endif
 #elif defined(PCSS_SHADOW)
                 float contrib = pcssShadow(shadowMap0, 0, lpos, spos.xyz, norm)*w;
 #else
-                float contrib = pcfShadow(shadowMap0, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[0], spos.xyz)*w;
+                float contrib = pcfShadow(shadowMap0, norm, lpos, 1.0, pos_screen, light_dir, shadow_matrix[0], spos.xyz, fs_shadow_bias_metres[0])*w; // <FS:Trish/> FSRenderShadowBiasMetric
 #endif
                 //if (contrib > 0)
                 {
@@ -770,22 +833,38 @@ float fsSampleDirectionalShadowCheap(vec3 pos, vec3 norm)
     if (spos.z > -shadow_clip.x)
     {
         lpos = shadow_matrix[0] * spos;
-        shadow = texture(shadowMap0, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        // <FS:Trish> FSRenderShadowBiasMetric
+        //shadow = texture(shadowMap0, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        shadow = texture(shadowMap0, vec3(lpos.xy / lpos.w, lpos.z / lpos.w
+                         + fsShadowBiasDepth(fs_shadow_bias_metres[0], shadow_bias * 2.0, shadow_matrix[0], lpos, light_dir)));
+        // </FS:Trish>
     }
     else if (spos.z > -shadow_clip.y)
     {
         lpos = shadow_matrix[1] * spos;
-        shadow = texture(shadowMap1, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        // <FS:Trish> FSRenderShadowBiasMetric
+        //shadow = texture(shadowMap1, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        shadow = texture(shadowMap1, vec3(lpos.xy / lpos.w, lpos.z / lpos.w
+                         + fsShadowBiasDepth(fs_shadow_bias_metres[1], shadow_bias * 2.0, shadow_matrix[1], lpos, light_dir)));
+        // </FS:Trish>
     }
     else if (spos.z > -shadow_clip.z)
     {
         lpos = shadow_matrix[2] * spos;
-        shadow = texture(shadowMap2, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        // <FS:Trish> FSRenderShadowBiasMetric
+        //shadow = texture(shadowMap2, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        shadow = texture(shadowMap2, vec3(lpos.xy / lpos.w, lpos.z / lpos.w
+                         + fsShadowBiasDepth(fs_shadow_bias_metres[2], shadow_bias * 2.0, shadow_matrix[2], lpos, light_dir)));
+        // </FS:Trish>
     }
     else
     {
         lpos = shadow_matrix[3] * spos;
-        shadow = texture(shadowMap3, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        // <FS:Trish> FSRenderShadowBiasMetric
+        //shadow = texture(shadowMap3, vec3(lpos.xy / lpos.w, lpos.z / lpos.w + shadow_bias * 2.0));
+        shadow = texture(shadowMap3, vec3(lpos.xy / lpos.w, lpos.z / lpos.w
+                         + fsShadowBiasDepth(fs_shadow_bias_metres[3], shadow_bias * 2.0, shadow_matrix[3], lpos, light_dir)));
+        // </FS:Trish>
 #if !defined(FS_SHADOW_EDGE_FADE)
         if (fs_shadow_no_fade == 0)
         {

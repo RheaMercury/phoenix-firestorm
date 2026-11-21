@@ -30511,6 +30511,50 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <real>0.5</real>
     </map>
+    <key>FSRenderShadowBiasMetric</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. The constant sun shadow bias is FSRenderShadowBiasMetres along the light in every cascade (or FSRenderShadowBiasTexels of the cascade's texel size, if more), instead of RenderShadowBias, which is a share of each cascade's depth range: centimetres in the near cascade but a metre or more in the far ones, so distant shadows came off their casters. Reflection probes keep RenderShadowBias. Off: as before.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>FSRenderShadowBiasMetres</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderShadowBiasMetric: the sun shadow bias in metres along the light (0 to 1). Scaled by FSRenderShadowSlopeBiasConstant while FSRenderShadowSlopeBias is on, as RenderShadowBias is.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.05</real>
+    </map>
+    <key>FSRenderShadowBiasTexels</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. With FSRenderShadowBiasMetric: the bias of a cascade is at least this many of its texels (0 to 4), for the coarse far cascades.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>FSRenderShadowCascadeBand</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL. Half the width of the blend (or dither) between two sun shadow cascades, as a fraction of the split's distance, 0.05 to 0.25. The cascades' slices are cut with the same margin. 0.25 is the stock width; 0.1 samples two cascades on far fewer pixels and gives each cascade a little more detail. Reflection probes keep 0.25.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.25</real>
+    </map>
     <key>FSRenderShadowSplitsFullRange</key>
     <map>
       <key>Comment</key>

@@ -239,6 +239,7 @@ set(viewer_SOURCE_FILES
     fsscrolllistctrl.cpp
     fssettingstuner.cpp
     fsslurlcommand.cpp
+    fsshadowbias.cpp
     fsshadowcacheoffenders.cpp
     fsshadowdepthfit.cpp
     fsshadowscreenfilter.cpp
@@ -1183,6 +1184,7 @@ set(viewer_HEADER_FILES
     fssettingstuner.h
     fsslurl.h
     fsslurlcommand.h
+    fsshadowbias.h
     fsshadowcacheoffenders.h
     fsshadowdepthfit.h
     fsshadowscreenfilter.h
