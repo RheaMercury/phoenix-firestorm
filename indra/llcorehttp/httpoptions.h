@@ -192,6 +192,14 @@ public:
     bool                getExpectedTimeout() const { return mExpectedTimeout; }
     // </FS:Trish>
 
+    // <FS:Trish> The most bytes of answer body to take: a larger answer is cut off while it
+    // arrives and the request fails with CURLE_WRITE_ERROR. For downloads from servers that
+    // may not say their size up front (generated archives). 0 = no limit.
+    // Default: 0
+    void                setMaxBodySize(size_t bytes) { mMaxBodySize = bytes; }
+    size_t              getMaxBodySize() const { return mMaxBodySize; }
+    // </FS:Trish>
+
     /// Sets default behavior for verifying that the name in the
     /// security certificate matches the name of the host contacted.
     /// Defaults false if not set, but should be set according to
@@ -215,6 +223,7 @@ protected:
     bool                mNoBody;
     time_t              mLastModified;
     bool                mExpectedTimeout = false; // <FS:Trish/> see setExpectedTimeout
+    size_t              mMaxBodySize = 0; // <FS:Trish/> see setMaxBodySize
 
     static bool         sDefaultVerifyPeer;
 }; // end class HttpOptions

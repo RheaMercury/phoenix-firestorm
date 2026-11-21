@@ -810,6 +810,13 @@ size_t HttpOpRequest::writeCallback(void * data, size_t size, size_t nmemb, void
         op->mReplyBody = new BufferArray();
     }
     const size_t req_size(size * nmemb);
+    // <FS:Trish> Over the caller's limit: returning short makes curl stop the transfer
+    if (op->mReqOptions && op->mReqOptions->getMaxBodySize() &&
+        op->mReplyBody->size() + req_size > op->mReqOptions->getMaxBodySize())
+    {
+        return 0;
+    }
+    // </FS:Trish>
     const size_t write_size(op->mReplyBody->append(static_cast<char *>(data), req_size));
     HTTPStats::instance().recordDataDown(write_size);
     return write_size;
