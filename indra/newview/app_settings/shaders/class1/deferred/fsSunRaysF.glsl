@@ -38,35 +38,38 @@ float getDepth(vec2 pos_screen);
 bool isFarDepth(float d);
 vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 
-// Lit (1) or shadowed (0) at a view space position, one comparison tap in the nearest cascade
-// that covers it. Beyond the last cascade counts as lit.
-float sunVisibility(vec3 pos)
+// The march samples view_dir * t, so a cascade's shadow map position is linear in t: its matrix
+// times the ray's direction is taken once per pixel (main), and each step adds the matrix's
+// translation, instead of a full matrix product per step.
+vec4 cascade_step[4];   // shadow_matrix[i] * vec4(view_dir, 0.0)
+
+// Lit (1) or shadowed (0) at view_dir * t, dist in front of the camera, one comparison tap in the
+// nearest cascade that covers it. Beyond the last cascade counts as lit.
+float sunVisibility(float t, float dist)
 {
-    float dist = -pos.z;
-    vec4 p = vec4(pos, 1.0);
     vec4 lpos;
     float vis = 1.0;
     if (dist < shadow_clip.x)
     {
-        lpos = shadow_matrix[0] * p;
+        lpos = shadow_matrix[0][3] + cascade_step[0] * t;
         lpos.xyz /= lpos.w;
         vis = texture(shadowMap0, vec3(lpos.xy, lpos.z + shadow_bias));
     }
     else if (dist < shadow_clip.y)
     {
-        lpos = shadow_matrix[1] * p;
+        lpos = shadow_matrix[1][3] + cascade_step[1] * t;
         lpos.xyz /= lpos.w;
         vis = texture(shadowMap1, vec3(lpos.xy, lpos.z + shadow_bias));
     }
     else if (dist < shadow_clip.z)
     {
-        lpos = shadow_matrix[2] * p;
+        lpos = shadow_matrix[2][3] + cascade_step[2] * t;
         lpos.xyz /= lpos.w;
         vis = texture(shadowMap2, vec3(lpos.xy, lpos.z + shadow_bias));
     }
     else if (dist < shadow_clip.w)
     {
-        lpos = shadow_matrix[3] * p;
+        lpos = shadow_matrix[3][3] + cascade_step[3] * t;
         lpos.xyz /= lpos.w;
         vis = texture(shadowMap3, vec3(lpos.xy, lpos.z + shadow_bias));
     }
@@ -122,6 +125,10 @@ void main()
     float inv_steps = 1.0 / float(steps);
     float jitter = stepOffset(gl_FragCoord.xy);
     float rise = dot(view_dir, ray_up);    // meters gained in height per meter along the ray
+    for (int c = 0; c < 4; ++c)
+    {
+        cascade_step[c] = shadow_matrix[c] * vec4(view_dir, 0.0);
+    }
 
     float scattered = 0.0;
     float optical_depth = 0.0;
@@ -136,7 +143,7 @@ void main()
         // Light scattered at distance t reaches the camera dimmed by the air in between
         optical_depth += sigma * (t - prev_t);
         prev_t = t;
-        scattered += sunVisibility(view_dir * t) * sigma * exp(-optical_depth) * dt;
+        scattered += sunVisibility(t, -(view_dir.z * t)) * sigma * exp(-optical_depth) * dt;
     }
 
     vec3 light_dir = (sun_up_factor == 1) ? sun_dir : moon_dir;

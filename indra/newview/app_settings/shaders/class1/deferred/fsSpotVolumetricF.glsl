@@ -96,12 +96,18 @@ void main()
             // with the temporal option the offset moves every frame (golden ratio steps), so the
             // frames between them sample the whole step and the resolve averages them
             float jitter = fract(stepOffset(gl_FragCoord.xy) + vol_frame_offset);
+            // The samples are view_dir * t, so their projector and shadow map positions are linear
+            // in t: each matrix times the ray's direction once here, plus its translation per step,
+            // instead of two full matrix products per step
+            vec4 proj_step = proj_mat * vec4(view_dir, 0.0);
+            vec4 shadow_step = vol_shadow_matrix * vec4(view_dir, 0.0);
             for (int i = 0; i < steps; ++i)
             {
-                vec3 p = view_dir * (t0 + (float(i) + jitter) * dt);
+                float t = t0 + (float(i) + jitter) * dt;
+                vec3 p = view_dir * t;
 
                 // inside the projector's frustum, in front of it
-                vec4 proj_tc = proj_mat * vec4(p, 1.0);
+                vec4 proj_tc = proj_mat[3] + proj_step * t;
                 if (proj_tc.z < 0.0)
                 {
                     continue;
@@ -122,7 +128,7 @@ void main()
                 float vis = 1.0;
                 if (vol_shadowed != 0)
                 {
-                    vec4 lpos = vol_shadow_matrix * vec4(p, 1.0);
+                    vec4 lpos = vol_shadow_matrix[3] + shadow_step * t;
                     lpos.xyz /= lpos.w;
                     vis = texture(shadowMap0, vec3(lpos.xy, lpos.z + spot_shadow_bias * 0.8));
                     vis = clamp(vis + vol_shadow_fade, 0.0, 1.0);
