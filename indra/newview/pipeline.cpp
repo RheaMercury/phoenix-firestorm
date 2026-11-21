@@ -18148,13 +18148,18 @@ void LLPipeline::renderBloom()
         gFSBloomPrefilterProgram.uniform1f(s_exposure, llclamp((F32)exposure, 0.5f, 4.f)); // as tonemap() clamps it
         gFSBloomPrefilterProgram.uniform1f(s_threshold, llmax((F32)threshold, 0.f));
         gFSBloomPrefilterProgram.uniform1f(s_knee, llmax((F32)knee, 0.f));
+        // <FS:Trish> FSRenderBloomHQFilter: firefly weights that keep the shape of evenly bright areas
+        static LLCachedControl<bool> bloom_hq_pre(gSavedSettings, "FSRenderBloomHQFilter", true);
+        static LLStaticHashedString s_bloom_hq_pre("fs_bloom_hq");
+        gFSBloomPrefilterProgram.uniform1i(s_bloom_hq_pre, bloom_hq_pre ? 1 : 0);
+        // </FS:Trish>
         fs_draw_screen_triangle(mScreenTriangleVB);
         gFSBloomPrefilterProgram.unbind();
         mBloomLevels[0].flush();
 
         // Down the chain
         gFSBloomDownProgram.bind();
-        // <FS:Trish> FSRenderBloomHQFilter: the 13 tap down and 9 tap tent up kernels
+        // <FS:Trish> FSRenderBloomHQFilter: the 13 tap down and round 13 tap up kernels
         static LLCachedControl<bool> bloom_hq(gSavedSettings, "FSRenderBloomHQFilter", true);
         static LLStaticHashedString s_bloom_hq("fs_bloom_hq");
         gFSBloomDownProgram.uniform1i(s_bloom_hq, bloom_hq ? 1 : 0);

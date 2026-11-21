@@ -31036,7 +31036,7 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSRenderBloomHQFilter</key>
     <map>
       <key>Comment</key>
-      <string>EXPERIMENTAL. Bloom: blur with the 13 tap downsample and 9 tap tent upsample kernels (Jimenez 2014) instead of the 5 tap and ring ones. Stops thin bright edges from pulsing as the camera moves; about the same bloom size. Applies live.</string>
+      <string>EXPERIMENTAL. Bloom: blur with the 13 tap downsample (Jimenez 2014) and a round 13 tap Gaussian upsample instead of the 5 tap and ring ones, and pick out the bright parts with firefly weights that only push down a pixel brighter than its neighbours. Stops thin bright edges from pulsing as the camera moves, keeps small bright windows and the sun's disc their shape and blooms them round instead of squarish; about the same bloom size. Applies live.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>

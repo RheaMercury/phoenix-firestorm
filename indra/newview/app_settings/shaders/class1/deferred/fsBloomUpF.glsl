@@ -11,11 +11,7 @@ in vec2 vary_fragcoord;
 
 uniform sampler2D diffuseRect;  // smaller level
 uniform vec2 src_texel;         // one texel of diffuseRect
-uniform int fs_bloom_hq;        // FSRenderBloomHQFilter: 9 tap tent instead of the ring below
-
-// Tap spacing of the tent, in source texels. sqrt(8/3) gives it the same variance as the ring
-// kernel below, so the bloom keeps its size and only loses the ring's hollow middle.
-#define FS_BLOOM_TENT_RADIUS 1.633
+uniform int fs_bloom_hq;        // FSRenderBloomHQFilter: a round 13 tap Gaussian instead of the ring below
 
 void main()
 {
@@ -23,14 +19,28 @@ void main()
 
     if (fs_bloom_hq != 0)
     {
-        // A 3x3 tent (1 2 1 / 2 4 2 / 1 2 1) / 16 with its centre tap: a smooth bump with no hole
-        vec2 r = src_texel * FS_BLOOM_TENT_RADIUS;
-        vec3 t = texture(diffuseRect, tc).rgb * 4.0;
-        t += (texture(diffuseRect, tc + vec2(-r.x, 0.0)).rgb + texture(diffuseRect, tc + vec2(r.x, 0.0)).rgb +
-              texture(diffuseRect, tc + vec2(0.0, -r.y)).rgb + texture(diffuseRect, tc + vec2(0.0, r.y)).rgb) * 2.0;
-        t += texture(diffuseRect, tc + vec2(-r.x, -r.y)).rgb + texture(diffuseRect, tc + vec2(r.x, -r.y)).rgb +
-             texture(diffuseRect, tc + vec2(-r.x,  r.y)).rgb + texture(diffuseRect, tc + vec2(r.x,  r.y)).rgb;
-        frag_color = vec4(t * 0.0625, 1.0);
+        // A round kernel: the centre, six taps on a hexagon and six more between and beyond them,
+        // with Gaussian weights. A square 3x3 tent is the product of two 1D tents, whose outlines
+        // are diamonds and squares; summed over every level, a very bright source such as the sun
+        // then blooms with a squarish edge. The taps spread as far as the tent's did (a variance
+        // of 4/3 texels squared per axis), so the bloom keeps its size.
+        const float R1 = 1.71;
+        const float R2 = 2.96;      // R1 * sqrt(3): the hexagon's next ring, turned 30 degrees
+        const float W1 = 0.383;     // exp(-R1^2 / (2 * 1.524))
+        const float W2 = 0.0565;    // exp(-R2^2 / (2 * 1.524))
+        vec3 t = texture(diffuseRect, tc).rgb;
+        vec3 ring1 = vec3(0.0);
+        vec3 ring2 = vec3(0.0);
+        for (int i = 0; i < 6; ++i)
+        {
+            float a = float(i) * 1.0471976; // 60 degrees
+            vec2 d1 = vec2(cos(a), sin(a));
+            vec2 d2 = vec2(cos(a + 0.5235988), sin(a + 0.5235988));
+            ring1 += texture(diffuseRect, tc + d1 * R1 * src_texel).rgb;
+            ring2 += texture(diffuseRect, tc + d2 * R2 * src_texel).rgb;
+        }
+        t = (t + ring1 * W1 + ring2 * W2) / (1.0 + 6.0 * W1 + 6.0 * W2);
+        frag_color = vec4(t, 1.0);
         return;
     }
 
