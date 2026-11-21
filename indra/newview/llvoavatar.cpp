@@ -995,6 +995,15 @@ void LLVOAvatar::markDead()
     }
     mVoiceVisualizer->markDead();
     LLLoadedCallbackEntry::cleanUpCallbackList(&mCallbackTextureList) ;
+    // <FS:Trish> The render time query of an avatar that was profiled (performance floater, avatar
+    // auto-tune) was never deleted: one leaked query object per avatar that ever left the scene
+    if (mGPUTimerQuery && gGLManager.mInited)
+    {
+        glDeleteQueries(1, &mGPUTimerQuery);
+        mGPUTimerQuery = 0;
+        mGPUProfilePending = false;
+    }
+    // </FS:Trish>
     LLViewerObject::markDead();
 
     // <FS:Trish> Object updates no longer force a re-rank, so re-rank the remaining avatars here
