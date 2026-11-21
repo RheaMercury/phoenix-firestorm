@@ -1,6 +1,7 @@
 /**
  * @file fsscriptrepos.cpp
- * @brief Script repositories: repo references, zip reading, file rules and sync decisions.
+ * @brief Script repositories: repository references (GitHub, GitLab, Gitea/Forgejo, Bitbucket, zip links), zip
+ *        reading, file rules and sync decisions.
  */
 
 #include "llviewerprecompiledheaders.h"
@@ -130,28 +131,266 @@ namespace
     }
 }
 
+std::string providerName(Provider provider)
+{
+    switch (provider)
+    {
+    case Provider::GITLAB: return "gitlab";
+    case Provider::GITEA: return "gitea";
+    case Provider::BITBUCKET: return "bitbucket";
+    case Provider::ZIP: return "zip";
+    default: return "github";
+    }
+}
+
+bool providerFromName(const std::string& name, Provider& out)
+{
+    for (Provider provider : { Provider::GITHUB, Provider::GITLAB, Provider::GITEA, Provider::BITBUCKET, Provider::ZIP })
+    {
+        if (providerName(provider) == name)
+        {
+            out = provider;
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string RepoRef::display() const
+{
+    if (provider == Provider::ZIP)
+    {
+        return url.substr(0, url.find_first_of("?#"));
+    }
+    return (host == "github.com" ? std::string() : host + "/") + owner + "/" + repo;
+}
+
+std::string RepoRef::key() const
+{
+    std::string out = providerName(provider) + " " + (provider == Provider::ZIP ? url : host + "/" + owner + "/" + repo);
+    LLStringUtil::toLower(out);     // hosts and (on every one of these hosts) owner and repository names ignore case
+    return out + " " + ref;
+}
+
+bool isValidHost(const std::string& host)
+{
+    if (host.empty() || host.size() > 253 || host[0] == '.' || host[0] == '-' || host.find("..") != std::string::npos)
+    {
+        return false;
+    }
+    const size_t colon = host.find(':');
+    const std::string name = host.substr(0, colon);
+    if (name.empty() || name.back() == '.' || name.find('.') == std::string::npos)
+    {
+        return false;
+    }
+    for (char c : name)
+    {
+        if (!isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '.')
+        {
+            return false;
+        }
+    }
+    if (colon != std::string::npos)
+    {
+        const std::string port = host.substr(colon + 1);
+        if (port.empty() || port.size() > 5 || port.find_first_not_of("0123456789") != std::string::npos)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+namespace
+{
+    bool knownHost(const std::string& host, Provider& out)
+    {
+        if (host == "github.com")
+        {
+            out = Provider::GITHUB;
+        }
+        else if (host == "gitlab.com" || host.find("gitlab") != std::string::npos)
+        {
+            out = Provider::GITLAB;
+        }
+        else if (host == "codeberg.org" || host == "gitea.com" || host.find("gitea") != std::string::npos ||
+            host.find("forgejo") != std::string::npos)
+        {
+            out = Provider::GITEA;
+        }
+        else if (host == "bitbucket.org")
+        {
+            out = Provider::BITBUCKET;
+        }
+        else
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // parts: the path after the host. GitLab's "/-/" separates the project from the page.
+    bool parseRepoPath(Provider provider, std::vector<std::string> parts, std::string& owner, std::string& repo,
+        std::string& ref)
+    {
+        size_t page = parts.size();     // first part after owner/repo
+        size_t ref_at = parts.size();   // first part of the ref
+        if (provider == Provider::GITLAB)
+        {
+            for (size_t i = 0; i < parts.size(); ++i)
+            {
+                if (parts[i] == "-")
+                {
+                    page = i;
+                    break;
+                }
+            }
+            if (page < 2)
+            {
+                return false;
+            }
+            if (page < parts.size())
+            {
+                if (parts.size() < page + 3 || parts[page + 1] != "tree")
+                {
+                    return false;
+                }
+                ref_at = page + 2;
+            }
+        }
+        else
+        {
+            if (parts.size() < 2)
+            {
+                return false;
+            }
+            page = 2;
+            if (parts.size() > 2)
+            {
+                if (provider == Provider::GITHUB && parts[2] == "tree" && parts.size() >= 4)
+                {
+                    ref_at = 3;
+                }
+                else if (provider == Provider::GITEA && parts[2] == "src" && parts.size() >= 5 &&
+                    (parts[3] == "branch" || parts[3] == "tag"))
+                {
+                    ref_at = 4;
+                }
+                else if (provider == Provider::BITBUCKET && parts[2] == "src" && parts.size() >= 4)
+                {
+                    ref_at = 3;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+        }
+
+        owner.clear();
+        for (size_t i = 0; i + 1 < page; ++i)
+        {
+            if (!validName(parts[i]))
+            {
+                return false;
+            }
+            owner += (i ? "/" : "") + parts[i];
+        }
+        repo = parts[page - 1];
+        if (endsWith(repo, ".git"))
+        {
+            repo.erase(repo.size() - 4);
+        }
+        if (!validName(repo))
+        {
+            return false;
+        }
+        ref.clear();
+        for (size_t i = ref_at; i < parts.size(); ++i)
+        {
+            ref += (i > ref_at ? "/" : "") + parts[i];
+        }
+        return true;
+    }
+
+    bool parseZipLink(const std::string& text, RepoRef& out)
+    {
+        if (!startsWith(text, "https://") || text.size() > 2000)
+        {
+            return false;
+        }
+        for (char c : text)
+        {
+            const unsigned char u = static_cast<unsigned char>(c);
+            if (u <= 0x20 || u >= 0x7f || c == '\\' || c == '"' || c == '<' || c == '>')
+            {
+                return false;
+            }
+        }
+        const size_t host_end = text.find_first_of("/?#", 8);
+        std::string host = text.substr(8, host_end == std::string::npos ? std::string::npos : host_end - 8);
+        LLStringUtil::toLower(host);
+        if (host.find('@') != std::string::npos || !isValidHost(host))
+        {
+            return false;   // no user:password@ in links
+        }
+        const std::string path = host_end == std::string::npos ? std::string() :
+            text.substr(host_end, text.find_first_of("?#", host_end) - host_end);
+        std::string file = path.substr(path.rfind('/') + 1);
+        std::string lower = file;
+        LLStringUtil::toLower(lower);
+        if (!endsWith(lower, ".zip") || file.size() <= 4)
+        {
+            return false;
+        }
+        out.provider = Provider::ZIP;
+        out.host = host;
+        out.owner = host;
+        out.repo = file.substr(0, file.size() - 4);
+        out.ref.clear();
+        out.url = "https://" + host + text.substr(8 + host.size());
+        return true;
+    }
+}
+
 bool parseRepoRef(const std::string& text, const std::string& branch, RepoRef& out)
+{
+    return parseRepoRef(text, branch, nullptr, out);
+}
+
+bool parseRepoRef(const std::string& text, const std::string& branch, const Provider* forced, RepoRef& out)
 {
     std::string s = text;
     LLStringUtil::trim(s);
     std::string ref_override = branch;
     LLStringUtil::trim(ref_override);
 
+    // A link to a zip file: any host, nothing else to read from it
+    if ((!forced || *forced == Provider::ZIP) && parseZipLink(s, out))
+    {
+        return true;
+    }
+    if (forced && *forced == Provider::ZIP)
+    {
+        return false;
+    }
+
+    bool has_scheme = false;
     for (const std::string prefix : { "https://", "http://" })
     {
         if (startsWith(s, prefix))
         {
             s.erase(0, prefix.size());
+            has_scheme = true;
             break;
         }
     }
-    for (const std::string host : { "www.github.com/", "github.com/" })
+    // A page link may carry a query or an anchor ("?tab=readme-ov-file")
+    const size_t query = has_scheme ? s.find_first_of("?#") : std::string::npos;
+    if (query != std::string::npos)
     {
-        if (startsWith(s, host))
-        {
-            s.erase(0, host.size());
-            break;
-        }
+        s.erase(query);
     }
     while (!s.empty() && s.back() == '/')
     {
@@ -159,25 +398,37 @@ bool parseRepoRef(const std::string& text, const std::string& branch, RepoRef& o
     }
 
     std::vector<std::string> parts = splitPath(s);
-    if (parts.size() < 2 || (parts.size() > 2 && (parts[2] != "tree" || parts.size() < 4)))
+    // "owner/repo" alone is GitHub; a first part with a dot (or after a scheme) is a host
+    std::string host = "github.com";
+    if (has_scheme || (!parts.empty() && parts[0].find('.') != std::string::npos))
+    {
+        host = parts.empty() ? std::string() : parts[0];
+        LLStringUtil::toLower(host);
+        if (startsWith(host, "www."))
+        {
+            host.erase(0, 4);
+        }
+        parts.erase(parts.begin());
+    }
+    if (!isValidHost(host))
     {
         return false;
     }
 
-    std::string repo = parts[1];
-    if (endsWith(repo, ".git"))
+    Provider provider = Provider::GITHUB;
+    if (forced)
     {
-        repo.erase(repo.size() - 4);
+        provider = *forced;
     }
-    if (!validName(parts[0]) || !validName(repo))
+    else if (!knownHost(host, provider))
     {
-        return false;
+        return false;   // a self-hosted instance: the kind must be chosen
     }
 
-    std::string ref;
-    for (size_t i = 3; i < parts.size(); ++i)
+    std::string owner, repo, ref;
+    if (!parseRepoPath(provider, parts, owner, repo, ref))
     {
-        ref += (i > 3 ? "/" : "") + parts[i];
+        return false;
     }
     if (!ref_override.empty())
     {
@@ -188,9 +439,12 @@ bool parseRepoRef(const std::string& text, const std::string& branch, RepoRef& o
         return false;
     }
 
-    out.owner = parts[0];
+    out.provider = provider;
+    out.host = host;
+    out.owner = owner;
     out.repo = repo;
     out.ref = ref;
+    out.url.clear();
     return true;
 }
 
@@ -469,11 +723,8 @@ bool readZip(const std::string& buffer, std::vector<std::pair<std::string, std::
             continue;
         }
 
-        // GitHub puts everything under one "<owner>-<repo>-<commit>/" folder
         const std::string full = info->filename;
-        const size_t slash = full.find('/');
-        const std::string path = slash == std::string::npos ? full : full.substr(slash + 1);
-        if (!isSafeZipPath(full) || !isSafeZipPath(path))
+        if (!isSafeZipPath(full))
         {
             unsafe_paths.push_back(full);
             continue;
@@ -495,7 +746,7 @@ bool readZip(const std::string& buffer, std::vector<std::pair<std::string, std::
             ok = false;
             break;
         }
-        files.emplace_back(path, std::move(data));
+        files.emplace_back(full, std::move(data));
     }
     if (ok && status != MZ_END_OF_LIST && status != MZ_OK)
     {
@@ -505,6 +756,26 @@ bool readZip(const std::string& buffer, std::vector<std::pair<std::string, std::
 
     mz_zip_reader_close(reader);
     mz_zip_reader_delete(&reader);
+
+    // Archives made by GitHub ("<owner>-<repo>-<commit>/"), GitLab, Gitea and Bitbucket put everything in one top
+    // folder: leave it out. A zip with files at its top, or several top folders, keeps its paths.
+    if (ok && !files.empty())
+    {
+        const size_t slash = files.front().first.find('/');
+        const std::string top = slash == std::string::npos ? std::string() : files.front().first.substr(0, slash + 1);
+        bool shared = !top.empty();
+        for (const auto& file : files)
+        {
+            shared = shared && startsWith(file.first, top) && file.first.size() > top.size();
+        }
+        if (shared)
+        {
+            for (auto& file : files)
+            {
+                file.first.erase(0, top.size());
+            }
+        }
+    }
     return ok;
 }
 
@@ -514,9 +785,15 @@ LLSD toLLSD(const std::vector<RepoState>& repos)
     for (const RepoState& repo : repos)
     {
         LLSD r;
+        r["provider"] = providerName(repo.ref.provider);
+        r["host"] = repo.ref.host;
         r["owner"] = repo.ref.owner;
         r["repo"] = repo.ref.repo;
         r["ref"] = repo.ref.ref;
+        if (repo.ref.provider == Provider::ZIP)
+        {
+            r["url"] = repo.ref.url;
+        }
         r["commit"] = repo.commit;
         r["synced"] = repo.synced;
         LLSD files = LLSD::emptyMap();
@@ -549,12 +826,27 @@ std::vector<RepoState> fromLLSD(const LLSD& sd)
     for (const LLSD& r : llsd::inArray(sd))
     {
         RepoState repo;
-        repo.ref.owner = r["owner"].asString();
-        repo.ref.repo = r["repo"].asString();
-        repo.ref.ref = r["ref"].asString();
-        if (!validName(repo.ref.owner) || !validName(repo.ref.repo))
+        // Entries from before other hosts were supported are GitHub's
+        Provider provider = Provider::GITHUB;
+        if (r.has("provider") && !providerFromName(r["provider"].asString(), provider))
         {
             continue;
+        }
+        if (provider == Provider::ZIP)
+        {
+            if (!parseZipLink(r["url"].asString(), repo.ref))
+            {
+                continue;
+            }
+        }
+        else
+        {
+            const std::string host = r.has("host") ? r["host"].asString() : std::string("github.com");
+            const std::string text = "https://" + host + "/" + r["owner"].asString() + "/" + r["repo"].asString();
+            if (!parseRepoRef(text, r["ref"].asString(), &provider, repo.ref))
+            {
+                continue;
+            }
         }
         repo.commit = r["commit"].asString();
         repo.synced = r["synced"].asDate();

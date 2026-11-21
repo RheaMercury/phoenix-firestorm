@@ -253,14 +253,14 @@ namespace tut
     template<> template<> void fsscriptrepos_object::test<11>()
     {
         RepoState a;
-        a.ref = { "o", "r", "main" };
+        ensure("parse a", parseRepoRef("o/r", "main", a.ref));
         a.commit = "0123456789abcdef0123456789abcdef01234567";
         a.synced = LLDate(1763424000.0);
         a.files["x/a.lsl"] = { md5Hex("a"), LLUUID::generateNewID(), LLUUID::generateNewID(), true, true };
         a.files["y/fails.lsl"] = { md5Hex("f"), LLUUID::generateNewID(), LLUUID::generateNewID(), false, true };
         a.files["b.txt"] = { md5Hex("b"), LLUUID::generateNewID() };
         RepoState b;
-        b.ref = { "p", "q", "" };
+        ensure("parse b", parseRepoRef("p/q", "", b.ref));
 
         std::vector<RepoState> back = fromLLSD(toLLSD({ a, b }));
         ensure_equals(back.size(), 2U);
@@ -281,6 +281,18 @@ namespace tut
         ensure_equals(back[1].ref.owner, "p");
         ensure_equals(back[1].files.size(), 0U);
         ensure("empty llsd", fromLLSD(LLSD()).empty());
+
+        // Entries written before other hosts: GitHub
+        LLSD old_entry;
+        old_entry["owner"] = "o";
+        old_entry["repo"] = "r";
+        old_entry["ref"] = "";
+        LLSD old_list = LLSD::emptyArray();
+        old_list.append(old_entry);
+        back = fromLLSD(old_list);
+        ensure_equals(back.size(), 1U);
+        ensure("old is github", back[0].ref.provider == Provider::GITHUB);
+        ensure_equals(back[0].ref.host, "github.com");
     }
 
     // git ref names
@@ -318,5 +330,111 @@ namespace tut
         e = classify("\xe6\x97\xa5/a.lsl", "x", {}, false);
         ensure("unusable folder", e.kind == Kind::SKIPPED);
         ensure("no usable name", classify("\xe6\x97\xa5.lsl", "x", {}, false).kind == Kind::SKIPPED);
+    }
+
+    // other hosts: detection and links
+    template<> template<> void fsscriptrepos_object::test<14>()
+    {
+        RepoRef r;
+        ensure("github bare", parseRepoRef("o/r", "", r) && r.provider == Provider::GITHUB && r.host == "github.com");
+        ensure_equals(r.display(), "o/r");
+        ensure("github www", parseRepoRef("https://www.GitHub.com/o/r?tab=readme-ov-file", "", r) &&
+            r.provider == Provider::GITHUB && r.host == "github.com" && r.repo == "r");
+
+        ensure("gitlab", parseRepoRef("https://gitlab.com/group/sub/proj.git", "", r));
+        ensure("gitlab kind", r.provider == Provider::GITLAB);
+        ensure_equals(r.owner, "group/sub");
+        ensure_equals(r.repo, "proj");
+        ensure_equals(r.display(), "gitlab.com/group/sub/proj");
+        ensure("gitlab tree", parseRepoRef("https://gitlab.com/g/p/-/tree/dev/x", "", r));
+        ensure_equals(r.owner, "g");
+        ensure_equals(r.ref, "dev/x");
+        ensure("gitlab other page", !parseRepoRef("https://gitlab.com/g/p/-/issues/3", "", r));
+        ensure("gitlab one part", !parseRepoRef("https://gitlab.com/p", "", r));
+        ensure("gitlab by name", parseRepoRef("https://gitlab.example.org/g/p", "", r) &&
+            r.provider == Provider::GITLAB && r.host == "gitlab.example.org");
+
+        ensure("codeberg", parseRepoRef("https://codeberg.org/o/r/src/branch/main", "", r));
+        ensure("codeberg kind", r.provider == Provider::GITEA);
+        ensure_equals(r.ref, "main");
+        ensure("gitea tag", parseRepoRef("https://gitea.com/o/r/src/tag/v1.2", "", r) && r.ref == "v1.2");
+        ensure("gitea commit page", !parseRepoRef("https://codeberg.org/o/r/src/commit/abc", "", r));
+        ensure("forgejo by name", parseRepoRef("https://forgejo.example.net:3000/o/r", "", r) &&
+            r.provider == Provider::GITEA && r.host == "forgejo.example.net:3000");
+
+        ensure("bitbucket", parseRepoRef("https://bitbucket.org/ws/repo/src/main/", "", r));
+        ensure("bitbucket kind", r.provider == Provider::BITBUCKET);
+        ensure_equals(r.owner, "ws");
+        ensure_equals(r.ref, "main");
+
+        ensure("unknown host refused", !parseRepoRef("https://git.example.com/o/r", "", r));
+        const Provider gitea = Provider::GITEA;
+        ensure("unknown host chosen", parseRepoRef("https://git.example.com/o/r", "", &gitea, r) &&
+            r.provider == Provider::GITEA && r.host == "git.example.com");
+        const Provider gitlab = Provider::GITLAB;
+        ensure("forced gitlab", parseRepoRef("git.example.com/a/b/c", "", &gitlab, r) && r.owner == "a/b");
+        ensure("bad host", !parseRepoRef("https://exa_mple.com/o/r", "", &gitea, r));
+        ensure("bad port", !parseRepoRef("https://example.com:http/o/r", "", &gitea, r));
+    }
+
+    // zip links
+    template<> template<> void fsscriptrepos_object::test<15>()
+    {
+        RepoRef r;
+        ensure("zip", parseRepoRef("https://example.com/dl/My-Scripts.zip?token=abc", "", r));
+        ensure("zip kind", r.provider == Provider::ZIP);
+        ensure_equals(r.host, "example.com");
+        ensure_equals(r.repo, "My-Scripts");
+        ensure_equals(r.url, "https://example.com/dl/My-Scripts.zip?token=abc");
+        ensure_equals(r.display(), "https://example.com/dl/My-Scripts.zip");
+        ensure("github archive link is a zip",
+            parseRepoRef("https://github.com/o/r/archive/refs/heads/main.zip", "", r) && r.provider == Provider::ZIP);
+        ensure("http refused", !parseRepoRef("http://example.com/a.zip", "", r));
+        ensure("credentials refused", !parseRepoRef("https://user:pw@example.com/a.zip", "", r));
+        ensure("not a zip", !parseRepoRef("https://example.com/a.tar.gz", "", r));
+        const Provider zip = Provider::ZIP;
+        ensure("forced zip needs a zip", !parseRepoRef("https://github.com/o/r", "", &zip, r));
+
+        ensure("keys", parseRepoRef("O/R", "", r));
+        RepoRef same;
+        ensure("keys 2", parseRepoRef("https://github.com/o/r", "", same));
+        ensure_equals(r.key(), same.key());
+        RepoRef other;
+        ensure("keys 3", parseRepoRef("https://codeberg.org/o/r", "", other));
+        ensure("other host differs", other.key() != r.key());
+
+        RepoState a;
+        ensure("zip state", parseRepoRef("https://example.com/x/pack.zip", "", a.ref));
+        a.commit = "md5:0123";
+        RepoState g;
+        ensure("gitlab state", parseRepoRef("https://gitlab.com/g/s/p", "dev", g.ref));
+        std::vector<RepoState> back = fromLLSD(toLLSD({ a, g }));
+        ensure_equals(back.size(), 2U);
+        ensure("zip back", back[0].ref.provider == Provider::ZIP && back[0].ref.url == a.ref.url);
+        ensure_equals(back[0].commit, "md5:0123");
+        ensure("gitlab back", back[1].ref.provider == Provider::GITLAB && back[1].ref.owner == "g/s" &&
+            back[1].ref.ref == "dev" && back[1].ref.host == "gitlab.com");
+    }
+
+    // readZip: the shared top folder only
+    template<> template<> void fsscriptrepos_object::test<16>()
+    {
+        std::vector<std::pair<std::string, std::string>> files;
+        std::vector<std::string> unsafe;
+        std::string error;
+        ensure("flat", readZip(makeZip({ { "a.lsl", "x" }, { "dir/b.lsl", "y" } }), files, unsafe, error));
+        ensure_equals(files.size(), 2U);
+        ensure_equals(files[0].first, "a.lsl");
+        ensure_equals(files[1].first, "dir/b.lsl");
+
+        files.clear();
+        ensure("two tops", readZip(makeZip({ { "x/a.lsl", "x" }, { "y/b.lsl", "y" } }), files, unsafe, error));
+        ensure_equals(files[0].first, "x/a.lsl");
+
+        files.clear();
+        ensure("one top", readZip(makeZip({ { "repo-abc/a.lsl", "x" }, { "repo-abc/d/b.lsl", "y" } }), files, unsafe,
+            error));
+        ensure_equals(files[0].first, "a.lsl");
+        ensure_equals(files[1].first, "d/b.lsl");
     }
 }
