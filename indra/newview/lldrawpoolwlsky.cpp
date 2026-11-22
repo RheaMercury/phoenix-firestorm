@@ -346,7 +346,11 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
     }
     gDeferredStarProgram.uniform1f(sCustomAlpha, star_alpha);
 
-    sStarTime = (F32)LLFrameTimer::getElapsedSeconds() * 0.5f;
+    // <FS:Trish> starsV.glsl only uses mod(time, 1.25). Session seconds as a float lose their fraction
+    // after a day or so and the twinkle starts to stutter, then freezes; wrap in double first.
+    //sStarTime = (F32)LLFrameTimer::getElapsedSeconds() * 0.5f;
+    sStarTime = (F32)fmod(LLFrameTimer::getElapsedSeconds().value() * 0.5, 1.25);
+    // </FS:Trish>
 
     gDeferredStarProgram.uniform1f(LLShaderMgr::WATER_TIME, sStarTime);
 
