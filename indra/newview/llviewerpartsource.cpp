@@ -143,6 +143,15 @@ void LLViewerPartSourceScript::update(const F32 dt)
 
     F32 old_update_time = mLastUpdateTime;
     mLastUpdateTime += dt;
+    // <FS:Trish> Only the gap between these two matters while the source has no max age, so keep them
+    // small. Left to grow, a frame's dt is rounded away after a day or two in view (sooner at high frame
+    // rates) and the emitter stops making particles. 1024 comes off both exactly.
+    if (mPartSysData.mMaxAge == 0.f && mLastUpdateTime > 1024.f)
+    {
+        mLastUpdateTime -= 1024.f;
+        mLastPartTime -= 1024.f;
+    }
+    // </FS:Trish>
 
     F32 ref_rate_travelspeed = llmin(LLViewerPartSim::getInstance()->getRefRate(), 1.f);
 
