@@ -243,6 +243,8 @@ public:
     // setHidden: whether the page is out of view (it stops painting).
     void    setFrameRate(const int frame_rate);
     void    setHidden(const bool hidden);
+    // Extra Chromium command line switches for browser plugins, see FSMediaBrowserExtraSwitches
+    void    setBrowserExtraSwitches(const std::string& switches);
     // </FS:Trish>
     void    setTarget(const std::string &target);
 

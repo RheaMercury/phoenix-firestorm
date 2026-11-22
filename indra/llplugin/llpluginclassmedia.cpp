@@ -1050,6 +1050,14 @@ void LLPluginClassMedia::setHidden(const bool hidden)
     message.setValueBoolean("hidden", hidden);
     sendMessage(message);
 }
+
+// Read by the browser plugin when it starts (Dullahan 1.52 and later), see FSMediaBrowserExtraSwitches
+void LLPluginClassMedia::setBrowserExtraSwitches(const std::string& switches)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "set_extra_switches");
+    message.setValue("switches", switches);
+    sendMessage(message);
+}
 // </FS:Trish>
 
 void LLPluginClassMedia::setJavascriptEnabled(const bool enabled)

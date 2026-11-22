@@ -28725,6 +28725,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSMediaBrowserExtraSwitches</key>
+    <map>
+      <key>Comment</key>
+      <string>Extra Chromium command line switches for the web browser of media plugins started after the change, separated by spaces (or commas before a value, "a,b=c,d" is a and b=c,d), each "name" or "name=value", leading dashes optional. Needs a plugin built against Dullahan 1.52 or later, ignored before. For testing, nothing is set by default. Candidates: in-process-gpu (runs the browser's GPU process inside its renderer, one process less per page), disable-features=SpareRendererForSitePerProcess (no spare renderer process kept warm per page).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string />
+    </map>
     <key>FSMediaInWorldFrameRate</key>
     <map>
       <key>Comment</key>

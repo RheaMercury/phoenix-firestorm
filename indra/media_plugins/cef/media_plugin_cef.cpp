@@ -112,6 +112,7 @@ private:
     bool mHidden;
     bool mBrowserStarted;
     bool mFullPagePending;
+    std::vector<std::string> mExtraSwitches; // Chromium switches for init (Dullahan 1.52 and later)
     // </FS:Trish>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
@@ -881,6 +882,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 //settings.frame_rate = 60;
                 settings.frame_rate = mFrameRate;
                 // </FS:Trish>
+                // <FS:Trish> Extra Chromium switches the viewer asks for (FSMediaBrowserExtraSwitches)
+#if DULLAHAN_VERSION_MINOR >= 52
+                settings.extra_command_line_switches = mExtraSwitches;
+#endif
+                // </FS:Trish>
                 settings.force_wave_audio = true;
                 settings.initial_height = 1024;
                 settings.initial_width = 1024;
@@ -1257,6 +1263,31 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                         mCEFLib->setFrameRate(mFrameRate);
                     }
 #endif
+                }
+            }
+            // Extra Chromium switches, read at init: "name" or "name=value" separated by spaces, or by
+            // commas before a value ("a,b=c,d" is a and b=c,d), leading dashes dropped
+            else if (message_name == "set_extra_switches")
+            {
+                mExtraSwitches.clear();
+                std::string current;
+                const std::string switches = message_in.getValue("switches");
+                for (size_t i = 0; i <= switches.size(); ++i)
+                {
+                    const char c = (i < switches.size()) ? switches[i] : ' ';
+                    const bool separator = c == ' ' || c == '\t' || c == '\r' || c == '\n'
+                        || (c == ',' && current.find('=') == std::string::npos);
+                    if (!separator)
+                    {
+                        current += c;
+                        continue;
+                    }
+                    const size_t start = current.find_first_not_of('-');
+                    if (start != std::string::npos && current[start] != '=')
+                    {
+                        mExtraSwitches.push_back(current.substr(start));
+                    }
+                    current.clear();
                 }
             }
             // A hidden page stops painting and is throttled like a background tab, audio and video keep

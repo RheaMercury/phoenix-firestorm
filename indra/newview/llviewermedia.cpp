@@ -1945,6 +1945,11 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 
             // <FS:Trish> Read by the browser plugin before it starts
             media_source->setFrameRate(frame_rate);
+            static LLCachedControl<std::string> extra_switches(gSavedSettings, "FSMediaBrowserExtraSwitches", "");
+            if (!extra_switches().empty())
+            {
+                media_source->setBrowserExtraSwitches(extra_switches());
+            }
             // </FS:Trish>
 
             bool media_plugin_debugging_enabled = gSavedSettings.getBOOL("MediaPluginDebugging");
