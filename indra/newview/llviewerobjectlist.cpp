@@ -1301,7 +1301,7 @@ void LLViewerObjectList::update(LLAgent &agent)
     // </FS:Ansariel> Speed up debug settings
 
     // update global timer
-    F32 last_time = gFrameTimeSeconds;
+    //F32 last_time = gFrameTimeSeconds; // <FS:Trish/> unused, see below
     U64Microseconds time = totalTime();              // this will become the new gFrameTime when the update is done
     // Time _can_ go backwards, for example if the user changes the system clock.
     // It doesn't cause any fatal problems (just some oddness with stats), so we shouldn't assert here.
@@ -1311,7 +1311,12 @@ void LLViewerObjectList::update(LLAgent &agent)
     F64Seconds time_since_start = gFrameTime - gStartTime;
     gFrameTimeSeconds = time_since_start;
 
-    gFrameIntervalSeconds = gFrameTimeSeconds - last_time;
+    // <FS:Trish> Both are F32 session seconds, so after a day their difference is quantized to 8 ms
+    // steps, and to 30-60 ms after a few days (alternating 0 and a double frame), making the FPS stat,
+    // joystick flycam and other per-frame motion jerky. Use the F64 difference instead.
+    //gFrameIntervalSeconds = gFrameTimeSeconds - last_time;
+    gFrameIntervalSeconds = (F32)time_diff.value();
+    // </FS:Trish>
     if (gFrameIntervalSeconds < 0.f)
     {
         gFrameIntervalSeconds = 0.f;
