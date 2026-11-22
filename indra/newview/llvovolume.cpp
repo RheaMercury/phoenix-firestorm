@@ -3453,12 +3453,18 @@ void LLVOVolume::mediaEvent(LLViewerMediaImpl *impl, LLPluginClassMedia* plugin,
 
                 case LLViewerMediaImpl::MEDIANAVSTATE_SERVER_FIRST_LOCATION_CHANGED:
                     // This is the first location changed event after the start of a server-directed nav.  Don't broadcast it.
-                    LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    // <FS:Trish> Every media load and redirect, debug only
+                    //LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    LL_DEBUGS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    // </FS:Trish>
                 break;
 
                 default:
                     // This is a subsequent location-changed due to a redirect.  Don't broadcast.
-                    LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (redirect)" << LL_ENDL;
+                    // <FS:Trish>
+                    //LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (redirect)" << LL_ENDL;
+                    LL_DEBUGS("MediaOnAPrim") << "   NOT broadcasting navigate (redirect)" << LL_ENDL;
+                    // </FS:Trish>
                 break;
             }
         }
@@ -3482,7 +3488,10 @@ void LLVOVolume::mediaEvent(LLViewerMediaImpl *impl, LLPluginClassMedia* plugin,
 
                 case LLViewerMediaImpl::MEDIANAVSTATE_SERVER_COMPLETE_BEFORE_LOCATION_CHANGED:
                     // This is the the navigate complete event from a server-directed nav.  Don't broadcast it.
-                    LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    // <FS:Trish>
+                    //LL_INFOS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    LL_DEBUGS("MediaOnAPrim") << "   NOT broadcasting navigate (server-directed)" << LL_ENDL;
+                    // </FS:Trish>
                 break;
 
                 default:

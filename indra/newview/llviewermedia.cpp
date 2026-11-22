@@ -433,7 +433,10 @@ std::string LLViewerMedia::getCurrentUserAgent()
     codec << "SecondLife/";
     codec << LLVersionInfo::instance().getVersion();
     codec << " (" << channel << "; " << skin_name << " skin)";
-    LL_INFOS() << codec.str() << LL_ENDL;
+    // <FS:Trish> Logged for every media created and every HTTP request that asks for it, debug only
+    //LL_INFOS() << codec.str() << LL_ENDL;
+    LL_DEBUGS("Media") << codec.str() << LL_ENDL;
+    // </FS:Trish>
 
     return codec.str();
 }
