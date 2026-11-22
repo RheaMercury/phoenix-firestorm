@@ -36,6 +36,14 @@
 // occlusion has no hard edge where the search radius ends.
 #define FS_GTAO_FALLOFF 0.615
 
+// Each horizon is lowered by this much (radians), down to the tangent plane, so one barely
+// above it counts as open. A smooth surface reaches the depth buffer
+// as flat triangles, and at each edge between two of them the depth normal (or the smoothed
+// shading normal) is a few degrees off the triangle next to it, so that triangle rose just
+// above the tangent plane: a faint dark line along every edge loop of a rounded mesh, the rows
+// of an avatar's body or clothes. Real occluders stand well above this.
+#define FS_GTAO_ANGLE_BIAS 0.15
+
 #define FS_GTAO_PI      3.14159265
 #define FS_GTAO_HALF_PI 1.57079633
 
@@ -210,6 +218,9 @@ float fsCalcGTAO(vec3 pos, vec3 norm, vec2 pos_screen)
         float h1 =  fsGTAOAcos(horizon_cos0);
         h0 = n_ang + clamp(h0 - n_ang, -FS_GTAO_HALF_PI, FS_GTAO_HALF_PI);
         h1 = n_ang + clamp(h1 - n_ang, -FS_GTAO_HALF_PI, FS_GTAO_HALF_PI);
+        // elevation of each horizon above the tangent plane, less the bias (FS_GTAO_ANGLE_BIAS)
+        h0 = max(h0 - FS_GTAO_ANGLE_BIAS, n_ang - FS_GTAO_HALF_PI);
+        h1 = min(h1 + FS_GTAO_ANGLE_BIAS, n_ang + FS_GTAO_HALF_PI);
 
         // Cosine-weighted visible arc (Jimenez 2016, eq. 10), weighted by how much of the normal
         // lies in this slice

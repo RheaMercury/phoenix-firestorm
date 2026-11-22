@@ -45,6 +45,7 @@ vec4 getPositionWithDepth(vec2 pos_screen, float depth);
 #define FS_CREASE_STEPS  4
 #define FS_CREASE_PI      3.14159265
 #define FS_CREASE_HALF_PI 1.57079633
+#define FS_CREASE_ANGLE_BIAS 0.15 // radians
 
 float fsCreaseAcos(float x)
 {
@@ -180,6 +181,10 @@ float fsCreaseAO(vec3 pos, vec3 norm, vec2 tc)
         float h1 =  fsCreaseAcos(horizon_cos0);
         h0 = n_ang + clamp(h0 - n_ang, -FS_CREASE_HALF_PI, FS_CREASE_HALF_PI);
         h1 = n_ang + clamp(h1 - n_ang, -FS_CREASE_HALF_PI, FS_CREASE_HALF_PI);
+        // horizons barely above the tangent plane are the edges between a rounded mesh's triangles
+        // (see FS_GTAO_ANGLE_BIAS in fsGTAOF.glsl), not a crease
+        h0 = max(h0 - FS_CREASE_ANGLE_BIAS, n_ang - FS_CREASE_HALF_PI);
+        h1 = min(h1 + FS_CREASE_ANGLE_BIAS, n_ang + FS_CREASE_HALF_PI);
 
         float sin_n = sin(n_ang);
         float arc0 = cos_n + 2.0 * h0 * sin_n - cos(2.0 * h0 - n_ang);
