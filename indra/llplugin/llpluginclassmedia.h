@@ -532,6 +532,16 @@ private:
     bool mFSNavigationUserGesture = false;
     // </FS:Trish>
 
+    // <FS:Trish> Whether the browser plugin reported that its page's renderer process ended
+    // abnormally since the last call (Dullahan 1.52 and later), and with which CEF termination status
+public:
+    bool fsTakeRenderProcessTerminated(S32& status, S32& error_code);
+private:
+    bool mFSRenderProcessTerminated = false;
+    S32 mFSRenderProcessStatus = 0;
+    S32 mFSRenderProcessErrorCode = 0;
+    // </FS:Trish>
+
 //--------------------------------------
     //debug use only
     //

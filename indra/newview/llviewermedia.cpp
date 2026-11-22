@@ -2035,6 +2035,7 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
     mFSFrameRate = frame_rate;
     mFSHidden = false;
     mFSUnhidden = false;
+    mFSCrashReloadAt = -1.0; // a new browser has its own renderer
     // </FS:Trish>
 
     if (media_source)
@@ -3141,6 +3142,8 @@ void LLViewerMediaImpl::update()
         destroyMediaSource();
         return;
     }
+
+    fsReloadCrashedPage(); // <FS:Trish/>
 
     if(!mMediaSource->textureValid())
     {
@@ -4250,6 +4253,49 @@ void LLViewerMediaImpl::setPriority(LLPluginClassMedia::EPriority priority)
 
     // NOTE: loading (or reloading) media sources whose priority has risen above PRIORITY_UNLOADED is done in update().
 }
+
+// <FS:Trish> When the renderer process of this media's page ends abnormally (Dullahan 1.52 and later
+// report it), the page is left blank. It is loaded again, its current URL as a server-directed
+// navigation (so it isn't broadcast), after a delay that doubles with each crash of the page within
+// FS_MEDIA_CRASH_RESET_TIME of the last reload: 5 s, 10 s, 20 s and so on up to 10 minutes, so a page
+// that keeps crashing isn't reloaded in a tight loop.
+constexpr F64 FS_MEDIA_CRASH_RELOAD_DELAY = 5.0;
+constexpr F64 FS_MEDIA_CRASH_RELOAD_DELAY_MAX = 600.0;
+constexpr F64 FS_MEDIA_CRASH_RESET_TIME = 600.0;
+
+void LLViewerMediaImpl::fsReloadCrashedPage()
+{
+    const F64 now = LLFrameTimer::getElapsedSeconds();
+    S32 status = 0;
+    S32 error_code = 0;
+    if (mMediaSource->fsTakeRenderProcessTerminated(status, error_code))
+    {
+        if (mFSCrashReloadTime >= 0.0 && now - mFSCrashReloadTime > FS_MEDIA_CRASH_RESET_TIME)
+        {
+            mFSCrashCount = 0;
+        }
+        const F64 delay = llmin(FS_MEDIA_CRASH_RELOAD_DELAY * (F64)(1u << llmin(mFSCrashCount, 10u)), FS_MEDIA_CRASH_RELOAD_DELAY_MAX);
+        ++mFSCrashCount;
+        if (mFSCrashReloadAt < 0.0)
+        {
+            mFSCrashReloadAt = now + delay;
+        }
+        LL_WARNS("Media") << "Renderer process of media id " << mTextureId << " ended (status " << status << ", error "
+            << error_code << "), reloading its page in " << delay << " seconds" << LL_ENDL;
+    }
+    if (mFSCrashReloadAt >= 0.0 && now >= mFSCrashReloadAt)
+    {
+        mFSCrashReloadAt = -1.0;
+        mFSCrashReloadTime = now;
+        const std::string url = getCurrentMediaURL();
+        if (!url.empty())
+        {
+            setNavState(MEDIANAVSTATE_SERVER_SENT);
+            mMediaSource->loadURI(url);
+        }
+    }
+}
+// </FS:Trish>
 
 // <FS:Trish> Stock keeps media out of view (PRIORITY_HIDDEN) loaded, its browser process and memory,
 // until the PluginInstancesTotal limit forces it out. In-world media that has been out of view and

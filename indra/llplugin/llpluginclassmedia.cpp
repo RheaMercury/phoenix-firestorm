@@ -1449,6 +1449,14 @@ void LLPluginClassMedia::receivePluginMessage(const LLPluginMessage &message)
 
             mediaEvent(LLPluginClassMediaOwner::MEDIA_EVENT_LINK_HOVERED);
         }
+        // <FS:Trish> See fsTakeRenderProcessTerminated
+        else if (message_name == "render_process_terminated")
+        {
+            mFSRenderProcessTerminated = true;
+            mFSRenderProcessStatus = message.getValueS32("status");
+            mFSRenderProcessErrorCode = message.getValueS32("error_code");
+        }
+        // </FS:Trish>
         // <FS:Trish> A main frame navigation is starting (sent before its navigate_begin), see
         // fsNavigationUserGesture. A redirect keeps the gesture of the navigation it redirects.
         else if (message_name == "navigation")
@@ -1480,6 +1488,20 @@ void LLPluginClassMedia::receivePluginMessage(const LLPluginMessage &message)
     }
 
 }
+
+// <FS:Trish>
+bool LLPluginClassMedia::fsTakeRenderProcessTerminated(S32& status, S32& error_code)
+{
+    if (!mFSRenderProcessTerminated)
+    {
+        return false;
+    }
+    mFSRenderProcessTerminated = false;
+    status = mFSRenderProcessStatus;
+    error_code = mFSRenderProcessErrorCode;
+    return true;
+}
+// </FS:Trish>
 
 /* virtual */
 void LLPluginClassMedia::pluginLaunchFailed()

@@ -241,6 +241,9 @@ public:
     // everyone seeing this media on a prim (see LLVOVolume::mediaNavigated)
     bool fsIsUserNavigation() const;
     // </FS:Trish>
+    // <FS:Trish> Reloads the page after its renderer process crashed
+    void fsReloadCrashedPage();
+    // </FS:Trish>
     // <FS:Trish> Unloading of in-world media long out of view and inaudible
     bool fsUnloadWhileHidden(LLPluginClassMedia::EPriority priority);
     bool fsIsInaudible() const;
@@ -516,6 +519,12 @@ private:
     // that unloaded it (fsUnloadWhileHidden)
     F64 mFSHiddenSince = -1.0;
     bool mFSUnloadedHidden = false;
+    // </FS:Trish>
+    // <FS:Trish> Renderer crashes of this media's page (fsReloadCrashedPage): when the page is to be
+    // loaded again (-1: not), when it last was and how many crashes in a row back off the next reload
+    F64 mFSCrashReloadAt = -1.0;
+    F64 mFSCrashReloadTime = -1.0;
+    U32 mFSCrashCount = 0;
     // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;

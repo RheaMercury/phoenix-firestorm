@@ -70,6 +70,7 @@ private:
     void requestFullPage(); // <FS:Trish/>
     void onCustomSchemeURLCallback(std::string url, bool user_gesture, bool is_redirect);
     void onNavigationCallback(const std::string url, bool user_gesture, bool is_redirect); // <FS:Trish/>
+    void onRenderProcessTerminatedCallback(int status, int error_code); // <FS:Trish/>
     void onConsoleMessageCallback(std::string message, std::string source, int line);
     void onStatusMessageCallback(std::string value);
     void onTitleChangeCallback(std::string title);
@@ -469,6 +470,16 @@ void MediaPluginCEF::onNavigationCallback(const std::string url, bool user_gestu
     message.setValueBoolean("is_redirect", is_redirect);
     sendMessage(message);
 }
+
+// The page's renderer process ended abnormally (crashed, killed, out of memory; Dullahan 1.52 and
+// later). The page is left blank, the viewer loads it again.
+void MediaPluginCEF::onRenderProcessTerminatedCallback(int status, int error_code)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "render_process_terminated");
+    message.setValueS32("status", status);
+    message.setValueS32("error_code", error_code);
+    sendMessage(message);
+}
 // </FS:Trish>
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -807,6 +818,7 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 // <FS:Trish>
 #if DULLAHAN_VERSION_MINOR >= 52
                 mCEFLib->setOnNavigationCallback(std::bind(&MediaPluginCEF::onNavigationCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+                mCEFLib->setOnRenderProcessTerminatedCallback(std::bind(&MediaPluginCEF::onRenderProcessTerminatedCallback, this, std::placeholders::_1, std::placeholders::_2));
 #endif
                 // </FS:Trish>
 
