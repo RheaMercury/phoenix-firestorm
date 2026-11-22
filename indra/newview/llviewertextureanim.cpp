@@ -137,6 +137,11 @@ S32 LLViewerTextureAnim::animateTextures(F32 &off_s, F32 &off_t,
     if (mMode & LOOP)
     {
         frame_counter  = fmod(frame_counter, full_length);
+        // <FS:Trish> Keep the smooth accumulator wrapped too. Unwrapped it grows for as long as the
+        // object stays in view, and after a few hours to days each frame's small step is lost to float
+        // rounding: smooth scrolling textures speed up, slow down and finally stop.
+        mLastTime = frame_counter;
+        // </FS:Trish>
     }
     else
     {
