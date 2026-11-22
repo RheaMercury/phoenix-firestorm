@@ -260,6 +260,11 @@ public:
     S32 mSeedCapAttempts;
 
     S32 mHttpResponderID;
+    // <FS:Trish> Responder ids are unique across all regions, so a request
+    // started for a region that was since removed and re-added at the same
+    // handle can never match the new region's current request.
+    static S32 sLastHttpResponderID;
+    // </FS:Trish>
 
     //spatial partitions for objects in this region
     std::vector<LLViewerOctreePartition*> mObjectPartition;
@@ -271,6 +276,8 @@ public:
     static void        requestBaseCapabilitiesCompleteCoro(U64 regionHandle);
     static void        requestSimulatorFeatureCoro(std::string url, U64 regionHandle);
 };
+
+S32 LLViewerRegionImpl::sLastHttpResponderID = 0; // <FS:Trish/>
 
 void LLViewerRegionImpl::requestBaseCapabilitiesCoro(U64 regionHandle)
 {
@@ -329,12 +336,22 @@ void LLViewerRegionImpl::requestBaseCapabilitiesCoro(U64 regionHandle)
         if (impl->mSeedCapAttempts > impl->mSeedCapMaxAttempts)
         {
             LL_WARNS("AppInit", "Capabilities") << "Failed to get seed capabilities from '" << url << "' after " << impl->mSeedCapAttempts << " attempts.  Giving up!" << LL_ENDL;
-            regionp->setCapabilitiesError();
+            // <FS:Trish> A refresh of an unchanged seed keeps the capabilities
+            // it already had, which are still valid. Don't mark them unusable.
+            //regionp->setCapabilitiesError();
+            if (!regionp->capabilitiesReceived())
+            {
+                regionp->setCapabilitiesError();
+            }
+            // </FS:Trish>
             return;  // this error condition is not recoverable.
         }
 
-        S32 id = ++(impl->mHttpResponderID);
-        last_id = id; // <FS:Trish/>
+        // <FS:Trish>
+        //S32 id = ++(impl->mHttpResponderID);
+        S32 id = impl->mHttpResponderID = ++LLViewerRegionImpl::sLastHttpResponderID;
+        last_id = id;
+        // </FS:Trish>
 
         LLSD capabilityNames = LLSD::emptyArray();
         impl->buildCapabilityNames(capabilityNames);
@@ -3740,7 +3757,7 @@ void LLViewerRegion::refreshSeedCapabilities(const std::string& url)
 void LLViewerRegion::requestSeedCapabilities()
 {
     // Make any earlier in-flight request stale before starting the refresh.
-    ++mImpl->mHttpResponderID;
+    mImpl->mHttpResponderID = ++LLViewerRegionImpl::sLastHttpResponderID; // <FS:Trish/>
 
     std::string coroname =
         LLCoros::instance().launch("LLViewerRegionImpl::requestBaseCapabilitiesCoro",
