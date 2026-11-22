@@ -854,6 +854,13 @@ void LLViewerMedia::updateMedia(void *dummy_arg)
                 }
             }
 
+            // <FS:Trish> In-world media out of view and inaudible for a while is unloaded, see fsUnloadWhileHidden
+            if (pimpl->fsUnloadWhileHidden(new_priority))
+            {
+                new_priority = LLPluginClassMedia::PRIORITY_UNLOADED;
+            }
+            // </FS:Trish>
+
             if(!pimpl->getUsedInUI() && (new_priority != LLPluginClassMedia::PRIORITY_UNLOADED))
             {
                 // This is a loadable inworld impl -- the last one in the list in this class defines the lowest loadable interest.
@@ -4238,6 +4245,61 @@ void LLViewerMediaImpl::setPriority(LLPluginClassMedia::EPriority priority)
 
     // NOTE: loading (or reloading) media sources whose priority has risen above PRIORITY_UNLOADED is done in update().
 }
+
+// <FS:Trish> Stock keeps media out of view (PRIORITY_HIDDEN) loaded, its browser process and memory,
+// until the PluginInstancesTotal limit forces it out. In-world media that has been out of view and
+// inaudible (see fsIsInaudible) for FSMediaUnloadHiddenDelay seconds in a row is unloaded instead,
+// as that limit would. Like media unloaded by the limit it is loaded again, its page from the start,
+// once it is in view; media out of view isn't loaded again just because it became audible. Time with
+// the viewer minimized doesn't count. priority is the one the priority pass decided for this media
+// (before the overrides for a minimized or unfocused viewer).
+bool LLViewerMediaImpl::fsUnloadWhileHidden(LLPluginClassMedia::EPriority priority)
+{
+    static LLCachedControl<F32> unload_delay(gSavedSettings, "FSMediaUnloadHiddenDelay", 90.f);
+    const F64 now = LLFrameTimer::getElapsedSeconds();
+    if (unload_delay() <= 0.f || priority != LLPluginClassMedia::PRIORITY_HIDDEN || mUsedInUI || mIsParcelMedia || mHasFocus)
+    {
+        mFSHiddenSince = -1.0;
+        mFSUnloadedHidden = false;
+        return false;
+    }
+    if (!gViewerWindow->getActive())
+    {
+        if (!mFSUnloadedHidden)
+        {
+            mFSHiddenSince = now;
+        }
+        return mFSUnloadedHidden;
+    }
+    if (!mFSUnloadedHidden && (mFSHiddenSince < 0.0 || !fsIsInaudible()))
+    {
+        mFSHiddenSince = now;
+    }
+    if (!mFSUnloadedHidden && now - mFSHiddenSince >= unload_delay())
+    {
+        LL_DEBUGS("PluginPriority") << "unloading media id " << mTextureId << ", out of view and inaudible for "
+            << (now - mFSHiddenSince) << " seconds" << LL_ENDL;
+        mFSUnloadedHidden = true;
+    }
+    return mFSUnloadedHidden;
+}
+
+// Whether this media can't be heard: its or the global media volume is 0, another media is the only
+// one audible, or it is beyond MediaRollOffMax from the ear position. HUD media is never out of range.
+bool LLViewerMediaImpl::fsIsInaudible() const
+{
+    if (sOnlyAudibleTextureID.notNull() && sOnlyAudibleTextureID != mTextureId)
+    {
+        return true;
+    }
+    if (mRequestedVolume * LLViewerMedia::getInstance()->getVolume() <= 0.f)
+    {
+        return true;
+    }
+    static LLCachedControl<F32> media_rolloff_max(gSavedSettings, "MediaRollOffMax");
+    return fsCameraDistance() > (F64)media_rolloff_max();
+}
+// </FS:Trish>
 
 // <FS:Trish> Navigations of media on a prim that the server didn't direct are broadcast to everyone
 // seeing it (LLVOVolume::mediaNavigated). Stock broadcasts every one of them, so an ad board's own

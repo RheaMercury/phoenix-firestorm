@@ -28769,6 +28769,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>1</integer>
     </map>
+    <key>FSMediaUnloadHiddenDelay</key>
+    <map>
+      <key>Comment</key>
+      <string>Seconds in-world media (media on a prim) has to be out of view and inaudible (beyond MediaRollOffMax, muted or at volume 0) in a row before it is unloaded, freeing its browser process and memory. It is loaded again, its page from the start, once it is in view. Media you clicked into and parcel media are never unloaded this way, time with the viewer minimized doesn't count. 0 keeps such media loaded (until the PluginInstancesTotal limit unloads it).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>90.0</real>
+    </map>
     <key>FSPerfTextureUploadPBO</key>
     <map>
       <key>Comment</key>

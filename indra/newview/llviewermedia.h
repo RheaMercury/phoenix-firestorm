@@ -241,6 +241,10 @@ public:
     // everyone seeing this media on a prim (see LLVOVolume::mediaNavigated)
     bool fsIsUserNavigation() const;
     // </FS:Trish>
+    // <FS:Trish> Unloading of in-world media long out of view and inaudible
+    bool fsUnloadWhileHidden(LLPluginClassMedia::EPriority priority);
+    bool fsIsInaudible() const;
+    // </FS:Trish>
     // True if the impl has user focus.
     bool hasFocus() const;
     void mouseDown(S32 x, S32 y, MASK mask, S32 button = 0);
@@ -507,6 +511,11 @@ private:
     // viewer (address bar, back, forward, reload, home), see fsIsUserNavigation
     F64 mFSUserInputTime = -1000.0;
     F64 mFSUserNavigateTime = -1000.0;
+    // </FS:Trish>
+    // <FS:Trish> Since when this media has been out of view and inaudible (-1: it isn't), and whether
+    // that unloaded it (fsUnloadWhileHidden)
+    F64 mFSHiddenSince = -1.0;
+    bool mFSUnloadedHidden = false;
     // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;
