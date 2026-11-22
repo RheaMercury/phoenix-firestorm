@@ -115,6 +115,11 @@ private:
     bool mFullPagePending;
     std::vector<std::string> mExtraSwitches; // Chromium switches for init (Dullahan 1.52 and later)
     bool mAudioMuted; // the page's audio is muted (Dullahan 1.52 and later)
+    // Page zoom the viewer asks for, and the scale of the page in the shared memory (0.5 for media
+    // the viewer renders at half size): the browser zooms by both, so the page keeps its layout
+    double mBaseZoom;
+    double mPageScale;
+    void applyPageZoom();
     // </FS:Trish>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
@@ -167,6 +172,8 @@ MediaPluginBase(host_send_func, host_user_data)
     mBrowserStarted = false;
     mFullPagePending = true;
     mAudioMuted = false;
+    mBaseZoom = 1.0;
+    mPageScale = 1.0;
     // </FS:Trish>
     mDisableNetworkService = true;
     mUseMockKeyChain = true;
@@ -317,6 +324,13 @@ void MediaPluginCEF::onPageChangedExCallback(const unsigned char* pixels, int x,
         memcpy(mPixels + row * stride + offset, pixels + row * stride + offset, span);
     }
     setDirty(left, top, right, bottom);
+}
+// </FS:Trish>
+
+// <FS:Trish> See mPageScale
+void MediaPluginCEF::applyPageZoom()
+{
+    mCEFLib->setPageZoom(mBaseZoom * mPageScale);
 }
 // </FS:Trish>
 
@@ -946,7 +960,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 //temporary fix for SL-10473: issue with displaying checkboxes on Mojave
                 factor*=1.001;
 #endif
-                mCEFLib->setPageZoom(factor);
+                // <FS:Trish> Times the page scale, see mPageScale
+                //mCEFLib->setPageZoom(factor);
+                mBaseZoom = factor;
+                applyPageZoom();
+                // </FS:Trish>
 
                 // Plugin gets to decide the texture parameters to use.
                 mDepth = 4;
@@ -958,6 +976,9 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 message.setValueU32("format", GL_BGRA);
                 message.setValueU32("type", GL_UNSIGNED_BYTE);
                 message.setValueBoolean("coords_opengl", true);
+                // <FS:Trish> The viewer may render this page at half size, it keeps its layout (see mPageScale)
+                message.setValueBoolean("fs_half_size", true);
+                // </FS:Trish>
                 sendMessage(message);
             }
             else if (message_name == "set_user_data_path")
@@ -1019,6 +1040,15 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                         mCEFLib->setSize(mWidth, mHeight);
                         // <FS:Trish> New shared memory holds nothing of the page yet
                         requestFullPage();
+                        // </FS:Trish>
+                        // <FS:Trish> The scale of the page at this size (0.5 at half size), 1 from older viewers
+                        double page_scale = message_in.hasValue("fs_page_scale") ? message_in.getValueReal("fs_page_scale") : 1.0;
+                        page_scale = (page_scale > 0.0 && page_scale <= 1.0) ? page_scale : 1.0;
+                        if (page_scale != mPageScale)
+                        {
+                            mPageScale = page_scale;
+                            applyPageZoom();
+                        }
                         // </FS:Trish>
                     };
                 };
@@ -1226,7 +1256,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 //temporary fix for SL-10473: issue with displaying checkboxes on Mojave
                 factor*=1.001;
 #endif
-                mCEFLib->setPageZoom(factor);
+                // <FS:Trish> Times the page scale, see mPageScale
+                //mCEFLib->setPageZoom(factor);
+                mBaseZoom = factor;
+                applyPageZoom();
+                // </FS:Trish>
             }
             if (message_name == "browse_stop")
             {

@@ -28736,6 +28736,17 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <string />
     </map>
+    <key>FSMediaHalfSizeLowPriority</key>
+    <map>
+      <key>Comment</key>
+      <string>Renders in-world web media that has been at low priority (small, far away or beyond the PluginInstancesNormal budget) for 10 seconds at half its size and zoomed to half, so the page keeps its layout with a quarter of the pixels to render and upload. Back to full size at once at normal priority or when you click into it. UI browsers and parcel media are never halved, nor pages under 256 pixels.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>FSMediaInWorldFrameRate</key>
     <map>
       <key>Comment</key>

@@ -247,6 +247,9 @@ public:
     void    setBrowserExtraSwitches(const std::string& switches);
     // Mutes the page's audio in the browser itself (Dullahan 1.52 and later)
     void    setAudioMuted(const bool muted);
+    // Renders the page at half its size and zoomed to half, so it keeps its layout with a quarter of the
+    // pixels. Only plugins that keep the layout (fs_half_size in texture_params) are resized.
+    void    fsSetHalfSize(const bool half_size);
     // </FS:Trish>
     void    setTarget(const std::string &target);
 
@@ -542,6 +545,13 @@ private:
     bool mFSRenderProcessTerminated = false;
     S32 mFSRenderProcessStatus = 0;
     S32 mFSRenderProcessErrorCode = 0;
+    // </FS:Trish>
+
+    // <FS:Trish> Half size rendering (fsSetHalfSize): asked for, supported by the plugin, and whether the
+    // requested size is halved now
+    bool mFSHalfSize = false;
+    bool mFSHalfSizeSupported = false;
+    bool mFSHalfSizeApplied = false;
     // </FS:Trish>
 
 //--------------------------------------

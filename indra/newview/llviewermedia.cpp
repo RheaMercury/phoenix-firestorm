@@ -2037,6 +2037,10 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
     mFSUnhidden = false;
     mFSCrashReloadAt = -1.0; // a new browser has its own renderer
     mFSAudioMuted = false;
+    if (media_source)
+    {
+        media_source->fsSetHalfSize(mFSHalfSize); // the size it had
+    }
     // </FS:Trish>
 
     if (media_source)
@@ -4398,6 +4402,7 @@ bool LLViewerMediaImpl::fsIsUserNavigation() const
 // (small, far or beyond the PluginInstancesNormal budget) and FS_MEDIA_SLIDESHOW_FRAME_RATE below that.
 // Stock renders every browser at 60.
 constexpr S32 FS_MEDIA_SLIDESHOW_FRAME_RATE = 2;
+constexpr F64 FS_MEDIA_HALF_SIZE_DELAY = 10.0; // see fsUpdateBrowserState
 
 S32 LLViewerMediaImpl::fsBrowserFrameRate() const
 {
@@ -4445,6 +4450,42 @@ void LLViewerMediaImpl::fsUpdateBrowserState()
         mFSHidden = hidden;
         mFSUnhidden = !hidden;
         mMediaSource->setHidden(hidden);
+    }
+
+    // In-world media at low or slideshow priority (small, far, or beyond the PluginInstancesNormal
+    // budget) for FS_MEDIA_HALF_SIZE_DELAY seconds in a row is rendered at half size and page zoom 0.5:
+    // the same layout with a quarter of the pixels to render, copy and upload. It is back to full size
+    // as soon as it is at normal priority or above or the user focuses it. Out of view, or while the
+    // viewer is in the background (when the stock priorities put every media at low), it keeps its size.
+    // Stock only downsamples plugins that ask for it (allow_downsample), which the CEF plugin doesn't:
+    // every web page renders at its full size (1024x1024 for most media on a prim) however small it is.
+    static LLCachedControl<bool> half_size_enabled(gSavedSettings, "FSMediaHalfSizeLowPriority", true);
+    bool half_size = mFSHalfSize;
+    if (!half_size_enabled() || mUsedInUI || mIsParcelMedia || mHasFocus || mPriority >= LLPluginClassMedia::PRIORITY_NORMAL)
+    {
+        mFSLowPrioritySince = -1.0;
+        half_size = false;
+    }
+    else if ((mPriority == LLPluginClassMedia::PRIORITY_LOW || mPriority == LLPluginClassMedia::PRIORITY_SLIDESHOW) && gFocusMgr.getAppHasFocus())
+    {
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        if (mFSLowPrioritySince < 0.0)
+        {
+            mFSLowPrioritySince = now;
+        }
+        if (now - mFSLowPrioritySince >= FS_MEDIA_HALF_SIZE_DELAY)
+        {
+            half_size = true;
+        }
+    }
+    else
+    {
+        mFSLowPrioritySince = -1.0;
+    }
+    if (half_size != mFSHalfSize)
+    {
+        mFSHalfSize = half_size;
+        mMediaSource->fsSetHalfSize(half_size);
     }
 }
 // </FS:Trish>

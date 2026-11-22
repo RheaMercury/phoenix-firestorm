@@ -527,6 +527,11 @@ private:
     U32 mFSCrashCount = 0;
     // </FS:Trish>
     bool mFSAudioMuted = false; // <FS:Trish/> the browser's audio is muted (updateVolume)
+    // <FS:Trish> Half size rendering at low priority (fsUpdateBrowserState): whether it is on, and since
+    // when the media has been at low priority (-1: it isn't)
+    bool mFSHalfSize = false;
+    F64 mFSLowPrioritySince = -1.0;
+    // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;
     EMediaNavState mMediaNavState;

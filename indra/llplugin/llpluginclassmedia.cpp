@@ -276,6 +276,7 @@ void LLPluginClassMedia::idle(void)
             message.setValueReal("background_g", mBackgroundColor.mV[VGREEN]);
             message.setValueReal("background_b", mBackgroundColor.mV[VBLUE]);
             message.setValueReal("background_a", mBackgroundColor.mV[VALPHA]);
+            message.setValueReal("fs_page_scale", mFSHalfSizeApplied ? 0.5 : 1.0); // <FS:Trish/> see fsSetHalfSize
             mPlugin->sendMessage(message);  // DO NOT just use sendMessage() here -- we want this to jump ahead of the queue.
 
             LL_DEBUGS("Plugin") << "Sending size_change" << LL_ENDL;
@@ -392,6 +393,16 @@ void LLPluginClassMedia::setSizeInternal(void)
             mRequestedMediaHeight = 2048;
     }
 #endif
+
+    // <FS:Trish> Half of the final size (auto scaled or not), so the page scale is exactly 0.5, see
+    // fsSetHalfSize. Pages under 256 pixels aren't worth it.
+    mFSHalfSizeApplied = mFSHalfSize && mFSHalfSizeSupported && mRequestedMediaWidth >= 256 && mRequestedMediaHeight >= 256;
+    if (mFSHalfSizeApplied)
+    {
+        mRequestedMediaWidth /= 2;
+        mRequestedMediaHeight /= 2;
+    }
+    // </FS:Trish>
 }
 
 void LLPluginClassMedia::setAutoScale(bool auto_scale)
@@ -1051,6 +1062,16 @@ void LLPluginClassMedia::setHidden(const bool hidden)
     sendMessage(message);
 }
 
+// Any time, before init() too: the plugin's texture_params decide whether it applies
+void LLPluginClassMedia::fsSetHalfSize(const bool half_size)
+{
+    if (half_size != mFSHalfSize)
+    {
+        mFSHalfSize = half_size;
+        setSizeInternal();
+    }
+}
+
 // Any time, before init() too. Older plugins ignore it.
 void LLPluginClassMedia::setAudioMuted(const bool muted)
 {
@@ -1141,6 +1162,7 @@ void LLPluginClassMedia::receivePluginMessage(const LLPluginMessage &message)
 
             mAllowDownsample = message.getValueBoolean("allow_downsample");
             mPadding = message.getValueS32("padding");
+            mFSHalfSizeSupported = message.getValueBoolean("fs_half_size"); // <FS:Trish/>
 
             setSizeInternal();
 
