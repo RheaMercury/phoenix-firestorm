@@ -9,7 +9,7 @@
 // The water line (FSRenderWaterRippleWaterline): the simulation keeps each cell's obstacle flag in
 // alpha (1 inside a post, a hull or the shore, 0 in open water), and filtered that falls from 1 to
 // 0 across an obstacle's edge. A thin, faint touch of white just outside it marks where the water
-// meets the object, and it flashes up where a lap climbs the edge (the laps come at random,
+// meets the object, and it brightens a little where a lap climbs the edge (the laps come at random,
 // fsWaterRippleSimF.glsl, so the flicker does too). The shoreline foam (FS_WATER_FOAM) already
 // draws that edge from the scene depth, so with it on this adds nothing.
 
@@ -93,10 +93,11 @@ vec2 fsWaterRipples(vec2 view_offset, out float foam)
         float inside = (cl.a + cr.a + cd.a + cu.a + 2.0 * centre.a) * (1.0 / 6.0);
         inside = isnan(inside) ? 0.0 : inside;
         float line = smoothstep(0.03, 0.3, inside) * (1.0 - smoothstep(0.4, 0.75, inside));
-        // Barely there between laps, bright where a lap climbs the edge (a lap is a few
-        // millimetres to a couple of centimetres high there), gone again as it falls back
-        float climb = smoothstep(0.002, 0.015, centre.r);
-        line *= (0.2 + 0.8 * climb) * fade;
+        // Faint between laps, a little brighter where a lap climbs the edge (a lap is a few
+        // millimetres to a couple of centimetres high there); a full flash with every lap made
+        // the object look as if it were shaking
+        float climb = smoothstep(0.002, 0.02, centre.r);
+        line *= (0.3 + 0.45 * climb) * fade;
         line *= 1.0 - clamp(length(view_offset) * fs_ripple_line.y, 0.0, 1.0);
         foam = max(foam, clamp(line * fs_ripple_line.x, 0.0, 1.0));
     }

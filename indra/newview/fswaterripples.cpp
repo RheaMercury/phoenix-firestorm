@@ -151,10 +151,10 @@ namespace
     //   jittered, world anchored lattice) and a lap pushes the edge cells within WATERLINE_REACH
     //   metres of its spot, so every bit of edge has a few spots near it. A lap launches a ring
     //   of about WATERLINE_LAP_LENGTH metres wavelength, which takes a push 1.5 times as long as
-    //   a wave needs to cross that (about 0.65 s at the default speed). Each spot cuts time into
+    //   a wave needs to cross that (about 0.85 s at the default speed). Each spot cuts time into
     //   slots of its own length around WATERLINE_SLOT laps long and laps in a slot with
-    //   WATERLINE_CHANCE, at a random moment: a spot laps about every 5 s with no beat to it, and
-    //   a half metre post gets a lap somewhere about one and a half times a second. A coarse grid
+    //   WATERLINE_CHANCE, at a random moment: a spot laps about every 7 s with no beat to it, and
+    //   a half metre post gets a lap somewhere about once a second. A coarse grid
     //   stretches the laps, the spots and their reach alike, so the rings never get shorter than
     //   WATERLINE_MIN_CELLS cells, where the grid only squares and frays them.
     //   WATERLINE_PUSH is the push per step at a lap's peak at strength 1. With the default
@@ -167,7 +167,7 @@ namespace
     //   WATERLINE_UP more often and WATERLINE_UP_STRENGTH harder, and the sides in its lee
     //   WATERLINE_DOWN less often and WATERLINE_DOWN_STRENGTH softer (the wake handles the lee).
     constexpr F32 WATERLINE_PUSH = 0.0026f;
-    constexpr F64 WATERLINE_LAP_LENGTH = 0.6;
+    constexpr F64 WATERLINE_LAP_LENGTH = 0.8;
     constexpr F64 WATERLINE_MIN_CELLS = 4.5;
     constexpr F64 WATERLINE_SPACING = 0.5;
     constexpr F64 WATERLINE_REACH = 0.45;

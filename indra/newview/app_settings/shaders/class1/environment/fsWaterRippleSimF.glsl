@@ -25,9 +25,9 @@
 // still air with nobody about. Laps are separate events at random: lap spots sit on a jittered
 // world anchored lattice (about half a metre apart), and each spot's time is cut into slots of its
 // own length; in each slot a hash of the spot and the slot says whether it laps, when, how hard
-// and which way up. A lap is a short, smooth push (about two thirds of a second) on the edge cells
+// and which way up. A lap is a short, smooth push (most of a second) on the edge cells
 // within about 0.45 m of the spot, shaped so it adds no water and leaves none moving, and the wave
-// equation carries it off as a little ring or arc about 0.6 m from crest to crest. Spots and
+// equation carries it off as a little ring or arc about 0.8 m from crest to crest. Spots and
 // slots never line up, so there is no beat to see and no two posts move together. Edges facing
 // into the surface current lap more often and harder, edges in its lee less (the wake handles
 // that side); in still air every side laps alike.
@@ -37,6 +37,11 @@
 // for the faint line where the water touches.
 
 #define FS_RIPPLE_MAX_SOURCES 64 // MAX_SOURCES in fswaterripples.cpp
+// Kept per step by an open cell beside an obstacle, on top of the damping. A post or a hull
+// scatters and soaks up some of each wave rather than mirroring all of it; with a perfect mirror
+// the rings bounced to and fro between objects a little apart (the posts of a pier, a moored
+// boat) and the water between them churned on. A ring passing by loses a few percent.
+#define FS_RIPPLE_EDGE_KEEP 0.985
 
 out vec4 frag_color;
 
@@ -143,6 +148,7 @@ float fsRippleLap(vec2 p, vec2 facing)
     float t = fs_ripple_waterline.y;
     float slot_mean = max(fs_ripple_waterline.z, 1e-2);
     float lap = 0.0;
+    float weight = 0.0;
     for (int j = -1; j <= 1; ++j)
     {
         for (int i = -1; i <= 1; ++i)
@@ -159,6 +165,7 @@ float fsRippleLap(vec2 p, vec2 facing)
             }
             float w = 1.0 - d2;
             w *= w;
+            weight += w;
             // The spot's own slot length (0.7 to 1.3 times the mean) and offset, so no two keep time
             uint h1 = fsRippleMix(h0 ^ 0x68e31da4u);
             float slot = slot_mean * (0.7 + 0.6 * float(h1 & 0xffffu) * (1.0 / 65536.0));
@@ -184,15 +191,16 @@ float fsRippleLap(vec2 p, vec2 facing)
                 float s = sin(3.14159265 * tau);
                 s *= s;
                 float shape = 4.0 * s * s - 3.0 * s;
-                // Mostly small, now and then a slap; either way up
+                // Mostly small, now and then a bigger one; either way up
                 float u = float((hk >> 16u) & 0xffu) * (1.0 / 256.0);
-                float size = 0.5 + u * u * u;
+                float size = 0.5 + 0.5 * u * u * u;
                 lap += w * shape * size * (((hk >> 24u) & 1u) != 0u ? 1.0 : -1.0);
             }
         }
     }
-    // Where spots overlap, a pile of laps at once would only spike the edge
-    return clamp(lap * gain, -1.5, 1.5);
+    // Where spots overlap, a pile of laps at once would only spike the edge, and spots lapping
+    // opposite ways at once tore the edge between them: share it out by the spots' weight
+    return clamp(lap * gain / max(weight, 1.0), -1.0, 1.0);
 }
 #endif
 
@@ -336,6 +344,10 @@ void main()
 #ifdef FS_WATER_RIPPLE_OBSTACLES
     // Shallow water over terrain calms the ripples before they reach the shore
     keep *= 1.0 - fs_ripple_obst.z * shallow;
+    if (sl + sr + sd + su > 0.0)
+    {
+        keep *= FS_RIPPLE_EDGE_KEEP;
+    }
 #endif
     float lap = hl + hr + hd + hu - 4.0 * h;
     float h_new = fsRippleSafe((2.0 * h - h_prev + fs_ripple_sim.x * lap) * keep);
