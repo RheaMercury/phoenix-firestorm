@@ -114,6 +114,7 @@ private:
     bool mBrowserStarted;
     bool mFullPagePending;
     std::vector<std::string> mExtraSwitches; // Chromium switches for init (Dullahan 1.52 and later)
+    bool mAudioMuted; // the page's audio is muted (Dullahan 1.52 and later)
     // </FS:Trish>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
@@ -165,6 +166,7 @@ MediaPluginBase(host_send_func, host_user_data)
     mHidden = false;
     mBrowserStarted = false;
     mFullPagePending = true;
+    mAudioMuted = false;
     // </FS:Trish>
     mDisableNetworkService = true;
     mUseMockKeyChain = true;
@@ -930,6 +932,12 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                     mCEFLib->setHidden(true);
                 }
 #endif
+#if DULLAHAN_VERSION_MINOR >= 52
+                if (result && mAudioMuted)
+                {
+                    mCEFLib->setAudioMuted(true);
+                }
+#endif
                 // </FS:Trish>
 
                 // now we can set page zoom factor
@@ -1273,6 +1281,22 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                     if (mBrowserStarted)
                     {
                         mCEFLib->setFrameRate(mFrameRate);
+                    }
+#endif
+                }
+            }
+            // Mutes the page's audio in the browser itself (Dullahan 1.52 and later), unlike the volume,
+            // which the volume catcher applies to the whole plugin process where there is one
+            else if (message_name == "set_audio_muted")
+            {
+                bool muted = message_in.getValueBoolean("muted");
+                if (muted != mAudioMuted)
+                {
+                    mAudioMuted = muted;
+#if DULLAHAN_VERSION_MINOR >= 52
+                    if (mBrowserStarted)
+                    {
+                        mCEFLib->setAudioMuted(mAudioMuted);
                     }
 #endif
                 }

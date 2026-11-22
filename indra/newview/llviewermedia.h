@@ -526,6 +526,7 @@ private:
     F64 mFSCrashReloadTime = -1.0;
     U32 mFSCrashCount = 0;
     // </FS:Trish>
+    bool mFSAudioMuted = false; // <FS:Trish/> the browser's audio is muted (updateVolume)
     bool mVisible;
     ECursorType mLastSetCursor;
     EMediaNavState mMediaNavState;

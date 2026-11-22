@@ -2036,6 +2036,7 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
     mFSHidden = false;
     mFSUnhidden = false;
     mFSCrashReloadAt = -1.0; // a new browser has its own renderer
+    mFSAudioMuted = false;
     // </FS:Trish>
 
     if (media_source)
@@ -2321,6 +2322,22 @@ void LLViewerMediaImpl::updateVolume()
         {
             mMediaSource->setVolume(0.0f);
         }
+
+        // <FS:Trish> In-world web media that can't be heard is muted in its browser too. The volume above
+        // goes through the plugin's volume catcher, which sets the whole plugin process's volume where
+        // there is one and does nothing where there isn't. A muted page doesn't play its audio at all.
+        // Media the user focused, UI browsers and parcel media are never muted this way; media that is
+        // just out of view keeps playing (its sound plays on while it is hidden).
+        if (mMediaSource->pluginSupportsMediaBrowser())
+        {
+            const bool muted = !mUsedInUI && !mIsParcelMedia && !mHasFocus && fsIsInaudible();
+            if (muted != mFSAudioMuted)
+            {
+                mFSAudioMuted = muted;
+                mMediaSource->setAudioMuted(muted);
+            }
+        }
+        // </FS:Trish>
     }
 }
 

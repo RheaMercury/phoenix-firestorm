@@ -245,6 +245,8 @@ public:
     void    setHidden(const bool hidden);
     // Extra Chromium command line switches for browser plugins, see FSMediaBrowserExtraSwitches
     void    setBrowserExtraSwitches(const std::string& switches);
+    // Mutes the page's audio in the browser itself (Dullahan 1.52 and later)
+    void    setAudioMuted(const bool muted);
     // </FS:Trish>
     void    setTarget(const std::string &target);
 

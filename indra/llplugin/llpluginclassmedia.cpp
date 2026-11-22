@@ -1051,6 +1051,14 @@ void LLPluginClassMedia::setHidden(const bool hidden)
     sendMessage(message);
 }
 
+// Any time, before init() too. Older plugins ignore it.
+void LLPluginClassMedia::setAudioMuted(const bool muted)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "set_audio_muted");
+    message.setValueBoolean("muted", muted);
+    sendMessage(message);
+}
+
 // Read by the browser plugin when it starts (Dullahan 1.52 and later), see FSMediaBrowserExtraSwitches
 void LLPluginClassMedia::setBrowserExtraSwitches(const std::string& switches)
 {
