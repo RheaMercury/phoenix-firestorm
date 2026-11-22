@@ -722,11 +722,11 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>b7255a36fa9af6ac311645da2f291195679f7bae</string>
+              <string>509f5662ad134710159ab605688d037ae75d5df4</string>
               <key>hash_algorithm</key>
               <string>sha1</string>
               <key>url</key>
-              <string>https://github.com/secondlife/dullahan/releases/download/v1.50.0-CEF_152.0.6.83/dullahan-1.50.0.202609160023_152.0.6_g708dc14_chromium-152.0.7977.83-darwin64-35039647119.tar.zst</string>
+              <string>https://github.com/trish-sl/dullahan/releases/download/v1.51.0-trish/dullahan-1.51.0.202611220705_152.0.6_g708dc14_chromium-152.0.7977.83-darwin64-44996463053.tar.zst</string>
             </map>
             <key>name</key>
             <string>darwin64</string>
@@ -736,11 +736,11 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>c8f92179257a12382a31187eda9a84747f6cbe38</string>
+              <string>8a634fe684a2b9bc99965a5e0d8a8b8cbd6a55da</string>
               <key>hash_algorithm</key>
               <string>sha1</string>
               <key>url</key>
-              <string>https://github.com/secondlife/dullahan/releases/download/v1.50.0-CEF_152.0.6.83/dullahan-1.50.0.202609160023_152.0.6_g708dc14_chromium-152.0.7977.83-linux64-35039647119.tar.zst</string>
+              <string>https://github.com/trish-sl/dullahan/releases/download/v1.51.0-trish/dullahan-1.51.0.202611220705_152.0.6_g708dc14_chromium-152.0.7977.83-linux64-44996463053.tar.zst</string>
             </map>
             <key>name</key>
             <string>linux64</string>
@@ -750,11 +750,11 @@
             <key>archive</key>
             <map>
               <key>hash</key>
-              <string>7d5826579fb88b9d5d855d68d614947c1958a401</string>
+              <string>b1adb78b9cba435fe30966b4775514724236007c</string>
               <key>hash_algorithm</key>
               <string>sha1</string>
               <key>url</key>
-              <string>https://github.com/secondlife/dullahan/releases/download/v1.50.0-CEF_152.0.6.83/dullahan-1.50.0.202609160023_152.0.6_g708dc14_chromium-152.0.7977.83-windows64-35039647119.tar.zst</string>
+              <string>https://github.com/trish-sl/dullahan/releases/download/v1.51.0-trish/dullahan-1.51.0.202611220706_152.0.6_g708dc14_chromium-152.0.7977.83-windows64-44996463053.tar.zst</string>
             </map>
             <key>name</key>
             <string>windows64</string>
@@ -767,7 +767,7 @@
         <key>copyright</key>
         <string>Copyright (c) 2017, Linden Research, Inc.</string>
         <key>version</key>
-        <string>1.50.0.202609160023_152.0.6_g708dc14_chromium-152.0.7977.83</string>
+        <string>1.51.0.202611220706_152.0.6_g708dc14_chromium-152.0.7977.83</string>
         <key>name</key>
         <string>dullahan</string>
         <key>description</key>
