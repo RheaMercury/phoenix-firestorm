@@ -56,6 +56,7 @@ float getDepth(vec2 pos_screen);
 bool isFarDepth(float d);
 float ndcZFromScreenDepth(float d);
 vec4 getNorm(vec2 pos_screen);
+vec3 getGeoNorm(vec2 pos_screen); // <FS:Trish/> deferredUtil.glsl
 #if defined(FS_CONTACT_SHADOWS)
 float fsContactShadowTerm(float shadow, vec3 pos, vec3 norm); // fsShadowExtrasF.glsl, applied after the blur
 #endif
@@ -89,13 +90,28 @@ void main()
     // relax tolerance according to distance to avoid speckling artifacts, as angles and distances are a lot more abrupt within a small screen area at larger distances
     float pointplanedist_tolerance_pow2 = pos.z*pos.z*0.00005;
 
+    // <FS:Trish> The plane the taps are tested against is the surface's geometric one (getGeoNorm,
+    // which legacy surfaces answer with their shading normal as before). With the normal-mapped
+    // shading normal the plane tilted with every bump, so on a bumpy wall or floor most taps a few
+    // centimetres away fell outside the tolerance and were dropped: the AO and shadow noise the
+    // blur exists to remove (GTAO's step pattern, the cascade dither) stayed on those surfaces.
+    vec3 plane_n = getGeoNorm(tc);
+    // </FS:Trish>
+
     // Each tap only needs its distance from this fragment's plane, dot(n, P) - dot(n, pos), where
     // P = inv_proj * ndc / w. Fold n into the matrix once here and that becomes two dot products
     // per tap instead of a full unprojection.
-    vec4 nRow = vec4(dot(norm.xyz, inv_proj[0].xyz), dot(norm.xyz, inv_proj[1].xyz),
-                     dot(norm.xyz, inv_proj[2].xyz), dot(norm.xyz, inv_proj[3].xyz));
+    // <FS:Trish> the geometric plane, see plane_n
+    //vec4 nRow = vec4(dot(norm.xyz, inv_proj[0].xyz), dot(norm.xyz, inv_proj[1].xyz),
+    //                 dot(norm.xyz, inv_proj[2].xyz), dot(norm.xyz, inv_proj[3].xyz));
+    vec4 nRow = vec4(dot(plane_n, inv_proj[0].xyz), dot(plane_n, inv_proj[1].xyz),
+                     dot(plane_n, inv_proj[2].xyz), dot(plane_n, inv_proj[3].xyz));
+    // </FS:Trish>
     vec4 wRow = vec4(inv_proj[0].w, inv_proj[1].w, inv_proj[2].w, inv_proj[3].w);
-    float nDotPos = dot(norm.xyz, pos.xyz);
+    // <FS:Trish> the geometric plane, see plane_n
+    //float nDotPos = dot(norm.xyz, pos.xyz);
+    float nDotPos = dot(plane_n, pos.xyz);
+    // </FS:Trish>
 
     // perturb sampling origin slightly in screen-space to hide edge-ghosting artifacts where smoothing radius is quite large
     tc *= screen_res;
