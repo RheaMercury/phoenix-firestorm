@@ -505,6 +505,26 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR1, 1, pwater->getWave1Dir().mV);
     shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR2, 1, pwater->getWave2Dir().mV);
 
+    // <FS:Trish> The waves' scroll for waterV.glsl: direction times time, in double precision and
+    // wrapped to the normal maps' repeat. Done there in floats from the raw session time, it
+    // stuttered and broke up into blocks after a few hours.
+    {
+        static LLStaticHashedString s_wave_scroll("fs_wave_scroll");
+        static LLStaticHashedString s_wave_scroll2("fs_wave_scroll2");
+        const F64 wave_time = LLFrameTimer::getElapsedSeconds() * 0.5; // phase_time, unrounded
+        const LLVector2 dir1 = pwater->getWave1Dir();
+        const LLVector2 dir2 = pwater->getWave2Dir();
+        auto scroll = [wave_time](F32 dir, F64 rate)
+        {
+            const F64 v = (F64)dir * wave_time * rate;
+            return (F32)(v - floor(v));
+        };
+        shader->uniform4f(s_wave_scroll, scroll(dir1.mV[0], 0.055), scroll(dir1.mV[1], 0.055),
+                          scroll(dir2.mV[0], 0.13), scroll(dir2.mV[1], 0.13));
+        shader->uniform2f(s_wave_scroll2, scroll(dir1.mV[0], 0.1), scroll(dir1.mV[1], 0.1));
+    }
+    // </FS:Trish>
+
     shader->uniform3fv(LLShaderMgr::WATER_LIGHT_DIR, 1, light_dir.mV);
 
     shader->uniform3fv(LLShaderMgr::WATER_NORM_SCALE, 1, pwater->getNormalScale().mV);

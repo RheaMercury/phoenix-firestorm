@@ -38,6 +38,12 @@ uniform float time;
 uniform vec3 eyeVec;
 uniform float waterHeight;
 uniform vec3 lightDir;
+// <FS:Trish> The waves' scroll (lldrawpoolwater.cpp), worked out in double precision and wrapped
+// to the normal maps' repeat: time grew without bound, and after a few hours a float's steps
+// made the waves stutter and their texture coordinates break up into blocks
+uniform vec4 fs_wave_scroll;   // xy big wave (waveDir1 * time * 0.055), zw little wave (waveDir2 * time * 0.13)
+uniform vec2 fs_wave_scroll2;  // second little wave (waveDir1 * time * 0.1)
+// </FS:Trish>
 
 out vec4 refCoord;
 out vec4 littleWave;
@@ -106,10 +112,15 @@ void main()
     calcAtmospherics(pos.xyz);
 
     //pass wave parameters to pixel shader
-    vec2 bigWave =  (v.xy) * vec2(0.04,0.04)  + waveDir1 * time * 0.055;
+    // <FS:Trish> The scroll wrapped on the CPU (fs_wave_scroll)
+    //vec2 bigWave =  (v.xy) * vec2(0.04,0.04)  + waveDir1 * time * 0.055;
+    vec2 bigWave =  (v.xy) * vec2(0.04,0.04)  + fs_wave_scroll.xy;
     //get two normal map (detail map) texture coordinates
-    littleWave.xy = (v.xy) * vec2(0.45, 0.9)   + waveDir2 * time * 0.13;
-    littleWave.zw = (v.xy) * vec2(0.1, 0.2) + waveDir1 * time * 0.1;
+    //littleWave.xy = (v.xy) * vec2(0.45, 0.9)   + waveDir2 * time * 0.13;
+    //littleWave.zw = (v.xy) * vec2(0.1, 0.2) + waveDir1 * time * 0.1;
+    littleWave.xy = (v.xy) * vec2(0.45, 0.9)   + fs_wave_scroll.zw;
+    littleWave.zw = (v.xy) * vec2(0.1, 0.2) + fs_wave_scroll2;
+    // </FS:Trish>
     view.w = bigWave.y;
     refCoord.w = bigWave.x;
 
