@@ -7626,10 +7626,17 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
             LLVector3 view_vector = camera.getOrigin() - objectp->getRenderPosition();
             silhouette_thickness = view_vector.magVec() * LLSelectMgr::sHighlightThickness * (camera.getView() / camera.getDefaultFOV());
         }
-        F32 animationTime = (F32)LLFrameTimer::getElapsedSeconds();
+        // <FS:Trish> Session seconds in F32 step coarser every day, so the outline's crawl stutters in
+        // long sessions. Keep the time and the wrap in F64.
+        //F32 animationTime = (F32)LLFrameTimer::getElapsedSeconds();
 
-        F32 u_coord = fmod(animationTime * LLSelectMgr::sHighlightUAnim, 1.f);
-        F32 v_coord = 1.f - fmod(animationTime * LLSelectMgr::sHighlightVAnim, 1.f);
+        //F32 u_coord = fmod(animationTime * LLSelectMgr::sHighlightUAnim, 1.f);
+        //F32 v_coord = 1.f - fmod(animationTime * LLSelectMgr::sHighlightVAnim, 1.f);
+        const F64 animationTime = LLFrameTimer::getElapsedSeconds().value();
+
+        F32 u_coord = (F32)fmod(animationTime * (F64)LLSelectMgr::sHighlightUAnim, 1.0);
+        F32 v_coord = 1.f - (F32)fmod(animationTime * (F64)LLSelectMgr::sHighlightVAnim, 1.0);
+        // </FS:Trish>
         F32 u_divisor = 1.f / ((F32)(mSilhouetteVertices.size() - 1));
 
         if (LLSelectMgr::sRenderHiddenSelections) // && gFloaterTools && gFloaterTools->getVisible())
@@ -7654,7 +7661,8 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
                 }
             }
             gGL.end();
-            u_coord = fmod(animationTime * LLSelectMgr::sHighlightUAnim, 1.f);
+            //u_coord = fmod(animationTime * LLSelectMgr::sHighlightUAnim, 1.f);
+            u_coord = (F32)fmod(animationTime * (F64)LLSelectMgr::sHighlightUAnim, 1.0); // <FS:Trish/>
         }
 
         gGL.flush();
