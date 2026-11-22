@@ -2274,6 +2274,11 @@ void LLViewerMediaImpl::updateVolume()
         // always scale the volume by the global media volume
         F32 volume = mRequestedVolume * LLViewerMedia::getInstance()->getVolume();
 
+        // <FS:Trish> The distance now: the priority pass that also measures it runs at about 4 Hz, and
+        // the volume stepped while the camera moved
+        mProximityCamera = fsCameraDistance();
+        // </FS:Trish>
+
         if (mProximityCamera > 0)
         {
             static LLCachedControl<F32> media_rolloff_min(gSavedSettings, "MediaRollOffMin");
@@ -2305,6 +2310,25 @@ void LLViewerMediaImpl::updateVolume()
         }
     }
 }
+
+// <FS:Trish> Distance from the ear position (MediaSoundsEarLocation: the camera or the avatar) to this
+// media's first object, as calculateInterest measures it. 0 for HUD attachments and media without an object.
+F64 LLViewerMediaImpl::fsCameraDistance() const
+{
+    if (mObjectList.empty())
+    {
+        return 0.0;
+    }
+    LLVOVolume* objp = mObjectList.front();
+    if (!objp || objp->isHUDAttachment())
+    {
+        return 0.0;
+    }
+    static LLUICachedControl<S32> ear_location("MediaSoundsEarLocation", 0);
+    const LLVector3d ear_position = (ear_location() == 1) ? gAgent.getPositionGlobal() : gAgentCamera.getCameraPositionGlobal();
+    return (ear_position - objp->getPositionGlobal()).magVec();
+}
+// </FS:Trish>
 
 //////////////////////////////////////////////////////////////////////////////////////////
 F32 LLViewerMediaImpl::getVolume()

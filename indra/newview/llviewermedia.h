@@ -230,6 +230,7 @@ public:
     void setVolume(F32 volume);
     void setMute(bool mute);
     void updateVolume();
+    F64 fsCameraDistance() const; // <FS:Trish/>
     F32 getVolume();
     void focus(bool focus);
     // <FS:Trish> Sends the browser frame rate and visibility for this media's state when they change
