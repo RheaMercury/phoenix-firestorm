@@ -1441,6 +1441,17 @@ void LLPluginClassMedia::receivePluginMessage(const LLPluginMessage &message)
 
             mediaEvent(LLPluginClassMediaOwner::MEDIA_EVENT_LINK_HOVERED);
         }
+        // <FS:Trish> A main frame navigation is starting (sent before its navigate_begin), see
+        // fsNavigationUserGesture. A redirect keeps the gesture of the navigation it redirects.
+        else if (message_name == "navigation")
+        {
+            if (!message.getValueBoolean("is_redirect"))
+            {
+                mFSNavigationGestureKnown = true;
+                mFSNavigationUserGesture = message.getValueBoolean("user_gesture");
+            }
+        }
+        // </FS:Trish>
         else
         {
             LL_WARNS("Plugin") << "Unknown " << message_name << " class message: " << message_name << LL_ENDL;

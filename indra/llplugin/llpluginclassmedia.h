@@ -519,6 +519,17 @@ public:
     void setFlipY( bool );
     // </FS:ND>
 
+    // <FS:Trish> Main frame navigations the browser plugin reports (Dullahan 1.52 and later): whether the
+    // last one that was not a redirect was started by a user gesture (a click or a key in the page).
+    // Unknown (fsNavigationGestureKnown false) with older plugins and before the first report.
+public:
+    bool fsNavigationGestureKnown() const { return mFSNavigationGestureKnown; }
+    bool fsNavigationUserGesture() const { return mFSNavigationUserGesture; }
+private:
+    bool mFSNavigationGestureKnown = false;
+    bool mFSNavigationUserGesture = false;
+    // </FS:Trish>
+
 //--------------------------------------
     //debug use only
     //

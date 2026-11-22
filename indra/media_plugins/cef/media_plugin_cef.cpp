@@ -68,6 +68,7 @@ private:
     void onPageChangedCallback(const unsigned char* pixels, int x, int y, const int width, const int height);
     void requestFullPage(); // <FS:Trish/>
     void onCustomSchemeURLCallback(std::string url, bool user_gesture, bool is_redirect);
+    void onNavigationCallback(const std::string url, bool user_gesture, bool is_redirect); // <FS:Trish/>
     void onConsoleMessageCallback(std::string message, std::string source, int line);
     void onStatusMessageCallback(std::string value);
     void onTitleChangeCallback(std::string title);
@@ -412,6 +413,18 @@ void MediaPluginCEF::onCustomSchemeURLCallback(std::string url, bool user_gestur
     sendMessage(message);
 }
 
+// <FS:Trish> A main frame navigation is starting (Dullahan 1.52 and later). The viewer uses
+// user_gesture to only broadcast navigations of media on a prim the user started to everyone.
+void MediaPluginCEF::onNavigationCallback(const std::string url, bool user_gesture, bool is_redirect)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "navigation");
+    message.setValue("uri", url);
+    message.setValueBoolean("user_gesture", user_gesture);
+    message.setValueBoolean("is_redirect", is_redirect);
+    sendMessage(message);
+}
+// </FS:Trish>
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 bool MediaPluginCEF::onHTTPAuthCallback(const std::string host, const std::string realm, std::string& username, std::string& password)
@@ -720,6 +733,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 mCEFLib->setOnRequestExitCallback(std::bind(&MediaPluginCEF::onRequestExitCallback, this));
                 mCEFLib->setOnJSDialogCallback(std::bind(&MediaPluginCEF::onJSDialogCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
                 mCEFLib->setOnJSBeforeUnloadCallback(std::bind(&MediaPluginCEF::onJSBeforeUnloadCallback, this));
+                // <FS:Trish>
+#if DULLAHAN_VERSION_MINOR >= 52
+                mCEFLib->setOnNavigationCallback(std::bind(&MediaPluginCEF::onNavigationCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+#endif
+                // </FS:Trish>
 
                 dullahan::dullahan_settings settings;
 #if LL_WINDOWS

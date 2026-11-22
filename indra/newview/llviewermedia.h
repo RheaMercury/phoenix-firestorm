@@ -236,6 +236,10 @@ public:
     void fsUpdateBrowserState();
     S32 fsBrowserFrameRate() const;
     // </FS:Trish>
+    // <FS:Trish> Whether the navigation in progress was started by the user, so it may be broadcast to
+    // everyone seeing this media on a prim (see LLVOVolume::mediaNavigated)
+    bool fsIsUserNavigation() const;
+    // </FS:Trish>
     // True if the impl has user focus.
     bool hasFocus() const;
     void mouseDown(S32 x, S32 y, MASK mask, S32 button = 0);
@@ -497,6 +501,11 @@ private:
     U32 mFSLastTexName = 0;
     bool mFSLastTexOnWorker = false;
     U32 mFSPendingTexName = 0;
+    // </FS:Trish>
+    // <FS:Trish> When the user last clicked or typed into this media, and last navigated it from the
+    // viewer (address bar, back, forward, reload, home), see fsIsUserNavigation
+    F64 mFSUserInputTime = -1000.0;
+    F64 mFSUserNavigateTime = -1000.0;
     // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;

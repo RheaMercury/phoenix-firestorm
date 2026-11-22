@@ -3383,6 +3383,26 @@ bool LLVOVolume::hasMediaPermission(const LLMediaEntry* media_entry, MediaPermTy
 
 }
 
+// <FS:Trish> URLs of the browser's own pages (error pages, blank pages, page-made data and blob
+// URLs) mean nothing to other viewers and are never broadcast
+static bool fs_is_internal_media_url(const std::string& url)
+{
+    static const char* const internal_schemes[] = { "data:", "about:", "blob:", "javascript:", "chrome:", "chrome-error:",
+                                                    "chrome-extension:", "devtools:", "view-source:", "file:" };
+    std::string lower = url.substr(0, 24);
+    LLStringUtil::toLower(lower);
+    LLStringUtil::trimHead(lower);
+    for (const char* scheme : internal_schemes)
+    {
+        if (lower.rfind(scheme, 0) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+// </FS:Trish>
+
 void LLVOVolume::mediaNavigated(LLViewerMediaImpl *impl, LLPluginClassMedia* plugin, std::string new_location)
 {
     bool block_navigation = false;
@@ -3421,6 +3441,16 @@ void LLVOVolume::mediaNavigated(LLViewerMediaImpl *impl, LLPluginClassMedia* plu
         // "bounce back" to the current URL from the media entry
         mediaNavigateBounceBack(face_index);
     }
+    // <FS:Trish> Only navigations the user started are broadcast, see LLViewerMediaImpl::fsIsUserNavigation
+    else if (fs_is_internal_media_url(new_location))
+    {
+        LL_DEBUGS("MediaOnAPrim") << "NOT broadcasting navigate to the browser's own URI " << new_location.substr(0, 64) << LL_ENDL;
+    }
+    else if (!impl->fsIsUserNavigation())
+    {
+        LL_DEBUGS("MediaOnAPrim") << "NOT broadcasting navigate the user didn't start, URI " << new_location << LL_ENDL;
+    }
+    // </FS:Trish>
     else if (sObjectMediaNavigateClient)
     {
 

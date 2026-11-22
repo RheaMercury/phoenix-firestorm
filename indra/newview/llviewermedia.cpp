@@ -2376,6 +2376,7 @@ void LLViewerMediaImpl::setPageZoomFactor( double factor )
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::mouseDown(S32 x, S32 y, MASK mask, S32 button)
 {
+    mFSUserInputTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/> see fsIsUserNavigation
     scaleMouse(&x, &y);
     mLastMouseX = x;
     mLastMouseY = y;
@@ -2389,6 +2390,7 @@ void LLViewerMediaImpl::mouseDown(S32 x, S32 y, MASK mask, S32 button)
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::mouseUp(S32 x, S32 y, MASK mask, S32 button)
 {
+    mFSUserInputTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/>
     scaleMouse(&x, &y);
     mLastMouseX = x;
     mLastMouseY = y;
@@ -2484,6 +2486,7 @@ void LLViewerMediaImpl::mouseDoubleClick(const LLVector2& texture_coords, MASK m
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::mouseDoubleClick(S32 x, S32 y, MASK mask, S32 button)
 {
+    mFSUserInputTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/>
     scaleMouse(&x, &y);
     mLastMouseX = x;
     mLastMouseY = y;
@@ -2630,6 +2633,7 @@ const std::string& LLViewerMediaImpl::getName() const
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::navigateBack()
 {
+    mFSUserNavigateTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/> see fsIsUserNavigation
     if (mMediaSource)
     {
         mMediaSource->browse_back();
@@ -2639,6 +2643,7 @@ void LLViewerMediaImpl::navigateBack()
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::navigateForward()
 {
+    mFSUserNavigateTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/>
     if (mMediaSource)
     {
         mMediaSource->browse_forward();
@@ -2694,6 +2699,14 @@ void LLViewerMediaImpl::navigateTo(const std::string& url, const std::string& mi
 
     // and if this was a server request, the navigate on load will also need to be one.
     mNavigateServerRequest = server_request;
+
+    // <FS:Trish> Not a server request: the user navigated (address bar, reload, home, focusing media
+    // that has no page yet), see fsIsUserNavigation
+    if (!server_request)
+    {
+        mFSUserNavigateTime = LLFrameTimer::getElapsedSeconds();
+    }
+    // </FS:Trish>
 
     // An explicit navigate resets the "failed" flag.
     mMediaSourceFailed = false;
@@ -2920,6 +2933,7 @@ void LLViewerMediaImpl::navigateStop()
 bool LLViewerMediaImpl::handleKeyHere(KEY key, MASK mask)
 {
     bool result = false;
+    mFSUserInputTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/>
 
     if (mMediaSource)
     {
@@ -2970,6 +2984,7 @@ bool LLViewerMediaImpl::handleKeyUpHere(KEY key, MASK mask)
 bool LLViewerMediaImpl::handleUnicodeCharHere(llwchar uni_char)
 {
     bool result = false;
+    mFSUserInputTime = LLFrameTimer::getElapsedSeconds(); // <FS:Trish/>
 
     if (mMediaSource)
     {
@@ -4200,7 +4215,29 @@ void LLViewerMediaImpl::setPriority(LLPluginClassMedia::EPriority priority)
     // NOTE: loading (or reloading) media sources whose priority has risen above PRIORITY_UNLOADED is done in update().
 }
 
-// <FS:Trish> The frame rate a browser renders at for this media's state. UI browsers and media the user
+// <FS:Trish> Navigations of media on a prim that the server didn't direct are broadcast to everyone
+// seeing it (LLVOVolume::mediaNavigated). Stock broadcasts every one of them, so an ad board's own
+// rotations, script redirects and error pages were pushed to the prim's media URL by every viewer
+// with interact permission. Only a navigation the user started is broadcast: one shortly after the
+// user navigated this media from the viewer, or after the user clicked or typed into the page, which
+// with Dullahan 1.52 and later must also be one the page started from a user gesture.
+constexpr F64 FS_MEDIA_USER_NAVIGATION_TIME = 10.0;
+
+bool LLViewerMediaImpl::fsIsUserNavigation() const
+{
+    const F64 now = LLFrameTimer::getElapsedSeconds();
+    if (now - mFSUserNavigateTime < FS_MEDIA_USER_NAVIGATION_TIME)
+    {
+        return true;
+    }
+    if (now - mFSUserInputTime >= FS_MEDIA_USER_NAVIGATION_TIME)
+    {
+        return false;
+    }
+    return !mMediaSource || !mMediaSource->fsNavigationGestureKnown() || mMediaSource->fsNavigationUserGesture();
+}
+
+// The frame rate a browser renders at for this media's state. UI browsers and media the user
 // has focused get the stock 60, other in-world media FSMediaInWorldFrameRate at normal priority (parcel
 // media, and media at low priority while the viewer is in the background, which the stock priorities put
 // there: a video watched on another screen stays smooth), FSMediaLowPriorityFrameRate at low priority
