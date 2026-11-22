@@ -29,6 +29,7 @@
 #define FS_FLOATERWEARABLEFAVORITES_H
 
 #include "llfloater.h"
+#include "llframetimer.h"
 #include "llviewerinventory.h"
 #include "llwearableitemslist.h"
 #include "rlvdefines.h"
@@ -39,6 +40,7 @@ class LLComboBox;
 class LLFilterEditor;
 class LLMenuButton;
 class LLInventoryCategoriesObserver;
+class LLInventoryObserver;
 
 class FSWearableFavoritesItemsList : public LLWearableItemsList
 {
@@ -89,10 +91,15 @@ public:
 
     static LLUUID sFolderID;
 
+    // Called by the inventory observer and by pending fetches
+    void onInventoryChanged();
+    void onPendingFetchDone();
+
 private:
     void initialize();
 
     void updateList(const LLUUID& folder_id);
+    void checkPendingItems(const LLUUID& folder_id, S32& resolved_count, S32& incomplete_count);
     void refreshFolderCombo();
 
     void onItemDAD(const LLUUID& item_id);
@@ -119,6 +126,18 @@ private:
     boost::signals2::connection mRlvBehaviorCallbackConnection;
 
     LLInventoryCategoriesObserver*  mCategoriesObserver;
+
+    // Favorites are links. Keep refreshing the list while the
+    // favorite folders or the items they point to are still being fetched.
+    LLInventoryObserver*            mInventoryObserver;
+    bool                            mWaitingForItems;
+    bool                            mRefreshPending;
+    S32                             mPendingFetches;
+    S32                             mLastResolvedCount;
+    S32                             mLastIncompleteCount;
+    LLFrameTimer                    mRefreshThrottleTimer;
+    uuid_set_t                      mRequestedFolderIDs;
+    uuid_set_t                      mRequestedItemIDs;
 
     FSWearableFavoritesItemsList*   mItemsList;
     LLButton*                       mRemoveItemBtn;
