@@ -81,6 +81,7 @@ private:
     void onAddressChangeCallback(std::string url);
     void onOpenPopupCallback(std::string url, std::string target);
     bool onHTTPAuthCallback(const std::string host, const std::string realm, std::string& username, std::string& password);
+    void onHTTPAuthRequestCallback(const std::string host, const std::string realm); // <FS:Trish/>
     void onCursorChangedCallback(dullahan::ECursorType type);
     const std::vector<std::string> onFileDialog(dullahan::EFileDialogType dialog_type, const std::string dialog_title, const std::string default_file, const std::string dialog_accept_filter, bool& use_default);
     bool onJSDialogCallback(const std::string origin_url, const std::string message_text, const std::string default_prompt_text);
@@ -492,6 +493,19 @@ bool MediaPluginCEF::onHTTPAuthCallback(const std::string host, const std::strin
     return mAuthOK;
 }
 
+// <FS:Trish> Dullahan 1.52 and later ask for HTTP credentials on the plugin's main thread and wait for
+// authResponse() without blocking anything. onHTTPAuthCallback above is called on CEF's IO thread and
+// sends a blocking request from it, which can abort the plugin when other messages cross it. The
+// viewer side is the same: it answers this auth_request with an auth_response.
+void MediaPluginCEF::onHTTPAuthRequestCallback(const std::string host, const std::string realm)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA, "auth_request");
+    message.setValue("url", host);
+    message.setValue("realm", realm);
+    sendMessage(message);
+}
+// </FS:Trish>
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 const std::vector<std::string> MediaPluginCEF::onFileDialog(dullahan::EFileDialogType dialog_type, const std::string dialog_title, const std::string default_file, std::string dialog_accept_filter, bool& use_default)
@@ -777,7 +791,13 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 //mCEFLib->setOnLoadErrorCallback(std::bind(&MediaPluginCEF::onLoadError, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
                 mCEFLib->setOnAddressChangeCallback(std::bind(&MediaPluginCEF::onAddressChangeCallback, this, std::placeholders::_1));
                 mCEFLib->setOnOpenPopupCallback(std::bind(&MediaPluginCEF::onOpenPopupCallback, this, std::placeholders::_1, std::placeholders::_2));
+                // <FS:Trish> See onHTTPAuthRequestCallback
+#if DULLAHAN_VERSION_MINOR >= 52
+                mCEFLib->setOnHTTPAuthRequestCallback(std::bind(&MediaPluginCEF::onHTTPAuthRequestCallback, this, std::placeholders::_1, std::placeholders::_2));
+#else
+                // </FS:Trish>
                 mCEFLib->setOnHTTPAuthCallback(std::bind(&MediaPluginCEF::onHTTPAuthCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
+#endif // <FS:Trish/>
                 mCEFLib->setOnFileDialogCallback(std::bind(&MediaPluginCEF::onFileDialog, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5));
                 mCEFLib->setOnCursorChangedCallback(std::bind(&MediaPluginCEF::onCursorChangedCallback, this, std::placeholders::_1));
                 mCEFLib->setOnRequestExitCallback(std::bind(&MediaPluginCEF::onRequestExitCallback, this));
@@ -1132,6 +1152,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
             if (message_name == "auth_response")
             {
                 authResponse(message_in);
+                // <FS:Trish> See onHTTPAuthRequestCallback
+#if DULLAHAN_VERSION_MINOR >= 52
+                mCEFLib->authResponse(mAuthOK, mAuthOK ? mAuthUsername : std::string(), mAuthOK ? mAuthPassword : std::string());
+#endif
+                // </FS:Trish>
             }
             if (message_name == "edit_undo")
             {
