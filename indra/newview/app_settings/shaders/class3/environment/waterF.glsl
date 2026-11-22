@@ -247,6 +247,23 @@ void main()
 #endif
     // </FS:Trish>
 
+    // <FS:Trish> FSRenderSunDiscSpecular: how much the sun's normal (fs_sun_n below, the same sum)
+    // turns across the pixel, taken here: the shoreline and exclusion return below leaves only
+    // part of a quad running, and derivatives taken after it read the returned lanes' garbage,
+    // which blurred or speckled the sun's glitter along exclusion edges and shorelines
+    vec3 fs_sun_dx = vec3(0.0);
+    vec3 fs_sun_dy = vec3(0.0);
+    if (fs_sun_disc_spec > 0.0)
+    {
+        vec3 fs_up = transform_normal(vN, vT, vB, vec3(0,0,1));
+        float fs_vdu = clamp(-dot(viewVec, fs_up)*2, 0, 1);
+        vec3 fs_n = transform_normal(vN, vT, vB, normalize(wavef));
+        vec3 fs_sun_n0 = normalize(fs_n + fs_up*max(max(dist, 5.0), 32.0)/32.0*(1.0-fs_vdu));
+        fs_sun_dx = dFdx(fs_sun_n0);
+        fs_sun_dy = dFdy(fs_sun_n0);
+    }
+    // </FS:Trish>
+
     vec3 waver = wavef*3;
 
     //figure out distortion vector (ripply)
@@ -396,10 +413,11 @@ void main()
         // would catch the disc in one pixel and miss it in the next, a sparkle of single pixels
         // that TAA cannot settle; the lobe is widened by how much it turns (Tokuyoshi and
         // Kaplanyan 2019, as fsSpecularAAF), so the far water keeps a steady glitter path and the
-        // near water a crisp disc. The derivatives are taken in uniform control flow (the branch
-        // is on a uniform).
-        vec3 fs_dx = dFdx(fs_sun_n);
-        vec3 fs_dy = dFdy(fs_sun_n);
+        // near water a crisp disc. The derivatives were taken before the early return above.
+        //vec3 fs_dx = dFdx(fs_sun_n);
+        //vec3 fs_dy = dFdy(fs_sun_n);
+        vec3 fs_dx = fs_sun_dx;
+        vec3 fs_dy = fs_sun_dy;
         float fs_alpha = max(perceptualRoughness, 0.045); // MIN_PBR_ROUGHNESS
         fs_alpha *= fs_alpha;
         float fs_alpha2 = fs_alpha * fs_alpha + min(0.5 * (dot(fs_dx, fs_dx) + dot(fs_dy, fs_dy)), 0.18);
