@@ -286,6 +286,14 @@ public:
     const LLUUID& getPendingSelectionID() const { return mSelectThisID; }
     // </FS:Trish>
 
+    // <FS:Trish> Rename a newly created item or folder as soon as its view is ready
+    // Call when the user asks for something new to be created here; claim_next_added takes the next
+    // object added to the panel as the one to rename (for creations that do not report their ID back)
+    void expectCreatedItemRename(bool claim_next_added);
+    // Select the object with this ID and start renaming it once its view exists, is laid out and is on screen
+    void renameWhenReady(const LLUUID& obj_id);
+    // </FS:Trish>
+
     void setSuppressOpenItemAction(bool supress_open_item) { mSuppressOpenItemAction = supress_open_item; }
 
     LLFolderViewModelInventory* getFolderViewModel() { return &mInventoryViewModel; }
@@ -434,6 +442,22 @@ protected:
     std::deque<LLUUID>          mBuildRootQueue;
 
     FSInventoryPositionHistory* mPositionHistory{ nullptr }; // <FS:Trish/> FIRE-32887 Back and forward through inventory positions
+
+    // <FS:Trish> Rename a newly created item or folder as soon as its view is ready
+    void updatePendingRename();
+    void cancelPendingRename();
+    bool isFocusInOwnFloater() const;
+    void notePendingRenameStart();
+
+    LLUUID                      mPendingRenameID;               // object to rename once its view is ready
+    bool                        mPendingRenameExpected{ false }; // a creation was requested, its ID has not come in yet
+    bool                        mPendingRenameClaimAdded{ false }; // the next object added to the panel is the one to rename
+    bool                        mPendingRenameSelected{ false }; // the object got selected for the rename at least once
+    bool                        mPendingRenameFocusHere{ false }; // keyboard focus was in this panel's floater when it was requested
+    LLHandle<LLView>            mPendingRenameOldSelection;     // what was selected when it was requested
+    LLFrameTimer                mPendingRenameTimer;            // since the creation was requested
+    LLFrameTimer                mPendingRenameSettleTimer;      // since the object got selected
+    // </FS:Trish>
 };
 
 

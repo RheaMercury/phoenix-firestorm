@@ -476,6 +476,10 @@ void LLInventoryPanel::draw()
     }
     // </FS:Trish>
 
+    // <FS:Trish> Rename a newly created item or folder as soon as its view is ready
+    updatePendingRename();
+    // </FS:Trish>
+
     LLPanel::draw();
 }
 
@@ -775,6 +779,13 @@ void LLInventoryPanel::itemChanged(const LLUUID& item_id, U32 mask, const LLInve
             {
                 setSelection(item_id, false);
             }
+            // <FS:Trish> Rename a newly created item as soon as its view is ready
+            else if (mPendingRenameClaimAdded && mPendingRenameID.isNull())
+            {
+                mPendingRenameClaimAdded = false;
+                renameWhenReady(item_id);
+            }
+            // </FS:Trish>
             updateFolderLabel(model_item->getParentUUID());
 
             if (get_is_favorite(model_item))
@@ -2590,6 +2601,16 @@ void LLInventoryPanel::setSelectionByID( const LLUUID& obj_id, bool    take_keyb
         }
     }
 
+    // <FS:Trish> Selecting the item that is being renamed again would take the keyboard focus
+    // from the renamer and end the rename
+    if (itemp && mFolderRoot.get() && mFolderRoot.get()->getRenameItem() == itemp && itemp->isSelected())
+    {
+        mSelectThisID.setNull();
+        mFocusSelection = false;
+        return;
+    }
+    // </FS:Trish>
+
     if(itemp && itemp->getViewModelItem() && itemp->passedFilter())
     {
         itemp->arrangeAndSet(true, take_keyboard_focus);
@@ -2612,6 +2633,206 @@ void LLInventoryPanel::updateSelection()
         setSelectionByID(mSelectThisID, mFocusSelection);
     }
 }
+
+// <FS:Trish> Rename a newly created item or folder as soon as its view is ready.
+// The object comes into the inventory asynchronously and its view is built, filtered, laid out
+// and scrolled to over the following frames. Starting the renamer before all that is done gets it
+// closed again right away (out of view, or its focus taken by a later selection), so wait for it here.
+static const F32 PENDING_RENAME_TIMEOUT = 15.f;        // give up when the object takes longer than this to show up
+static const F32 PENDING_RENAME_SETTLE_TIMEOUT = 1.f;  // rename anyway when layout and scrolling have not settled by then
+
+bool LLInventoryPanel::isFocusInOwnFloater() const
+{
+    LLFloater* floater = getParentByType<LLFloater>();
+    LLView* focus = dynamic_cast<LLView*>(gFocusMgr.getKeyboardFocus());
+    return floater && focus && (focus == floater || focus->hasAncestor(floater));
+}
+
+void LLInventoryPanel::notePendingRenameStart()
+{
+    mPendingRenameFocusHere = isFocusInOwnFloater();
+    LLFolderViewItem* selectedp = mFolderRoot.get() ? mFolderRoot.get()->getCurSelectedItem() : nullptr;
+    mPendingRenameOldSelection = selectedp ? selectedp->getHandle() : LLHandle<LLView>();
+    mPendingRenameTimer.reset();
+}
+
+void LLInventoryPanel::expectCreatedItemRename(bool claim_next_added)
+{
+    cancelPendingRename();
+    mPendingRenameExpected = true;
+    mPendingRenameClaimAdded = claim_next_added;
+    notePendingRenameStart();
+}
+
+void LLInventoryPanel::renameWhenReady(const LLUUID& obj_id)
+{
+    if (obj_id.isNull())
+    {
+        // Creation failed
+        cancelPendingRename();
+        return;
+    }
+
+    LLFolderView* root = mFolderRoot.get();
+    if (root && root->isRenaming() && root->getRenameItem() == getItemByID(obj_id))
+    {
+        // Already being renamed
+        cancelPendingRename();
+        return;
+    }
+
+    if (!mPendingRenameExpected)
+    {
+        notePendingRenameStart();
+    }
+    mPendingRenameExpected = false;
+    mPendingRenameClaimAdded = false;
+    mPendingRenameSelected = false;
+    mPendingRenameID = obj_id;
+}
+
+void LLInventoryPanel::cancelPendingRename()
+{
+    mPendingRenameID.setNull();
+    mPendingRenameExpected = false;
+    mPendingRenameClaimAdded = false;
+    mPendingRenameSelected = false;
+    mPendingRenameFocusHere = false;
+    mPendingRenameOldSelection = LLHandle<LLView>();
+}
+
+void LLInventoryPanel::updatePendingRename()
+{
+    if (mPendingRenameID.isNull() && !mPendingRenameExpected)
+    {
+        return;
+    }
+
+    LLFolderView* root = mFolderRoot.get();
+    if (!root || mPendingRenameTimer.getElapsedTimeF32() > PENDING_RENAME_TIMEOUT)
+    {
+        cancelPendingRename();
+        return;
+    }
+
+    // The user selected something else in this panel while waiting: leave it at that
+    if (!mPendingRenameSelected && root->getCurSelectedItem() != mPendingRenameOldSelection.get())
+    {
+        LLFolderViewItem* itemp = mPendingRenameID.notNull() ? getItemByID(mPendingRenameID) : nullptr;
+        if (!itemp || !itemp->isSelected())
+        {
+            if (mSelectThisID == mPendingRenameID)
+            {
+                clearSelection();
+            }
+            cancelPendingRename();
+            return;
+        }
+    }
+
+    // The user went on to something else in another window meanwhile: leave the keyboard focus
+    // where it is and only select the new object once it is there
+    bool quiet = mPendingRenameFocusHere && !isFocusInOwnFloater();
+
+    if (mPendingRenameID.isNull())
+    {
+        if (quiet)
+        {
+            cancelPendingRename();
+        }
+        return;
+    }
+
+    LLFolderViewItem* itemp = getItemByID(mPendingRenameID);
+    if (!itemp)
+    {
+        // Not built yet, build it when its parent folder view is there
+        LLInventoryObject const* objectp = mInventory->getObject(mPendingRenameID);
+        if (objectp && getItemByID(objectp->getParentUUID()))
+        {
+            itemp = buildNewViews(mPendingRenameID, objectp);
+        }
+        if (!itemp)
+        {
+            return;
+        }
+    }
+
+    if (quiet)
+    {
+        setSelectionByID(mPendingRenameID, false);
+        cancelPendingRename();
+        return;
+    }
+
+    if (!itemp->isSelected())
+    {
+        if (mPendingRenameSelected && mSelectThisID != mPendingRenameID)
+        {
+            // It was selected and something else got selected since: the user moved on
+            cancelPendingRename();
+            return;
+        }
+        if (mSelectThisID != mPendingRenameID)
+        {
+            // Selects (and opens the folders down to it) once it passes the filter
+            setSelectionByID(mPendingRenameID, true);
+        }
+        if (!itemp->isSelected())
+        {
+            return;
+        }
+    }
+
+    if (!mPendingRenameSelected)
+    {
+        mPendingRenameSelected = true;
+        mPendingRenameSettleTimer.reset();
+    }
+
+    if (root->getSelectedCount() != 1)
+    {
+        // The user added to the selection
+        cancelPendingRename();
+        return;
+    }
+
+    if (!isInVisibleChain())
+    {
+        return;
+    }
+
+    // Wait until it is laid out and scrolled into view, or the renamer is closed right away
+    if (mPendingRenameSettleTimer.getElapsedTimeF32() < PENDING_RENAME_SETTLE_TIMEOUT)
+    {
+        if (!itemp->getVisible() || root->needsArrange())
+        {
+            return;
+        }
+        for (LLFolderViewFolder* folderp = itemp->getParentFolder(); folderp && folderp != root; folderp = folderp->getParentFolder())
+        {
+            if (!folderp->isOpen())
+            {
+                folderp->setOpenArrangeRecursively(true, LLFolderViewFolder::RECURSE_UP);
+                return;
+            }
+        }
+
+        LLRect item_rect;
+        itemp->localRectToOtherView(itemp->getLocalRect(), &item_rect, root);
+        S32 row_bottom = item_rect.mTop - itemp->getItemHeight();
+        LLRect visible_rect = root->getVisibleRect();
+        if (visible_rect.getHeight() > 0 && (item_rect.mTop > visible_rect.mTop || row_bottom < visible_rect.mBottom))
+        {
+            root->scrollToShowSelection();
+            return;
+        }
+    }
+
+    cancelPendingRename();
+    root->startRenamingSelectedItem();
+}
+// </FS:Trish>
 
 // <FS:Trish> FIRE-32887 Back and forward through inventory positions
 void LLInventoryPanel::enablePositionHistory()

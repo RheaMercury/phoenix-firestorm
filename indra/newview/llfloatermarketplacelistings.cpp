@@ -253,8 +253,11 @@ void LLPanelMarketplaceListings::onAddButtonClicked()
         if (panel)
         {
             gInventory.notifyObservers();
-            panel->setSelectionByID(new_cat_id, true);
-            panel->getRootFolder()->setNeedsAutoRename(true);
+            // <FS:Trish> Rename the new folder as soon as its view is ready
+            //panel->setSelectionByID(new_cat_id, true);
+            //panel->getRootFolder()->setNeedsAutoRename(true);
+            panel->renameWhenReady(new_cat_id);
+            // </FS:Trish>
         }
     }
     );

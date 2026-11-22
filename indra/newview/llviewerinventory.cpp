@@ -2330,7 +2330,16 @@ void menu_create_inventory_item(LLInventoryPanel* panel, LLUUID dest_id, const L
 {
     std::string type_name = userdata.asString();
 
-    if (("inbox" == type_name) || ("category" == type_name) || ("current" == type_name) || ("outfit" == type_name) || ("my_otfts" == type_name))
+    // <FS:Trish> Rename the new item as soon as its view is ready
+    //if (("inbox" == type_name) || ("category" == type_name) || ("current" == type_name) || ("outfit" == type_name) || ("my_otfts" == type_name))
+    const bool is_category = ("inbox" == type_name) || ("category" == type_name) || ("current" == type_name) || ("outfit" == type_name) || ("my_otfts" == type_name);
+    if (panel && !is_category)
+    {
+        // New items do not report their ID back here, the next one added to the panel is it
+        panel->expectCreatedItemRename(true);
+    }
+    if (is_category)
+    // </FS:Trish>
     {
         LLFolderType::EType preferred_type = LLFolderType::lookup(type_name);
 
@@ -2351,6 +2360,9 @@ void menu_create_inventory_item(LLInventoryPanel* panel, LLUUID dest_id, const L
         std::function<void(const LLUUID&)> callback_cat_created = nullptr;
         if (panel)
         {
+            // <FS:Trish> Rename the new folder as soon as its view is ready
+            panel->expectCreatedItemRename(false);
+            // </FS:Trish>
             LLHandle<LLPanel> handle = panel->getHandle();
             callback_cat_created = [handle](const LLUUID& new_category_id)
             {
@@ -2358,7 +2370,10 @@ void menu_create_inventory_item(LLInventoryPanel* panel, LLUUID dest_id, const L
                 LLInventoryPanel* panel = static_cast<LLInventoryPanel*>(handle.get());
                 if (panel)
                 {
-                    panel->setSelectionByID(new_category_id, true);
+                    // <FS:Trish> Rename the new folder as soon as its view is ready
+                    //panel->setSelectionByID(new_category_id, true);
+                    panel->renameWhenReady(new_category_id);
+                    // </FS:Trish>
                 }
                 LL_DEBUGS(LOG_INV) << "Done creating inventory: " << new_category_id << LL_ENDL;
             };
@@ -2498,10 +2513,12 @@ void menu_create_inventory_item(LLInventoryPanel* panel, LLUUID dest_id, const L
             LL_WARNS(LOG_INV) << "Can't create unrecognized type " << type_name << LL_ENDL;
         }
     }
-    if(panel)
-    {
-        panel->getRootFolder()->setNeedsAutoRename(true);
-    }
+    // <FS:Trish> Rename the new item as soon as its view is ready (new folders are handled above)
+    //if(panel)
+    //{
+    //    panel->getRootFolder()->setNeedsAutoRename(true);
+    //}
+    // </FS:Trish>
 }
 
 LLAssetType::EType LLViewerInventoryItem::getType() const

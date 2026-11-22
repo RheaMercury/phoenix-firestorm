@@ -3581,13 +3581,16 @@ void LLPanelMainInventory::updateCombinationVisibility()
         && mCombInvUUIDNeedsRename.notNull()
         && mCombinationInventoryPanel->areViewsInitialized())
     {
-        mCombinationInventoryPanel->setSelectionByID(mCombInvUUIDNeedsRename, true);
-        LLFolderView* root = mCombinationInventoryPanel->getRootFolder();
-        if (root)
-        {
-            root->scrollToShowSelection();
-            root->setNeedsAutoRename(true);
-        }
+        // <FS:Trish> Rename the new item as soon as its view is ready
+        //mCombinationInventoryPanel->setSelectionByID(mCombInvUUIDNeedsRename, true);
+        //LLFolderView* root = mCombinationInventoryPanel->getRootFolder();
+        //if (root)
+        //{
+        //    root->scrollToShowSelection();
+        //    root->setNeedsAutoRename(true);
+        //}
+        mCombinationInventoryPanel->renameWhenReady(mCombInvUUIDNeedsRename);
+        // </FS:Trish>
         mCombInvUUIDNeedsRename.setNull();
     }
 }
