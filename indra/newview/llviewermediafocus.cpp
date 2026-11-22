@@ -92,6 +92,10 @@ void LLViewerMediaFocus::setFocusFace(LLPointer<LLViewerObject> objectp, S32 fac
         // Set the selection in the selection manager so we can draw the focus ring.
         mSelection = LLSelectMgr::getInstance()->selectObjectOnly(objectp, face);
 
+        // <FS:Trish> Media the user clicks into loads at the full frame rate
+        media_impl->setFSInteractive();
+        // </FS:Trish>
+
         // Focusing on a media face clears its disable flag.
         media_impl->setDisabled(false);
 

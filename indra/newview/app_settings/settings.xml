@@ -28725,6 +28725,39 @@ Change of this parameter will affect the layout of buttons in notification toast
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>FSMediaInWorldFrameRate</key>
+    <map>
+      <key>Comment</key>
+      <string>Frame rate in-world web media (media on a prim and parcel media) is rendered at by its browser, 1 to 60. 60 is the stock rate, 0 also uses it. Browsers in UI panels always use 60. Applies to media loaded after the change.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>30</integer>
+    </map>
+    <key>FSMediaLowPriorityUpdateRate</key>
+    <map>
+      <key>Comment</key>
+      <string>Maximum texture updates per second for in-world web media at low priority (small, far away or beyond the PluginInstancesNormal budget) that you are not interacting with. 0 is no limit. Media out of view gets no texture updates, media at slideshow priority one per second.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>10.0</real>
+    </map>
+    <key>FSMediaLowPriorityUpdatesPerFrame</key>
+    <map>
+      <key>Comment</key>
+      <string>Maximum number of low priority in-world media textures updated in one frame. Media that has waited over a second is updated anyway. 0 is no limit.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>FSPerfTextureUploadPBO</key>
     <map>
       <key>Comment</key>

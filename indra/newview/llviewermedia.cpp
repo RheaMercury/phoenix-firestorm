@@ -1799,6 +1799,7 @@ void LLViewerMediaImpl::destroyMediaSource()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_MEDIA;
     mNeedsNewTexture = true;
+    mFSHasTexUpdate = false; // <FS:Trish/> the next source starts with an unpaced update
 
     // Tell the viewer media texture it's no longer active
     LLViewerMediaTexture* oldImage = LLViewerTextureManager::findMediaTexture( mTextureId );
@@ -1827,7 +1828,10 @@ void LLViewerMediaImpl::setMediaType(const std::string& media_type)
 
 //////////////////////////////////////////////////////////////////////////////////////////
 /*static*/
-LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target, bool clean_browser)
+// <FS:Trish> frame_rate
+//LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target, bool clean_browser)
+LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target, bool clean_browser, S32 frame_rate)
+// </FS:Trish>
 {
     if (gNonInteractive)
     {
@@ -1926,6 +1930,10 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
             // but explicitly disable Flash (PDF support in CEF is now treated as a plugin)
             media_source->setPluginsEnabled(true);
 
+            // <FS:Trish> Read by the browser plugin before it starts
+            media_source->setFrameRate(frame_rate);
+            // </FS:Trish>
+
             bool media_plugin_debugging_enabled = gSavedSettings.getBOOL("MediaPluginDebugging");
             media_source->enableMediaPluginDebugging( media_plugin_debugging_enabled  || clean_browser);
 
@@ -2001,7 +2009,14 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
     // Save the MIME type that really caused the plugin to load
     mCurrentMimeType = mMimeType;
 
-    LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser);
+    // <FS:Trish> In-world web media (anything not shown in a UI panel) renders at a lower frame rate,
+    // unless the user started it or clicked into it (focus), which gets the stock 60. The browser
+    // keeps its rate for its lifetime: media that was already running when clicked stays lower.
+    //LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser);
+    static LLCachedControl<U32> inworld_frame_rate(gSavedSettings, "FSMediaInWorldFrameRate", 30);
+    S32 frame_rate = (mUsedInUI || mHasFocus || mFSInteractive) ? 0 : (S32)llclamp((U32)inworld_frame_rate, 0U, 60U);
+    LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser, frame_rate);
+    // </FS:Trish>
 
     if (media_source)
     {
@@ -2121,6 +2136,7 @@ void LLViewerMediaImpl::hideNotification()
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::play()
 {
+    setFSInteractive(); // <FS:Trish/> started by the user: full frame rate
     // If the media source isn't there, try to initialize it and load an URL.
     if(mMediaSource == NULL)
     {
@@ -3078,6 +3094,53 @@ void LLViewerMediaImpl::update()
         return;
     }
 
+    // <FS:Trish> In-world media at low priority (small, far, over the instance budget or the
+    // viewer is in the background) that the user is not interacting with gets its texture
+    // updated at a reduced rate, and only a few of them per frame. Media out of view is not
+    // updated at all once it has a texture. The plugin keeps accumulating the dirty area, so the
+    // next update carries every change. Focused, UI, parcel and normal priority media are not paced.
+    // Stock updates every dirty frame of every visible media, a full size texture upload each.
+    if (!mUsedInUI && !mHasFocus && !mIsParcelMedia && mFSHasTexUpdate && mPriority < LLPluginClassMedia::PRIORITY_NORMAL)
+    {
+        if (mPriority <= LLPluginClassMedia::PRIORITY_HIDDEN)
+        {
+            return;
+        }
+        static LLCachedControl<F32> low_rate(gSavedSettings, "FSMediaLowPriorityUpdateRate", 10.f);
+        static LLCachedControl<U32> low_per_frame(gSavedSettings, "FSMediaLowPriorityUpdatesPerFrame", 1);
+        static U32 budget_frame = 0;
+        static U32 budget_used = 0;
+        const F64 now = LLFrameTimer::getElapsedSeconds();
+        // When the viewer is in the background every media is at low priority, so a video someone
+        // watches on another screen keeps the rate the plugin runs at there (25 per second)
+        const bool app_focused = gFocusMgr.getAppHasFocus();
+        F64 interval = 1.0; // slideshow
+        if (mPriority == LLPluginClassMedia::PRIORITY_LOW)
+        {
+            interval = !app_focused ? 1.0 / 25.0 : (low_rate() > 0.f) ? 1.0 / (F64)low_rate() : 0.0;
+        }
+        if (now - mFSLastTexUpdateTime < interval)
+        {
+            return;
+        }
+        if (budget_frame != LLFrameTimer::getFrameCount())
+        {
+            budget_frame = LLFrameTimer::getFrameCount();
+            budget_used = 0;
+        }
+        // Media waiting over a second goes ahead of the budget, so none of them starves
+        if (app_focused && low_per_frame() > 0 && budget_used >= low_per_frame() && now - mFSLastTexUpdateTime < 1.0)
+        {
+            return;
+        }
+        if (!mMediaSource->getDirty())
+        {
+            return;
+        }
+        ++budget_used;
+    }
+    // </FS:Trish>
+
 
     LLViewerMediaTexture* media_tex;
     U8* data;
@@ -3090,6 +3153,10 @@ void LLViewerMediaImpl::update()
 
     if (preMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height))
     {
+        // <FS:Trish> Pacing, see above
+        mFSHasTexUpdate = true;
+        mFSLastTexUpdateTime = LLFrameTimer::getElapsedSeconds();
+        // </FS:Trish>
         // Push update to worker thread
         auto main_queue = LLImageGLThread::sEnabledMedia ? mMainQueue.lock() : nullptr;
         if (main_queue)

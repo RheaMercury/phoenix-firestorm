@@ -239,6 +239,9 @@ public:
     void    setJavascriptEnabled(const bool enabled);
     void    setWebSecurityDisabled(const bool disabled);
     void    setFileAccessFromFileUrlsEnabled(const bool enabled);
+    // <FS:Trish> Windowless frame rate for browser plugins, 0 leaves the plugin default
+    void    setFrameRate(const int frame_rate);
+    // </FS:Trish>
     void    setTarget(const std::string &target);
 
     ///////////////////////////////////

@@ -1031,6 +1031,18 @@ void LLPluginClassMedia::setPluginsEnabled(const bool enabled)
     sendMessage(message);
 }
 
+// <FS:Trish> Must be called before init(), the browser reads it when it starts
+void LLPluginClassMedia::setFrameRate(const int frame_rate)
+{
+    if (frame_rate > 0)
+    {
+        LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "set_frame_rate");
+        message.setValueS32("rate", frame_rate);
+        sendMessage(message);
+    }
+}
+// </FS:Trish>
+
 void LLPluginClassMedia::setJavascriptEnabled(const bool enabled)
 {
     LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "javascript_enabled");

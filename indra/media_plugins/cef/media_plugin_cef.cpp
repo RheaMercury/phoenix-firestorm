@@ -101,6 +101,7 @@ private:
     std::string mProxyHost;
     int mProxyPort;
     bool mDisableGPU;
+    int mFrameRate; // <FS:Trish/>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
     bool mDisableWebSecurity;
@@ -146,6 +147,7 @@ MediaPluginBase(host_send_func, host_user_data)
     mProxyHost = "";
     mProxyPort = 0;
     mDisableGPU = false;
+    mFrameRate = 60; // <FS:Trish/>
     mDisableNetworkService = true;
     mUseMockKeyChain = true;
     mDisableWebSecurity = false;
@@ -708,7 +710,10 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
 
                 settings.flip_mouse_y = false;
                 settings.flip_pixels_y = true;
-                settings.frame_rate = 60;
+                // <FS:Trish> The viewer asks for a lower rate for in-world media
+                //settings.frame_rate = 60;
+                settings.frame_rate = mFrameRate;
+                // </FS:Trish>
                 settings.force_wave_audio = true;
                 settings.initial_height = 1024;
                 settings.initial_width = 1024;
@@ -1054,6 +1059,16 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
             {
                 mJavascriptEnabled = message_in.getValueBoolean("enable");
             }
+            // <FS:Trish> Read before init, the frame rate is fixed when the browser starts
+            else if (message_name == "set_frame_rate")
+            {
+                int rate = message_in.getValueS32("rate");
+                if (rate >= 1 && rate <= 60)
+                {
+                    mFrameRate = rate;
+                }
+            }
+            // </FS:Trish>
             else if (message_name == "gpu_disabled")
             {
                 mDisableGPU = message_in.getValueBoolean("disable");

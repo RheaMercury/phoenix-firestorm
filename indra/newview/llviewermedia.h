@@ -232,6 +232,9 @@ public:
     void updateVolume();
     F32 getVolume();
     void focus(bool focus);
+    // <FS:Trish> The user started or clicked into this media: its browser renders at the full frame rate
+    void setFSInteractive() { mFSInteractive = true; }
+    // </FS:Trish>
     // True if the impl has user focus.
     bool hasFocus() const;
     void mouseDown(S32 x, S32 y, MASK mask, S32 button = 0);
@@ -310,7 +313,10 @@ public:
     void setTarget(const std::string& target) { mTarget = target; }
 
     // utility function to create a ready-to-use media instance from a desired media type.
-    static LLPluginClassMedia* newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target = LLStringUtil::null, bool clean_browser = false);
+    // <FS:Trish> frame_rate > 0 asks browser plugins for that windowless frame rate
+    //static LLPluginClassMedia* newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target = LLStringUtil::null, bool clean_browser = false);
+    static LLPluginClassMedia* newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target = LLStringUtil::null, bool clean_browser = false, S32 frame_rate = 0);
+    // </FS:Trish>
 
     // Internally set our desired browser user agent string, including
     // the Second Life version and skin name.  Used because we can
@@ -471,6 +477,11 @@ private:
     S32 mTextureUsedHeight;
     bool mSuspendUpdates;
     bool mTextureUpdatePending = false;
+    // <FS:Trish> Pacing of texture updates for in-world media at low priority
+    F64 mFSLastTexUpdateTime = 0.0;
+    bool mFSHasTexUpdate = false;
+    bool mFSInteractive = false; // see setFSInteractive
+    // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;
     EMediaNavState mMediaNavState;
