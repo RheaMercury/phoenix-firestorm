@@ -1820,6 +1820,12 @@ void LLEnvironment::updateCloudScroll()
         {
             LLVector2 cloud_delta = static_cast<F32>(delta_t) * (mCurrentEnvironment->getSky()->getCloudScrollRate()) / 100.0;
             mCloudScrollDelta += cloud_delta;
+            // <FS:Trish> Wrapped to the cloud textures' repeat of 1: every consumer only adds it
+            // to texture coordinates (cloudsF.glsl, fsShadowExtrasF.glsl). Left to grow, its float
+            // steps made fast clouds jerk and blur into blocks after a few hours.
+            mCloudScrollDelta.mV[VX] -= floorf(mCloudScrollDelta.mV[VX]);
+            mCloudScrollDelta.mV[VY] -= floorf(mCloudScrollDelta.mV[VY]);
+            // </FS:Trish>
         }
     }
 
