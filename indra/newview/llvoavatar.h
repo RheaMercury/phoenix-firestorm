@@ -1224,7 +1224,10 @@ protected:
     void            resetAnimations();
 private:
     LLTimer         mAnimTimer;
-    F32             mTimeLast;
+    // <FS:Trish> F64: the avatar's lifetime in F32 seconds can't resolve a frame after a few days
+    //F32             mTimeLast;
+    F64             mTimeLast;
+    // </FS:Trish>
 
     // <FS:Trish> FSExperimentalRepairAnimations
     void            repairAnimations();

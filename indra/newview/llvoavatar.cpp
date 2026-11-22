@@ -5824,7 +5824,11 @@ void LLVOAvatar::updateRootPositionAndRotation(LLAgent& agent, F32 speed, bool w
         // get timing info
         // handle initial condition case
         //--------------------------------------------------------------------
-        F32 animation_time = mAnimTimer.getElapsedTimeF32();
+        // <FS:Trish> In F32 the avatar's lifetime loses frame resolution after a day or two, so the
+        // delta below alternates between nothing and a double frame and turning goes jerky. F64.
+        //F32 animation_time = mAnimTimer.getElapsedTimeF32();
+        const F64 animation_time = mAnimTimer.getElapsedTimeF64();
+        // </FS:Trish>
         if (mTimeLast == 0.0f)
         {
             mTimeLast = animation_time;
@@ -5838,7 +5842,8 @@ void LLVOAvatar::updateRootPositionAndRotation(LLAgent& agent, F32 speed, bool w
         //--------------------------------------------------------------------
         // dont' let dT get larger than 1/5th of a second
         //--------------------------------------------------------------------
-        F32 delta_time = animation_time - mTimeLast;
+        //F32 delta_time = animation_time - mTimeLast;
+        F32 delta_time = (F32)(animation_time - mTimeLast); // <FS:Trish/>
 
         delta_time = llclamp( delta_time, DELTA_TIME_MIN, DELTA_TIME_MAX );
         mTimeLast = animation_time;
