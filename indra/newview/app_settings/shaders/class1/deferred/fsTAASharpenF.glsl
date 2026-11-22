@@ -77,6 +77,14 @@ void main()
     vec3 hi = max(cc, max(max(n, s), max(w, east)));
     vec3 blurred = (n + s + w + east) * 0.25;
     vec3 sharp = clamp(cc + (cc - blurred) * (fs_taa_sharpness * 1.5), lo, hi);
+    // Held per channel, it can still take each channel's top from a different tap, brighter than
+    // any of them: near 1 / e compressed, uncompress would blow it up to a white hot pixel
+    float top = max(dot(cc, LUMA), max(max(dot(n, LUMA), dot(s, LUMA)), max(dot(w, LUMA), dot(east, LUMA))));
+    float sharp_luma = dot(sharp, LUMA);
+    if (sharp_luma > top)
+    {
+        sharp *= top / sharp_luma;
+    }
 
     frag_color = vec4(uncompress(sharp, e), 1.0);
 }

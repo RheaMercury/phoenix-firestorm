@@ -200,6 +200,7 @@ void main()
     vec3 m2 = vec3(0.0);
     vec3 box_min = vec3(1e9);
     vec3 box_max = vec3(-1e9);
+    float max_luma = 0.0;   // the brightest compressed sample, for the clipped history below
     vec3 samples[9];
     float centre_depth = texelFetch(depthMap, pix, 0).r;
     float best_depth = centre_depth;
@@ -211,6 +212,7 @@ void main()
             ivec2 p = clamp(pix + ivec2(x, y), ivec2(0), size - 1);
             vec3 c = compress(finiteColor(texelFetch(diffuseRect, p, 0).rgb), e);
             samples[(y + 1) * 3 + (x + 1)] = c;
+            max_luma = max(max_luma, dot(c, LUMA));
             vec3 ycocg = toYCoCg(c);
             m1 += ycocg;
             m2 += ycocg * ycocg;
@@ -337,6 +339,15 @@ void main()
         vec3 hist_ycocg = toYCoCg(history);
         vec3 clipped_ycocg = clipToBox(hist_ycocg, mix(lo_var, box_min, still), mix(hi_var, box_max, still));
         history = fromYCoCg(clipped_ycocg);
+        // A corner of the YCoCg box can be brighter than any sample in it: two saturated bright
+        // colours side by side (red and blue neon) span a box whose corner has their red and blue
+        // together. Compressed, that can reach 1 / e, where uncompress divides by next to nothing
+        // and the pixel flashed white hot into the bloom. No brighter than the brightest sample.
+        float hist_luma = dot(history, LUMA);
+        if (hist_luma > max_luma)
+        {
+            history *= max_luma / hist_luma;
+        }
 
         // History far outside what this frame shows here: something moved by itself (stage 1
         // knows only the camera's motion). Take more of this frame, but not all of it, so
