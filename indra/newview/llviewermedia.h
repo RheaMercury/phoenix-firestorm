@@ -277,7 +277,10 @@ public:
 
     void update();
     bool preMediaTexUpdate(LLViewerMediaTexture*& media_tex, U8*& data, S32& data_width, S32& data_height, S32& x_pos, S32& y_pos, S32& width, S32& height);
-    void doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync);
+    // <FS:Trish> fs_copy_from: the texture the previous update made, holding the page outside the dirty rect
+    //void doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync);
+    void doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync, U32 fs_copy_from = 0);
+    // </FS:Trish>
     void updateImagesMediaStreams();
     LLUUID getMediaTextureID() const;
 
@@ -487,6 +490,13 @@ private:
     S32 mFSFrameRate = 0;
     bool mFSHidden = false;
     bool mFSUnhidden = false;
+    // </FS:Trish>
+    // <FS:Trish> Partial texture updates: the GL texture the last update made and on which thread
+    // (main thread only), and the one the update in progress makes (written by doMediaTexUpdate,
+    // read on the main thread once it is done)
+    U32 mFSLastTexName = 0;
+    bool mFSLastTexOnWorker = false;
+    U32 mFSPendingTexName = 0;
     // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;

@@ -1799,7 +1799,10 @@ void LLViewerMediaImpl::destroyMediaSource()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_MEDIA;
     mNeedsNewTexture = true;
-    mFSHasTexUpdate = false; // <FS:Trish/> the next source starts with an unpaced update
+    // <FS:Trish> The next source starts with an unpaced, whole texture update
+    mFSHasTexUpdate = false;
+    mFSLastTexName = 0;
+    // </FS:Trish>
 
     // Tell the viewer media texture it's no longer active
     LLViewerMediaTexture* oldImage = LLViewerTextureManager::findMediaTexture( mTextureId );
@@ -3165,6 +3168,15 @@ void LLViewerMediaImpl::update()
         // </FS:Trish>
         // Push update to worker thread
         auto main_queue = LLImageGLThread::sEnabledMedia ? mMainQueue.lock() : nullptr;
+        // <FS:Trish> When only part of the page changed and the texture is still the one the previous
+        // update made on the same thread (so its upload is ordered before this one), the rest of the page
+        // is copied from it on the GPU and only the changed part is uploaded. Anything else (a new or
+        // resized texture, a texture moved by someone else) gets a whole upload.
+        LLImageGL* fs_gl_tex = media_tex->getGLTexture();
+        const U32 fs_copy_from = (mFSLastTexName != 0 && fs_gl_tex && fs_gl_tex->getTexName() == mFSLastTexName
+                                  && mFSLastTexOnWorker == (main_queue != nullptr)) ? mFSLastTexName : 0;
+        mFSLastTexName = 0;
+        // </FS:Trish>
         if (main_queue)
         {
             mTextureUpdatePending = true;
@@ -3180,7 +3192,10 @@ void LLViewerMediaImpl::update()
 #if LL_IMAGEGL_THREAD_CHECK
                     media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
-                    doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, true);
+                    // <FS:Trish>
+                    //doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, true);
+                    doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, true, fs_copy_from);
+                    // </FS:Trish>
                 },
                 // <FS:Trish> keep the media source alive until the update is done
                 //[=, this]() // callback to main thread
@@ -3191,13 +3206,22 @@ void LLViewerMediaImpl::update()
                     media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
                     mTextureUpdatePending = false;
+                    // <FS:Trish> The texture name swap was queued before this, so the texture has it now
+                    mFSLastTexName = mFSPendingTexName;
+                    mFSLastTexOnWorker = true;
+                    // </FS:Trish>
                     media_tex->unref();
                     unref();
                 });
         }
         else
         {
-            doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, false); // otherwise, update on main thread
+            // <FS:Trish>
+            //doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, false); // otherwise, update on main thread
+            doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, false, fs_copy_from); // otherwise, update on main thread
+            mFSLastTexName = mFSPendingTexName;
+            mFSLastTexOnWorker = false;
+            // </FS:Trish>
         }
     }
 }
@@ -3252,7 +3276,10 @@ bool LLViewerMediaImpl::preMediaTexUpdate(LLViewerMediaTexture*& media_tex, U8*&
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
-void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync)
+// <FS:Trish> fs_copy_from
+//void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync)
+void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync, U32 fs_copy_from)
+// </FS:Trish>
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_MEDIA;
     LLCoros::LockType lock(mLock); // don't allow media source tear-down during update
@@ -3271,6 +3298,47 @@ void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* da
     {
         LL_WARNS("Media") << "Failed to create media texture" << LL_ENDL;
     }
+
+    // <FS:Trish> The new texture starts uninitialized. When only part of the page changed, the previous
+    // texture (fs_copy_from, see update) is copied into it on the GPU, which costs no CPU time and no bus
+    // transfer, and only the changed part is uploaded; otherwise the whole page is. Both lie in the same
+    // rows of the plugin's buffer and the texture (the plugin flips rows for OpenGL, its dirty rect is in
+    // those flipped coordinates). Stock uploads the whole page every update.
+    {
+        const S32 tex_width = media_tex->getWidth();
+        const S32 tex_height = media_tex->getHeight();
+        const S32 full_width = llmin(data_width, tex_width);
+        const S32 full_height = llmin(data_height, tex_height);
+        if (x_pos > 0 || y_pos > 0 || width < full_width || height < full_height)
+        {
+            if (fs_copy_from != 0 && tex_name != 0 && fs_copy_from != tex_name && glCopyImageSubData)
+            {
+                glCopyImageSubData(fs_copy_from, GL_TEXTURE_2D, 0, 0, 0, 0, tex_name, GL_TEXTURE_2D, 0, 0, 0, 0, tex_width, tex_height, 1);
+                // On the main thread setSubImage may upload line by line for a partial width: a tall
+                // change goes as whole rows in batches of 32 lines instead
+                if (!sync && height > 64)
+                {
+                    x_pos = 0;
+                    width = full_width;
+                    const S32 height32 = (height + 31) & ~31;
+                    if (height32 <= full_height)
+                    {
+                        y_pos = llmin(y_pos, full_height - height32);
+                        height = height32;
+                    }
+                }
+            }
+            else
+            {
+                x_pos = 0;
+                y_pos = 0;
+                width = full_width;
+                height = full_height;
+            }
+        }
+        mFSPendingTexName = tex_name;
+    }
+    // </FS:Trish>
 
     // copy just the subimage covered by the image raw to GL
     media_tex->setSubImage(data, data_width, data_height, x_pos, y_pos, width, height, tex_name);
@@ -3356,6 +3424,7 @@ LLViewerMediaTexture* LLViewerMediaImpl::updateMediaImage()
         // FIXME
 //      media_tex->mIsMediaTexture = true;
         mNeedsNewTexture = false;
+        mFSLastTexName = 0; // <FS:Trish/> the next update fills the new texture whole
 
         // If the amount of the texture being drawn by the media goes down in either width or height,
         // recreate the texture to avoid leaving parts of the old image behind.

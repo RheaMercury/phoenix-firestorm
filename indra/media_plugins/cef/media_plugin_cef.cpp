@@ -66,6 +66,7 @@ private:
     bool init();
 
     void onPageChangedCallback(const unsigned char* pixels, int x, int y, const int width, const int height);
+    void requestFullPage(); // <FS:Trish/>
     void onCustomSchemeURLCallback(std::string url, bool user_gesture, bool is_redirect);
     void onConsoleMessageCallback(std::string message, std::string source, int line);
     void onStatusMessageCallback(std::string value);
@@ -102,10 +103,12 @@ private:
     int mProxyPort;
     bool mDisableGPU;
     // <FS:Trish> Frame rate and visibility the viewer asks for, at any time (Dullahan 1.51 and later
-    // apply them to a running browser)
+    // apply them to a running browser). mFullPagePending: the shared memory doesn't hold the whole
+    // page yet (new or resized), so only a whole page report from the browser is copied in.
     int mFrameRate;
     bool mHidden;
     bool mBrowserStarted;
+    bool mFullPagePending;
     // </FS:Trish>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
@@ -156,6 +159,7 @@ MediaPluginBase(host_send_func, host_user_data)
     mFrameRate = 60;
     mHidden = false;
     mBrowserStarted = false;
+    mFullPagePending = true;
     // </FS:Trish>
     mDisableNetworkService = true;
     mUseMockKeyChain = true;
@@ -210,6 +214,47 @@ void MediaPluginCEF::postDebugMessage(const std::string& msg)
 //
 void MediaPluginCEF::onPageChangedCallback(const unsigned char* pixels, int x, int y, const int width, const int height)
 {
+    // <FS:Trish> With report_dirty_rects (Dullahan 1.51 and later) x, y, width and height are the part of
+    // the page that changed, in pixel buffer coordinates (rows already flipped for OpenGL), and pixels is
+    // still the whole page buffer. Only that part is copied and reported to the viewer. The buffer is
+    // the size last given to setSize once the browser painted at that size: its first paint at a new
+    // size is always whole (0, 0, full width, full height). Until such a paint matches the shared
+    // memory (new or resized), partial reports may come from a buffer of another size, so they are
+    // skipped and the whole page is asked for again.
+#if DULLAHAN_VERSION_MINOR >= 51
+    if (!mPixels || !pixels || mWidth <= 0 || mHeight <= 0)
+    {
+        return;
+    }
+    if (!mFullPagePending && (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > mWidth || y + height > mHeight))
+    {
+        // Not inside the shared memory: the browser's buffer is not the size we think
+        mFullPagePending = true;
+    }
+    if (mFullPagePending)
+    {
+        if (x == 0 && y == 0 && width == mWidth && height == mHeight)
+        {
+            memcpy(mPixels, pixels, (size_t)mWidth * mHeight * mDepth);
+            mFullPagePending = false;
+            setDirty(0, 0, mWidth, mHeight);
+        }
+        else
+        {
+            requestFullPage();
+        }
+        return;
+    }
+    const size_t stride = (size_t)mWidth * mDepth;
+    const size_t offset = (size_t)x * mDepth;
+    const size_t span = (size_t)width * mDepth;
+    for (int row = y; row < y + height; ++row)
+    {
+        memcpy(mPixels + row * stride + offset, pixels + row * stride + offset, span);
+    }
+    setDirty(x, y, x + width, y + height);
+#else
+    // </FS:Trish>
     if( mPixels && pixels )
     {
         if (mWidth == width && mHeight == height)
@@ -222,7 +267,27 @@ void MediaPluginCEF::onPageChangedCallback(const unsigned char* pixels, int x, i
         }
         setDirty(0, 0, mWidth, mHeight);
     }
+#endif // <FS:Trish/>
 }
+
+// <FS:Trish> Ask the browser for a whole page at the shared memory's size: setSize resizes its buffer
+// when the size differs (its first paint at the new size is whole), and an invalidate repaints the whole
+// page when it doesn't. A hidden page paints nothing, it is invalidated when it is shown again.
+void MediaPluginCEF::requestFullPage()
+{
+#if DULLAHAN_VERSION_MINOR >= 51
+    mFullPagePending = true;
+    if (mBrowserStarted && mWidth > 0 && mHeight > 0)
+    {
+        mCEFLib->setSize(mWidth, mHeight);
+        if (!mHidden)
+        {
+            mCEFLib->setHidden(false);
+        }
+    }
+#endif
+}
+// </FS:Trish>
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -719,6 +784,11 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
 
                 settings.flip_mouse_y = false;
                 settings.flip_pixels_y = true;
+                // <FS:Trish> Only the part of the page that changed is copied and sent to the viewer
+#if DULLAHAN_VERSION_MINOR >= 51
+                settings.report_dirty_rects = true;
+#endif
+                // </FS:Trish>
                 // <FS:Trish> The viewer asks for a lower rate for in-world media
                 //settings.frame_rate = 60;
                 settings.frame_rate = mFrameRate;
@@ -833,6 +903,9 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                         mTextureHeight = texture_height;
 
                         mCEFLib->setSize(mWidth, mHeight);
+                        // <FS:Trish> New shared memory holds nothing of the page yet
+                        requestFullPage();
+                        // </FS:Trish>
                     };
                 };
 
