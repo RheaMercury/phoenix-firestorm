@@ -232,8 +232,9 @@ public:
     void updateVolume();
     F32 getVolume();
     void focus(bool focus);
-    // <FS:Trish> The user started or clicked into this media: its browser renders at the full frame rate
-    void setFSInteractive() { mFSInteractive = true; }
+    // <FS:Trish> Sends the browser frame rate and visibility for this media's state when they change
+    void fsUpdateBrowserState();
+    S32 fsBrowserFrameRate() const;
     // </FS:Trish>
     // True if the impl has user focus.
     bool hasFocus() const;
@@ -480,7 +481,12 @@ private:
     // <FS:Trish> Pacing of texture updates for in-world media at low priority
     F64 mFSLastTexUpdateTime = 0.0;
     bool mFSHasTexUpdate = false;
-    bool mFSInteractive = false; // see setFSInteractive
+    // </FS:Trish>
+    // <FS:Trish> Browser frame rate and visibility last sent to the plugin (fsUpdateBrowserState);
+    // mFSUnhidden: shown again, the next texture update is not paced
+    S32 mFSFrameRate = 0;
+    bool mFSHidden = false;
+    bool mFSUnhidden = false;
     // </FS:Trish>
     bool mVisible;
     ECursorType mLastSetCursor;

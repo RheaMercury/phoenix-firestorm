@@ -2009,13 +2009,14 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
     // Save the MIME type that really caused the plugin to load
     mCurrentMimeType = mMimeType;
 
-    // <FS:Trish> In-world web media (anything not shown in a UI panel) renders at a lower frame rate,
-    // unless the user started it or clicked into it (focus), which gets the stock 60. The browser
-    // keeps its rate for its lifetime: media that was already running when clicked stays lower.
+    // <FS:Trish> The browser starts at the frame rate for this media's state (see fsBrowserFrameRate),
+    // which follows the state from then on (fsUpdateBrowserState). A new page starts visible.
     //LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser);
-    static LLCachedControl<U32> inworld_frame_rate(gSavedSettings, "FSMediaInWorldFrameRate", 30);
-    S32 frame_rate = (mUsedInUI || mHasFocus || mFSInteractive) ? 0 : (S32)llclamp((U32)inworld_frame_rate, 0U, 60U);
+    const S32 frame_rate = fsBrowserFrameRate();
     LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser, frame_rate);
+    mFSFrameRate = frame_rate;
+    mFSHidden = false;
+    mFSUnhidden = false;
     // </FS:Trish>
 
     if (media_source)
@@ -2136,7 +2137,6 @@ void LLViewerMediaImpl::hideNotification()
 //////////////////////////////////////////////////////////////////////////////////////////
 void LLViewerMediaImpl::play()
 {
-    setFSInteractive(); // <FS:Trish/> started by the user: full frame rate
     // If the media source isn't there, try to initialize it and load an URL.
     if(mMediaSource == NULL)
     {
@@ -2310,6 +2310,7 @@ F32 LLViewerMediaImpl::getVolume()
 void LLViewerMediaImpl::focus(bool focus)
 {
     mHasFocus = focus;
+    fsUpdateBrowserState(); // <FS:Trish/> full frame rate at once
 
     if (mMediaSource)
     {
@@ -3098,9 +3099,10 @@ void LLViewerMediaImpl::update()
     // viewer is in the background) that the user is not interacting with gets its texture
     // updated at a reduced rate, and only a few of them per frame. Media out of view is not
     // updated at all once it has a texture. The plugin keeps accumulating the dirty area, so the
-    // next update carries every change. Focused, UI, parcel and normal priority media are not paced.
+    // next update carries every change. Focused, UI, parcel and normal priority media are not paced,
+    // nor is the first update of media shown again after being hidden (its page as it is now).
     // Stock updates every dirty frame of every visible media, a full size texture upload each.
-    if (!mUsedInUI && !mHasFocus && !mIsParcelMedia && mFSHasTexUpdate && mPriority < LLPluginClassMedia::PRIORITY_NORMAL)
+    if (!mUsedInUI && !mHasFocus && !mIsParcelMedia && mFSHasTexUpdate && !mFSUnhidden && mPriority < LLPluginClassMedia::PRIORITY_NORMAL)
     {
         if (mPriority <= LLPluginClassMedia::PRIORITY_HIDDEN)
         {
@@ -3155,6 +3157,10 @@ void LLViewerMediaImpl::update()
     {
         // <FS:Trish> Pacing, see above
         mFSHasTexUpdate = true;
+        if (x_pos == 0 && y_pos == 0 && width >= data_width && height >= data_height)
+        {
+            mFSUnhidden = false; // the plugin's whole page repaint is in
+        }
         mFSLastTexUpdateTime = LLFrameTimer::getElapsedSeconds();
         // </FS:Trish>
         // Push update to worker thread
@@ -4117,8 +4123,68 @@ void LLViewerMediaImpl::setPriority(LLPluginClassMedia::EPriority priority)
         mMediaSource->setPriority(mPriority);
     }
 
+    fsUpdateBrowserState(); // <FS:Trish/>
+
     // NOTE: loading (or reloading) media sources whose priority has risen above PRIORITY_UNLOADED is done in update().
 }
+
+// <FS:Trish> The frame rate a browser renders at for this media's state. UI browsers and media the user
+// has focused get the stock 60, other in-world media FSMediaInWorldFrameRate at normal priority (parcel
+// media, and media at low priority while the viewer is in the background, which the stock priorities put
+// there: a video watched on another screen stays smooth), FSMediaLowPriorityFrameRate at low priority
+// (small, far or beyond the PluginInstancesNormal budget) and FS_MEDIA_SLIDESHOW_FRAME_RATE below that.
+// Stock renders every browser at 60.
+constexpr S32 FS_MEDIA_SLIDESHOW_FRAME_RATE = 2;
+
+S32 LLViewerMediaImpl::fsBrowserFrameRate() const
+{
+    constexpr S32 full_rate = 60;
+    if (mUsedInUI || mHasFocus || mPriority >= LLPluginClassMedia::PRIORITY_HIGH)
+    {
+        return full_rate;
+    }
+    static LLCachedControl<U32> inworld_frame_rate(gSavedSettings, "FSMediaInWorldFrameRate", 30);
+    static LLCachedControl<U32> low_frame_rate(gSavedSettings, "FSMediaLowPriorityFrameRate", 10);
+    const S32 normal_rate = inworld_frame_rate() ? (S32)llmin((U32)inworld_frame_rate, (U32)full_rate) : full_rate;
+    if (mPriority >= LLPluginClassMedia::PRIORITY_NORMAL || mPriority == LLPluginClassMedia::PRIORITY_UNLOADED)
+    {
+        return normal_rate; // unloaded: a source made now is about to get its priority
+    }
+    if (mPriority == LLPluginClassMedia::PRIORITY_LOW)
+    {
+        if (!gFocusMgr.getAppHasFocus())
+        {
+            return normal_rate;
+        }
+        return low_frame_rate() ? (S32)llmin((U32)low_frame_rate, (U32)normal_rate) : normal_rate;
+    }
+    return llmin(FS_MEDIA_SLIDESHOW_FRAME_RATE, normal_rate);
+}
+
+// In-world media out of view (PRIORITY_HIDDEN: off screen, out of range, or the viewer minimized) is
+// hidden: its page stops painting and is throttled like a background tab, audio and video keep playing.
+// Shown again, the plugin repaints the whole page at once. UI browsers are never hidden.
+void LLViewerMediaImpl::fsUpdateBrowserState()
+{
+    if (!mMediaSource || !mMediaSource->pluginSupportsMediaBrowser())
+    {
+        return;
+    }
+    const S32 frame_rate = fsBrowserFrameRate();
+    if (frame_rate != mFSFrameRate)
+    {
+        mFSFrameRate = frame_rate;
+        mMediaSource->setFrameRate(frame_rate);
+    }
+    const bool hidden = !mUsedInUI && !mHasFocus && mPriority <= LLPluginClassMedia::PRIORITY_HIDDEN;
+    if (hidden != mFSHidden)
+    {
+        mFSHidden = hidden;
+        mFSUnhidden = !hidden;
+        mMediaSource->setHidden(hidden);
+    }
+}
+// </FS:Trish>
 
 void LLViewerMediaImpl::setLowPrioritySizeLimit(int size)
 {

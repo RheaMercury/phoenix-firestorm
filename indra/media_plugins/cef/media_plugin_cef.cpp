@@ -101,7 +101,12 @@ private:
     std::string mProxyHost;
     int mProxyPort;
     bool mDisableGPU;
-    int mFrameRate; // <FS:Trish/>
+    // <FS:Trish> Frame rate and visibility the viewer asks for, at any time (Dullahan 1.51 and later
+    // apply them to a running browser)
+    int mFrameRate;
+    bool mHidden;
+    bool mBrowserStarted;
+    // </FS:Trish>
     bool mDisableNetworkService;
     bool mUseMockKeyChain;
     bool mDisableWebSecurity;
@@ -147,7 +152,11 @@ MediaPluginBase(host_send_func, host_user_data)
     mProxyHost = "";
     mProxyPort = 0;
     mDisableGPU = false;
-    mFrameRate = 60; // <FS:Trish/>
+    // <FS:Trish>
+    mFrameRate = 60;
+    mHidden = false;
+    mBrowserStarted = false;
+    // </FS:Trish>
     mDisableNetworkService = true;
     mUseMockKeyChain = true;
     mDisableWebSecurity = false;
@@ -737,6 +746,15 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 {
                     // if this fails, the media system in viewer will put up a message
                 }
+                // <FS:Trish> The browser exists now (init creates it): visibility asked for before it did
+                mBrowserStarted = result;
+#if DULLAHAN_VERSION_MINOR >= 51
+                if (result && mHidden)
+                {
+                    mCEFLib->setHidden(true);
+                }
+#endif
+                // </FS:Trish>
 
                 // now we can set page zoom factor
                 F32 factor = (F32)message_in.getValueReal("factor");
@@ -1059,13 +1077,36 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
             {
                 mJavascriptEnabled = message_in.getValueBoolean("enable");
             }
-            // <FS:Trish> Read before init, the frame rate is fixed when the browser starts
+            // <FS:Trish> Before init it is the rate the browser starts with, after init (Dullahan 1.51 and
+            // later) it changes the running browser's rate
             else if (message_name == "set_frame_rate")
             {
                 int rate = message_in.getValueS32("rate");
-                if (rate >= 1 && rate <= 60)
+                if (rate >= 1 && rate <= 60 && rate != mFrameRate)
                 {
                     mFrameRate = rate;
+#if DULLAHAN_VERSION_MINOR >= 51
+                    if (mBrowserStarted)
+                    {
+                        mCEFLib->setFrameRate(mFrameRate);
+                    }
+#endif
+                }
+            }
+            // A hidden page stops painting and is throttled like a background tab, audio and video keep
+            // playing. Shown again, the whole page is repainted at once.
+            else if (message_name == "set_hidden")
+            {
+                bool hidden = message_in.getValueBoolean("hidden");
+                if (hidden != mHidden)
+                {
+                    mHidden = hidden;
+#if DULLAHAN_VERSION_MINOR >= 51
+                    if (mBrowserStarted)
+                    {
+                        mCEFLib->setHidden(mHidden);
+                    }
+#endif
                 }
             }
             // </FS:Trish>

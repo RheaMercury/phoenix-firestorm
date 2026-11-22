@@ -1031,7 +1031,8 @@ void LLPluginClassMedia::setPluginsEnabled(const bool enabled)
     sendMessage(message);
 }
 
-// <FS:Trish> Must be called before init(), the browser reads it when it starts
+// <FS:Trish> Before init() it is the rate the browser starts with; later it changes the running
+// browser's rate (Dullahan 1.51 and later, older plugins keep the starting rate)
 void LLPluginClassMedia::setFrameRate(const int frame_rate)
 {
     if (frame_rate > 0)
@@ -1040,6 +1041,14 @@ void LLPluginClassMedia::setFrameRate(const int frame_rate)
         message.setValueS32("rate", frame_rate);
         sendMessage(message);
     }
+}
+
+// A hidden page stops painting and is throttled, its audio and video keep playing
+void LLPluginClassMedia::setHidden(const bool hidden)
+{
+    LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA_BROWSER, "set_hidden");
+    message.setValueBoolean("hidden", hidden);
+    sendMessage(message);
 }
 // </FS:Trish>
 

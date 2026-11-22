@@ -28728,13 +28728,24 @@ Change of this parameter will affect the layout of buttons in notification toast
     <key>FSMediaInWorldFrameRate</key>
     <map>
       <key>Comment</key>
-      <string>Frame rate in-world web media (media on a prim and parcel media) is rendered at by its browser, 1 to 60. 60 is the stock rate, 0 also uses it. Browsers in UI panels always use 60. Applies to media loaded after the change.</string>
+      <string>Frame rate in-world web media (media on a prim and parcel media) at normal priority is rendered at by its browser, 1 to 60. 60 is the stock rate, 0 also uses it. Media you click into and browsers in UI panels always use 60. Media at low priority while the viewer is in the background also uses this rate.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
       <integer>30</integer>
+    </map>
+    <key>FSMediaLowPriorityFrameRate</key>
+    <map>
+      <key>Comment</key>
+      <string>Frame rate in-world web media at low priority (small, far away or beyond the PluginInstancesNormal budget) is rendered at by its browser, 1 to 60, at most FSMediaInWorldFrameRate. 0 uses FSMediaInWorldFrameRate. Media at slideshow priority renders at 2, media out of view not at all (its sound keeps playing).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>10</integer>
     </map>
     <key>FSMediaLowPriorityUpdateRate</key>
     <map>
