@@ -66,6 +66,7 @@ private:
     bool init();
 
     void onPageChangedCallback(const unsigned char* pixels, int x, int y, const int width, const int height);
+    void onPageChangedExCallback(const unsigned char* pixels, int x, int y, int width, int height, int buffer_width, int buffer_height); // <FS:Trish/>
     void requestFullPage(); // <FS:Trish/>
     void onCustomSchemeURLCallback(std::string url, bool user_gesture, bool is_redirect);
     void onNavigationCallback(const std::string url, bool user_gesture, bool is_redirect); // <FS:Trish/>
@@ -270,6 +271,49 @@ void MediaPluginCEF::onPageChangedCallback(const unsigned char* pixels, int x, i
     }
 #endif // <FS:Trish/>
 }
+
+// <FS:Trish> Dullahan 1.52 and later also report the size of the buffer pixels points to, so a report
+// from a buffer of another size (painted before a resize took effect, which may even be a whole page of
+// the old size at 0, 0) is told apart for sure. It is skipped: the browser repaints the whole page once
+// it has the new size. A buffer of the shared memory's size always holds the whole page (its first
+// paint at a size is whole), so while the shared memory doesn't hold the page yet the whole buffer is
+// copied, whatever part changed.
+void MediaPluginCEF::onPageChangedExCallback(const unsigned char* pixels, int x, int y, int width, int height, int buffer_width, int buffer_height)
+{
+    if (!mPixels || !pixels || mWidth <= 0 || mHeight <= 0)
+    {
+        return;
+    }
+    if (buffer_width != mWidth || buffer_height != mHeight)
+    {
+        mFullPagePending = true;
+        return;
+    }
+    if (mFullPagePending)
+    {
+        memcpy(mPixels, pixels, (size_t)mWidth * mHeight * mDepth);
+        mFullPagePending = false;
+        setDirty(0, 0, mWidth, mHeight);
+        return;
+    }
+    const int left = llclamp(x, 0, mWidth);
+    const int top = llclamp(y, 0, mHeight);
+    const int right = llclamp(x + width, left, mWidth);
+    const int bottom = llclamp(y + height, top, mHeight);
+    if (right <= left || bottom <= top)
+    {
+        return;
+    }
+    const size_t stride = (size_t)mWidth * mDepth;
+    const size_t offset = (size_t)left * mDepth;
+    const size_t span = (size_t)(right - left) * mDepth;
+    for (int row = top; row < bottom; ++row)
+    {
+        memcpy(mPixels + row * stride + offset, pixels + row * stride + offset, span);
+    }
+    setDirty(left, top, right, bottom);
+}
+// </FS:Trish>
 
 // <FS:Trish> Ask the browser for a whole page at the shared memory's size: setSize resizes its buffer
 // when the size differs (its first paint at the new size is whole), and an invalidate repaints the whole
@@ -711,7 +755,13 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
             if (message_name == "init")
             {
                 // event callbacks from Dullahan
+                // <FS:Trish> Dullahan 1.52 and later report the buffer size too, see onPageChangedExCallback
+#if DULLAHAN_VERSION_MINOR >= 52
+                mCEFLib->setOnPageChangedExCallback(std::bind(&MediaPluginCEF::onPageChangedExCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5, std::placeholders::_6, std::placeholders::_7));
+#else
+                // </FS:Trish>
                 mCEFLib->setOnPageChangedCallback(std::bind(&MediaPluginCEF::onPageChangedCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5));
+#endif // <FS:Trish/>
                 mCEFLib->setOnCustomSchemeURLCallback(std::bind(&MediaPluginCEF::onCustomSchemeURLCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
                 mCEFLib->setOnConsoleMessageCallback(std::bind(&MediaPluginCEF::onConsoleMessageCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
                 mCEFLib->setOnStatusMessageCallback(std::bind(&MediaPluginCEF::onStatusMessageCallback, this, std::placeholders::_1));
