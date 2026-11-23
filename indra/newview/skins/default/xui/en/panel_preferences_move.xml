@@ -453,6 +453,18 @@
          top_pad="5"
          width="256" />
         <check_box
+         control_name="FSMouselookFollowEyes"
+         follows="left|top"
+         enabled_control="EnableMouselook"
+         height="16"
+         initial_value="true"
+         label="Keep the camera between the eyes when animations move the head"
+         layout="topleft"
+         name="FSMouselookFollowEyes"
+         tool_tip="If enabled, the Mouselook camera follows the head sideways and forward too, not only up and down"
+         top_pad="5"
+         width="256" />
+        <check_box
          control_name="FSMouselookCombatFeatures"
          follows="left|top"
          enabled_control="EnableMouselook"

@@ -6223,7 +6223,9 @@ void LLVOAvatar::fsAnimLODSkippedFrame()
 void LLVOAvatar::updateHeadOffset()
 {
     // Mouselook uses X and Y too, so take the point between both eyes, not the left eye
-    LLVector3 midEyePt = (mEyeLeftp->getWorldPosition() + mEyeRightp->getWorldPosition()) * 0.5f;
+    static LLCachedControl<bool> follow_eyes(gSavedSettings, "FSMouselookFollowEyes", true);
+    LLVector3 midEyePt = follow_eyes ? (mEyeLeftp->getWorldPosition() + mEyeRightp->getWorldPosition()) * 0.5f
+                                     : mEyeLeftp->getWorldPosition();
     midEyePt -= mDrawable.notNull() ? mDrawable->getWorldPosition() : mRoot->getWorldPosition();
     midEyePt.mV[VZ] = llmax(-mPelvisToFoot + LLViewerCamera::getInstance()->getNear(), midEyePt.mV[VZ]);
 

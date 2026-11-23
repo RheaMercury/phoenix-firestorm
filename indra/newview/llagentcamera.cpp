@@ -2074,8 +2074,12 @@ LLVector3d LLAgentCamera::calcCameraPositionTargetGlobal(bool *hit_limit)
         {
             // Follow the head sideways and forward too, so animations that move the head or hips
             // keep the camera between the eyes
-            head_offset.mdV[VX] += gAgentAvatarp->mHeadOffset.mV[VX];
-            head_offset.mdV[VY] += gAgentAvatarp->mHeadOffset.mV[VY];
+            static LLCachedControl<bool> follow_eyes(gSavedSettings, "FSMouselookFollowEyes", true);
+            if (follow_eyes)
+            {
+                head_offset.mdV[VX] += gAgentAvatarp->mHeadOffset.mV[VX];
+                head_offset.mdV[VY] += gAgentAvatarp->mHeadOffset.mV[VY];
+            }
             head_offset.mdV[VZ] += gAgentAvatarp->mHeadOffset.mV[VZ];
             camera_position_global = gAgent.getPosGlobalFromAgent(gAgentAvatarp->getRenderPosition());//frame_center_global;
             head_offset = head_offset * gAgentAvatarp->getRenderRotation();
